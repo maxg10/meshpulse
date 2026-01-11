@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Meshtastic PL - Pozna?</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <style>
+        *{margin:0;padding:0}
+        body{font-family:Arial,sans-serif}
+        #map{height:100vh;width:100%}
+        #stats{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.95);
+               padding:12px;border-radius:6px;z-index:1000;font-size:13px;
+               box-shadow:0 2px 8px rgba(0,0,0,.3)}
+        #stats h3{margin:0 0 8px;font-size:16px}
+        .node-popup{font-family:monospace;font-size:11px;line-height:1.4}
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="stats">
+        <h3>??? Mesh PL</h3>
+        Nodes: <b id="cnt">0</b><br>
+        Update: <b id="upd">-</b>
+    </div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map').setView([52.4064, 16.9252], 11);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+            attribution:'© OSM'
+        }).addTo(map);
+        
+        let markers = {};
+        
+        function update() {
+            fetch('nodes.json?'+Date.now())
+                .then(r=>r.json())
+                .then(d=>{
+                    document.getElementById('cnt').textContent = d.cnt||0;
+                    document.getElementById('upd').textContent = 
+                        new Date(d.updated).toLocaleTimeString('pl-PL');
+                    
+                    // Usu? nieaktualne
+                    Object.keys(markers).forEach(id=>{
+                        if(!d.nodes.find(n=>n.id===id)){
+                            map.removeLayer(markers[id]);
+                            delete markers[id];
+                        }
+                    });
+                    
+                    // Dodaj/aktualizuj
+                    d.nodes.forEach(n=>{
+                        const pop = `<div class="node-popup">
+                            <b>${n.name}</b><br>
+                            ${n.id}<br>
+                            SNR: ${n.snr} dB<br>
+                            Alt: ${n.alt}m
+                        </div>`;
+                        
+                        if(markers[n.id]){
+                            markers[n.id].setLatLng([n.lat,n.lon]);
+                        }else{
+                            markers[n.id] = L.marker([n.lat,n.lon])
+                                .bindPopup(pop).addTo(map);
+                        }
+                    });
+                })
+                .catch(e=>console.error(e));
+        }
+        
+        update();
+        setInterval(update, 15000); // Co 15s
+    </script>
+</body>
+</html>
+```
+
+**Esc, `:wq` Enter**
+
+---
+
+## Test mapy w przegl?darce:
+
+**Z innego komputera w sieci:**
+```
+http://raspimesh.local/meshtastic/
