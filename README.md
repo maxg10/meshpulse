@@ -8,8 +8,10 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 
 - ? **Real-time node tracking** - Live position updates via meshtastic CLI
 - ??? **Interactive map** - Leaflet.js-based web interface  
+- ? **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (24h default)
 - ?? **Auto-restart** - Resilient to connection timeouts
 - ?? **JSON API** - Easy integration with other tools
+- ?? **Multi-tracker support** - Merge data from multiple trackers
 - ?? **Slow hardware support** - Works on Raspberry Pi Model B+ (512MB RAM)
 
 ## Quick Start
@@ -85,7 +87,33 @@ Edit paths in `backend/meshtastic_mapper.py` if needed:
 ```python
 self.port = '/dev/ttyUSB0'  # Change if tracker on different port
 self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
+self.max_age = 86400  # Node TTL in seconds (24h default)
 ```
+
+### Change TTL (Time-To-Live)
+
+Nodes older than `max_age` seconds are automatically removed:
+```python
+# In backend/meshtastic_mapper.py, line ~237:
+mapper = ListenBasedMapper(port, max_age=86400)  # 24 hours
+# Change to:
+mapper = ListenBasedMapper(port, max_age=43200)  # 12 hours
+# Or:
+mapper = ListenBasedMapper(port, max_age=172800)  # 48 hours
+```
+
+### Systemd Service User
+
+The service file has `User=maxg` hardcoded. Change it to your username:
+```bash
+sudo vi /etc/systemd/system/meshtastic-mapper.service
+# Change: User=maxg
+# To:     User=pi  (or your username)
+```
+B
+B
+B
+B
 
 ## Architecture
 

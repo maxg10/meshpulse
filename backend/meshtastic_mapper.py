@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Meshtastic Mapper - Listen Mode
+Meshtastic Mapper - Listen Mode with TTL
 Works on slow Raspberry Pi Model B+
 """
 import subprocess
@@ -12,11 +12,55 @@ import sys
 import os
 
 class ListenBasedMapper:
-    def __init__(self, port='/dev/ttyUSB0'):
+    def __init__(self, port='/dev/ttyUSB0', max_age=86400):
         self.port = port
         self.json_path = '/var/www/html/meshtastic/nodes.json'
-        self.nodes = {}
-        self.meshtastic_cmd = '/home/maxg/.local/bin/meshtastic'
+        self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
+        self.max_age = max_age  # 24 hours default
+        
+        # Load existing nodes or start fresh
+        self.nodes = self.load_existing_nodes()
+        
+    def load_existing_nodes(self):
+        """Load nodes from existing JSON file"""
+        try:
+            if os.path.exists(self.json_path):
+                with open(self.json_path, 'r') as f:
+                    data = json.load(f)
+                    existing_count = data.get('cnt', 0)
+                    if existing_count > 0:
+                        print(f"[LOAD] Found {existing_count} existing nodes from previous run")
+                        # Convert list to dict with id as key
+                        nodes = {node['id']: node for node in data.get('nodes', [])}
+                        # Clean old nodes immediately
+                        self.clean_old_nodes_from_dict(nodes)
+                        print(f"[LOAD] Loaded {len(nodes)} nodes after cleanup")
+                        return nodes
+        except Exception as e:
+            print(f"[LOAD] Starting fresh (no existing data): {e}")
+        
+        return {}
+    
+    def clean_old_nodes_from_dict(self, nodes_dict):
+        """Remove nodes older than max_age seconds"""
+        now = int(time.time())
+        removed = []
+        
+        for node_id, node in list(nodes_dict.items()):
+            age = now - node.get('ts', now)
+            if age > self.max_age:
+                removed.append(node_id)
+                del nodes_dict[node_id]
+        
+        if removed:
+            hours = self.max_age // 3600
+            print(f"[CLEAN] Removed {len(removed)} old nodes (>{hours}h old)")
+            for node_id in removed[:5]:  # Show first 5
+                print(f"  - {node_id}")
+    
+    def clean_old_nodes(self):
+        """Clean old nodes from self.nodes"""
+        self.clean_old_nodes_from_dict(self.nodes)
         
     def parse_node_info(self, line):
         """Parse nodeinfo from --listen output"""
@@ -38,6 +82,9 @@ class ListenBasedMapper:
                     alt = pos.get('altitude', 0)
                     snr = node_data.get('snr', 0)
                     
+                    # Check if node exists and show update message
+                    is_new = node_id not in self.nodes
+                    
                     self.nodes[node_id] = {
                         'id': node_id,
                         'name': name,
@@ -45,10 +92,11 @@ class ListenBasedMapper:
                         'lon': round(lon, 6),
                         'alt': alt,
                         'snr': round(snr, 1),
-                        'ts': int(time.time())
+                        'ts': int(time.time())  # Update timestamp
                     }
                     
-                    print(f"? {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
+                    marker = "?" if is_new else "?"
+                    print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
                     return True
                     
             except Exception as e:
@@ -80,8 +128,11 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.1")
+        print("Meshtastic Mapper - LISTEN MODE v1.2 (with TTL)")
         print("Continuous monitoring with auto-restart")
+        print("=" * 60)
+        print(f"Node TTL: {self.max_age//3600} hours")
+        print(f"Current nodes in memory: {len(self.nodes)}")
         print("=" * 60)
         
         cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
@@ -90,7 +141,9 @@ class ListenBasedMapper:
         print("Press Ctrl+C to stop\n")
         
         last_save = time.time()
-        save_interval = 60
+        last_clean = time.time()
+        save_interval = 60  # Save every minute
+        clean_interval = 3600  # Clean every hour
         restart_count = 0
         
         while True:
@@ -124,6 +177,12 @@ class ListenBasedMapper:
                         if time.time() - last_save > save_interval:
                             self.save_nodes()
                             last_save = time.time()
+                        
+                        # Clean old nodes periodically
+                        if time.time() - last_clean > clean_interval:
+                            self.clean_old_nodes()
+                            self.save_nodes()  # Save after cleanup
+                            last_clean = time.time()
                 
                 # Process ended
                 return_code = process.wait()
@@ -165,7 +224,7 @@ class ListenBasedMapper:
                 restart_count += 1
 
 if __name__ == '__main__':
-    print("Starting Meshtastic Mapper (Listen Mode)...")
+    print("Starting Meshtastic Mapper (Listen Mode with TTL)...")
     
     # Create output directory
     os.makedirs('/var/www/html/meshtastic', exist_ok=True)
@@ -182,7 +241,8 @@ if __name__ == '__main__':
     print(f"Using port: {port}\n")
     
     try:
-        mapper = ListenBasedMapper(port)
+        # Create mapper with 24h TTL (86400 seconds)
+        mapper = ListenBasedMapper(port, max_age=86400)
         mapper.run()
     except KeyboardInterrupt:
         print("\nStopped by user")
