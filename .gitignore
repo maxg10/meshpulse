@@ -4,3 +4,4 @@ __pycache__/
 *.tmp
 nodes.json
 .DS_Store
+*.bak
