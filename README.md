@@ -28,33 +28,54 @@ sudo apt update
 sudo apt install python3 python3-pip lighttpd -y
 pip3 install meshtastic --break-system-packages
 
-# 2. Clone repository
+# 2. Start and enable web server
+sudo systemctl enable lighttpd
+sudo systemctl start lighttpd
+sudo systemctl status lighttpd
+
+# 3. Clone repository
 git clone https://github.com/maxg10/meshtastic-network-mapper.git
 cd meshtastic-network-mapper
 
-# 3. Setup directories
+# 4. Setup web directory
 sudo mkdir -p /var/www/html/meshtastic
 sudo cp frontend/index.html /var/www/html/meshtastic/
 sudo chown -R $USER:$USER /var/www/html/meshtastic
 
-# 4. Install backend
+# 5. Install backend
 cp backend/meshtastic_mapper.py ~/meshtastic_mapper.py
 chmod +x ~/meshtastic_mapper.py
 
-# 5. Test manually
+# 6. Test manually (important!)
 python3 ~/meshtastic_mapper.py
+# Press Ctrl+C after 2-3 minutes once you see nodes appearing
+
+# 7. Verify JSON was created
+cat /var/www/html/meshtastic/nodes.json
+
+# 8. Open in browser to test
+# http://YOUR_PI_IP/meshtastic/
 ```
 
-### Systemd Service (Optional)
+### Systemd Service (Run on boot)
+
+The service file uses systemd variables (`%u` for username, `%h` for home directory) to work with any user account.
 ```bash
 # Install service
 sudo cp systemd/meshtastic-mapper.service /etc/systemd/system/
+
+# If you customized the installation path, edit the service file:
+# sudo vi /etc/systemd/system/meshtastic-mapper.service
+
+# Enable and start
 sudo systemctl daemon-reload
 sudo systemctl enable meshtastic-mapper
 sudo systemctl start meshtastic-mapper
 
 # Check status
 sudo systemctl status meshtastic-mapper
+
+# View live logs
 sudo journalctl -u meshtastic-mapper -f
 ```
 
@@ -104,12 +125,40 @@ self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
 
 ## Troubleshooting
 
+### Web server not running
+```bash
+# Check lighttpd status
+sudo systemctl status lighttpd
+
+# Start if stopped
+sudo systemctl start lighttpd
+
+# Check if port 80 is listening
+sudo netstat -tlnp | grep :80
+```
+
+### Service fails with "No such file or directory"
+```bash
+# Verify the script is in the right location
+ls -la ~/meshtastic_mapper.py
+
+# Check service file paths
+sudo systemctl cat meshtastic-mapper.service
+
+# Service runs as the user who installed it
+# Make sure the script path matches: ~/meshtastic_mapper.py
+```
+
 ### Tracker not detected
 ```bash
 # Check USB devices
 ls -la /dev/ttyUSB* /dev/ttyACM*
 
-# Check meshtastic connection
+# Check if user has access (add to dialout group)
+sudo usermod -aG dialout $USER
+# Log out and back in for group changes to take effect
+
+# Test meshtastic connection
 meshtastic --port /dev/ttyUSB0 --info
 ```
 
