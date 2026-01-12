@@ -59,6 +59,85 @@ cat /var/www/html/meshtastic/nodes.json
 # http://YOUR_PI_IP/meshtastic/
 ```
 
+
+## Updating
+
+If you already have meshtastic-network-mapper installed and want to update to the latest version:
+```bash
+# 1. Navigate to repository
+cd ~/meshtastic-network-mapper
+
+# 2. Pull latest changes from GitHub
+git pull origin main
+
+# 3. Check what changed
+git log --oneline -5
+
+# 4. Update backend script
+cp backend/meshtastic_mapper.py ~/meshtastic_mapper.py
+
+# 5. Update frontend (if changed)
+sudo cp frontend/index.html /var/www/html/meshtastic/index.html
+
+# 6. Update systemd service
+sudo cp systemd/meshtastic-mapper.service /etc/systemd/system/
+
+# IMPORTANT: Verify user in service file
+sudo vi /etc/systemd/system/meshtastic-mapper.service
+# Check that User= and WorkingDirectory= match your username
+
+# 7. Reload systemd and restart service
+sudo systemctl daemon-reload
+sudo systemctl restart meshtastic-mapper
+
+# 8. Verify it's running
+sudo systemctl status meshtastic-mapper
+
+# 9. Check logs for new features
+sudo journalctl -u meshtastic-mapper -f
+```
+
+### What's New in Latest Version
+
+**v1.2 - TTL & Multi-Tracker Support**
+- ? Automatic cleanup of nodes older than 24 hours (configurable)
+- ?? Load existing nodes from previous runs (merge data from multiple trackers)
+- ?/? Visual indicators for new vs updated nodes
+- ?? Shows node count on startup
+- ?? Hourly cleanup of stale nodes
+
+Check the logs after update - you should see:
+```
+[LOAD] Found X existing nodes from previous run
+[LOAD] Loaded Y nodes after cleanup
+? !7b6c8272 maxmesh router PL @ 52.3534,16.8657  (existing)
+? !NEW12345 New Node @ 52.4000,16.9000          (new!)
+```
+
+### Backup Before Update (Optional)
+```bash
+# Backup current nodes.json
+cp /var/www/html/meshtastic/nodes.json ~/nodes_backup_$(date +%Y%m%d).json
+
+# Backup current script
+cp ~/meshtastic_mapper.py ~/meshtastic_mapper_backup.py
+```
+
+### Rollback if Needed
+```bash
+# Restore old script
+cp ~/meshtastic_mapper_backup.py ~/meshtastic_mapper.py
+sudo systemctl restart meshtastic-mapper
+
+# Or go back to specific git version
+cd ~/meshtastic-network-mapper
+git log --oneline  # Find commit hash
+git checkout <commit-hash> backend/meshtastic_mapper.py
+cp backend/meshtastic_mapper.py ~/meshtastic_mapper.py
+sudo systemctl restart meshtastic-mapper
+```
+
+
 ### Systemd Service (Run on boot)
 
 The service file uses systemd variables (`%u` for username, `%h` for home directory) to work with any user account.
