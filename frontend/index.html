@@ -14,6 +14,11 @@
                box-shadow:0 2px 8px rgba(0,0,0,.3)}
         #stats h3{margin:0 0 8px;font-size:16px}
         .node-popup{font-family:monospace;font-size:11px;line-height:1.4}
+        .marker{width:14px;height:14px;border:2px solid #333;border-radius:50%}
+        .marker.router{border-radius:2px}
+        .marker.green{background:#22c55e}
+        .marker.yellow{background:#eab308}
+        .marker.red{background:#ef4444}
     </style>
 </head>
 <body>
@@ -41,6 +46,15 @@
             if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
             if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
             return Math.floor(diff / 86400) + 'd ago';
+        }
+        
+        function getMarkerClass(node) {
+            const age = Math.floor(Date.now()/1000) - node.ts;
+            let color = 'green';
+            if (age > 21600) color = 'red';      // >6h
+            else if (age > 3600) color = 'yellow'; // >1h
+            const shape = (node.role === 'ROUTER' || node.role === 'ROUTER_LATE') ? 'router' : '';
+            return `marker ${color} ${shape}`;
         }
         
         function update() {
@@ -72,8 +86,13 @@
                         if(markers[n.id]){
                             markers[n.id].setLatLng([n.lat,n.lon]);
                         }else{
-                            markers[n.id] = L.marker([n.lat,n.lon])
-                                .bindPopup(pop).addTo(map);
+                            markers[n.id] = L.marker([n.lat,n.lon], {
+                                icon: L.divIcon({
+                                    className: getMarkerClass(n),
+                                    iconSize: [14, 14],
+                                    iconAnchor: [7, 7]
+                            })
+                           })     .bindPopup(pop).addTo(map);
                         }
                     });
                 })
