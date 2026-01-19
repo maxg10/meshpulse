@@ -82,6 +82,7 @@ class ListenBasedMapper:
                     alt = pos.get('altitude', 0)
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
+                    hops = node_data.get('hopsAway', 0)
                     
                     # Check if node exists and show update message
                     is_new = node_id not in self.nodes
@@ -94,6 +95,7 @@ class ListenBasedMapper:
                         'alt': alt,
                         'snr': round(snr, 1),
                         'role': role,
+                        'hops': hops,
                         'ts': int(time.time())  # Update timestamp
                     }
                     

@@ -19,6 +19,7 @@
         .marker.green{background:#22c55e}
         .marker.yellow{background:#eab308}
         .marker.red{background:#ef4444}
+        .marker.relay{border-style:dashed}
     </style>
 </head>
 <body>
@@ -51,10 +52,11 @@
         function getMarkerClass(node) {
             const age = Math.floor(Date.now()/1000) - node.ts;
             let color = 'green';
-            if (age > 21600) color = 'red';      // >6h
-            else if (age > 3600) color = 'yellow'; // >1h
+            if (age > 21600) color = 'red';
+            else if (age > 3600) color = 'yellow';
             const shape = (node.role === 'ROUTER' || node.role === 'ROUTER_LATE') ? 'router' : '';
-            return `marker ${color} ${shape}`;
+            const relay = (node.hops > 0) ? 'relay' : '';
+            return `marker ${color} ${shape} ${relay}`;
         }
         
         function update() {
@@ -80,6 +82,7 @@
                             ${n.id}<br>
                             SNR: ${n.snr} dB<br>
                             Alt: ${n.alt}m<br>
+                            Hops: ${n.hops || 0}<br>
                             <small>Seen: ${timeAgo(n.ts)}</small>
                         </div>`;
                         
