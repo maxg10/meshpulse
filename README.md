@@ -57,6 +57,19 @@ cat /var/www/html/meshtastic/nodes.json
 
 # 8. Open in browser to test
 # http://YOUR_PI_IP/meshtastic/
+
+# 9. Install systemd service (run on boot)
+sudo cp systemd/meshtastic-mapper.service /etc/systemd/system/
+
+# IMPORTANT: Edit service file to match your username
+sudo vi /etc/systemd/system/meshtastic-mapper.service
+# Change User=maxg and /home/maxg to your username
+
+# 10. Enable and start service
+sudo systemctl daemon-reload
+sudo systemctl enable meshtastic-mapper
+sudo systemctl start meshtastic-mapper
+sudo systemctl status meshtastic-mapper
 ```
 
 
