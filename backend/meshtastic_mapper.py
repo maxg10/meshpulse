@@ -174,18 +174,18 @@ class ListenBasedMapper:
                         print(f"[RECV] {display}")
                     
                     # Parse node info
-                    if self.parse_node_info(line):
-                        # Save periodically
-                        if time.time() - last_save > save_interval:
-                            self.save_nodes()
-                            last_save = time.time()
-                        
-                        # Clean old nodes periodically
-                        if time.time() - last_clean > clean_interval:
-                            self.clean_old_nodes()
-                            self.save_nodes()  # Save after cleanup
-                            last_clean = time.time()
-                
+                    self.parse_node_info(line)
+                    # Save periodically
+                    if time.time() - last_save > save_interval:
+                        self.save_nodes()
+                        last_save = time.time()
+                    
+                    # Clean old nodes periodically
+                    if time.time() - last_clean > clean_interval:
+                        self.clean_old_nodes()
+                        self.save_nodes()
+                        last_clean = time.time()
+                    
                 # Process ended
                 return_code = process.wait()
                 print(f"[WARN] Process ended with code {return_code}")
