@@ -99,7 +99,7 @@ class ListenBasedMapper:
                         'ts': int(time.time())  # Update timestamp
                     }
                     
-                    marker = "📍" if is_new else "?"
+                    marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
                     return True
                     
@@ -146,7 +146,7 @@ class ListenBasedMapper:
                 self.nodes[node_id]['lon'] = round(lon, 6)
                 self.nodes[node_id]['snr'] = round(snr, 1)
                 self.nodes[node_id]['ts'] = int(time.time())
-                print(f"📍 {node_id} position update @ {lat:.4f},{lon:.4f}")
+                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f}")
             else:
                 # New node from position packet (minimal info)
                 self.nodes[node_id] = {
@@ -160,7 +160,7 @@ class ListenBasedMapper:
                     'hops': 0,
                     'ts': int(time.time())
                 }
-                print(f"📍 {node_id} NEW from position @ {lat:.4f},{lon:.4f}")
+                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f}")
             
             return True
             
@@ -185,7 +185,7 @@ class ListenBasedMapper:
             
             os.replace(temp_path, self.json_path)
             
-            print(f"[SAVE] {len(self.nodes)} nodes ? {self.json_path}")
+            print(f"[SAVE] {len(self.nodes)} nodes → {self.json_path}")
             
         except Exception as e:
             print(f"Save error: {e}")
@@ -200,7 +200,7 @@ class ListenBasedMapper:
         print(f"Current nodes in memory: {len(self.nodes)}")
         print("=" * 60)
         
-        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
         
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")

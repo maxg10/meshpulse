@@ -73,6 +73,24 @@
 
                     // Calculate stats
                     let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
+                    // Detect overlapping nodes and add offset
+                    function getOffset(node, allNodes) {
+                        let offsetIndex = 0;
+                        for (let other of allNodes) {
+                            if (other.id === node.id) break;
+                            if (Math.abs(other.lat - node.lat) < 0.0001 && 
+                                Math.abs(other.lon - node.lon) < 0.0001) {
+                                offsetIndex++;
+                            }
+                        }
+                        // Offset in circle pattern
+                        const angle = (offsetIndex * 137.5) * Math.PI / 180;
+                        const distance = offsetIndex * 0.0002;
+                        return {
+                            lat: distance * Math.cos(angle),
+                            lon: distance * Math.sin(angle)
+                        };
+                    }
                     d.nodes.forEach(n => {
                         if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
                         else clients++;
@@ -86,7 +104,7 @@
                     document.getElementById('relay').textContent = relay;
                     document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
                     
-                    // Usu? nieaktualne
+                    // Remove out of date
                     Object.keys(markers).forEach(id=>{
                         if(!d.nodes.find(n=>n.id===id)){
                             map.removeLayer(markers[id]);
@@ -94,7 +112,7 @@
                         }
                     });
                     
-                    // Dodaj/aktualizuj
+                    // Add/update
                     d.nodes.forEach(n=>{
                         const pop = `<div class="node-popup">
                             <b>${n.name}</b><br>
@@ -104,11 +122,20 @@
                             Hops: ${n.hops || 0}<br>
                             <small>Seen: ${timeAgo(n.ts)}</small>
                         </div>`;
-                        
+                        const offset = getOffset(n, d.nodes);
+                        const displayLat = n.lat + offset.lat;
+                        const displayLon = n.lon + offset.lon; 
+
                         if(markers[n.id]){
-                            markers[n.id].setLatLng([n.lat,n.lon]);
+                            markers[n.id].setLatLng([displayLat, displayLon]);
+                            markers[n.id].setIcon(L.divIcon({
+                                className: getMarkerClass(n),
+                                iconSize: [14, 14],
+                                iconAnchor: [7, 7]
+                            }));
+                            markers[n.id].setPopupContent(pop);
                         }else{
-                            markers[n.id] = L.marker([n.lat,n.lon], {
+                            markers[n.id] = L.marker([displayLat, displayLon], {
                                 icon: L.divIcon({
                                     className: getMarkerClass(n),
                                     iconSize: [14, 14],
