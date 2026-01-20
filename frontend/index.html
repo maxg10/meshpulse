@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Meshtastic PL - Pozna?</title>
+    <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <style>
         *{margin:0;padding:0}
@@ -20,6 +20,23 @@
         .marker.yellow{background:#eab308}
         .marker.red{background:#ef4444}
         .marker.relay{border-style:dashed}
+        
+        #legend{position:absolute;bottom:20px;left:10px;background:rgba(255,255,255,.95);
+        padding:8px 12px;border-radius:6px;z-index:1000;font-size:12px;
+        box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
+        #legend h4{margin:0;font-size:13px;user-select:none}
+        #legend-content{display:none;margin-top:8px;padding-top:8px;border-top:1px solid #ddd}
+        #legend.open #legend-content{display:block}
+        #legend .row{display:flex;align-items:center;gap:8px;margin:4px 0}
+        #legend .sample{width:14px;height:14px;border:2px solid #333;flex-shrink:0}
+        #legend .sample.router{border-radius:2px}
+        #legend .sample.circle{border-radius:50%}
+        #legend .sample.green{background:#22c55e}
+        #legend .sample.yellow{background:#eab308}
+        #legend .sample.red{background:#ef4444}
+        #legend .sample.relay{border-style:dashed}
+        #legend .section{font-weight:bold;margin:8px 0 4px;font-size:11px;color:#666}
+        #legend .section:first-child{margin-top:0}
     </style>
 </head>
 <body>
@@ -33,6 +50,23 @@
         <hr style="margin:5px 0">
         <small>Update: <span id="upd">-</span></small>
     </div>
+    <div id="legend" onclick="this.classList.toggle('open')">
+    <h4>📋 Legend ▼</h4>
+    <div id="legend-content">
+        <div class="section">NODE AGE</div>
+        <div class="row"><div class="sample circle green"></div> &lt; 1 hour</div>
+        <div class="row"><div class="sample circle yellow"></div> 1-6 hours</div>
+        <div class="row"><div class="sample circle red"></div> &gt; 6 hours</div>
+        
+        <div class="section">ROLE</div>
+        <div class="row"><div class="sample router green"></div> Router</div>
+        <div class="row"><div class="sample circle green"></div> Client</div>
+        
+        <div class="section">CONNECTION</div>
+        <div class="row"><div class="sample circle green"></div> Direct (hops=0)</div>
+        <div class="row"><div class="sample circle green relay"></div> Relay (hops&gt;0)</div>
+    </div>
+</div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const map = L.map('map').setView([52.4064, 16.9252], 11);
