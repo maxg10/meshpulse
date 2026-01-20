@@ -99,7 +99,7 @@ class ListenBasedMapper:
                         'ts': int(time.time())  # Update timestamp
                     }
                     
-                    marker = "?" if is_new else "?"
+                    marker = "📍" if is_new else "?"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
                     return True
                     
@@ -107,6 +107,67 @@ class ListenBasedMapper:
                 print(f"Parse error: {e}")
         
         return False
+
+    def parse_position_update(self, line):
+        """Parse position update from --listen output"""
+        if 'Publishing meshtastic.receive.position:' not in line:
+            return False
+        
+        try:
+            # Extract fromId
+            from_match = re.search(r"'fromId':\s*'([^']+)'", line)
+            if not from_match:
+                return False
+            
+            node_id = from_match.group(1)
+            
+            # Extract latitude and longitude
+            lat_match = re.search(r"'latitude':\s*([-\d.]+)", line)
+            lon_match = re.search(r"'longitude':\s*([-\d.]+)", line)
+            
+            if not lat_match or not lon_match:
+                return False
+            
+            lat = float(lat_match.group(1))
+            lon = float(lon_match.group(1))
+            
+            # Skip invalid coordinates
+            if lat == 0 and lon == 0:
+                return False
+            
+            # Extract SNR if available
+            snr_match = re.search(r"'rxSnr':\s*([-\d.]+)", line)
+            snr = float(snr_match.group(1)) if snr_match else 0
+            
+            # Update existing node or create minimal entry
+            if node_id in self.nodes:
+                # Update existing node
+                self.nodes[node_id]['lat'] = round(lat, 6)
+                self.nodes[node_id]['lon'] = round(lon, 6)
+                self.nodes[node_id]['snr'] = round(snr, 1)
+                self.nodes[node_id]['ts'] = int(time.time())
+                print(f"📍 {node_id} position update @ {lat:.4f},{lon:.4f}")
+            else:
+                # New node from position packet (minimal info)
+                self.nodes[node_id] = {
+                    'id': node_id,
+                    'name': node_id,  # Will be updated when nodeinfo arrives
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'alt': 0,
+                    'snr': round(snr, 1),
+                    'role': 'CLIENT',
+                    'hops': 0,
+                    'ts': int(time.time())
+                }
+                print(f"📍 {node_id} NEW from position @ {lat:.4f},{lon:.4f}")
+            
+            return True
+            
+        except Exception as e:
+            print(f"Position parse error: {e}")
+        
+        return False 
     
     def save_nodes(self):
         """Save to JSON"""
@@ -175,8 +236,9 @@ class ListenBasedMapper:
                         display = line[:100] + '...' if len(line) > 100 else line
                         print(f"[RECV] {display}")
                     
-                    # Parse node info
+                    # Parse node info and position updates
                     self.parse_node_info(line)
+                    self.parse_position_update(line)
                     # Save periodically
                     if time.time() - last_save > save_interval:
                         self.save_nodes()
