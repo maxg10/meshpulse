@@ -25,9 +25,13 @@
 <body>
     <div id="map"></div>
     <div id="stats">
-        <h3>📶 Router Stats</h3>
-        Nodes: <b id="cnt">0</b><br>
-        Update: <b id="upd">-</b>
+        <h3>📶 Mesh Stats</h3>
+        <b>Nodes:</b> <span id="cnt">0</span><br>
+        <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
+        <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
+        <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
+        <hr style="margin:5px 0">
+        <small>Update: <span id="upd">-</span></small>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
@@ -66,6 +70,21 @@
                     document.getElementById('cnt').textContent = d.cnt||0;
                     document.getElementById('upd').textContent = 
                         new Date(d.updated).toLocaleTimeString('pl-PL');
+
+                    // Calculate stats
+                    let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
+                    d.nodes.forEach(n => {
+                        if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
+                        else clients++;
+                        if (n.hops === 0) direct++;
+                        else relay++;
+                        if (n.snr) { snrSum += n.snr; snrCount++; }
+                    });
+                    document.getElementById('routers').textContent = routers;
+                    document.getElementById('clients').textContent = clients;
+                    document.getElementById('direct').textContent = direct;
+                    document.getElementById('relay').textContent = relay;
+                    document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
                     
                     // Usu? nieaktualne
                     Object.keys(markers).forEach(id=>{
