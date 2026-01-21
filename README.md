@@ -209,6 +209,17 @@ sudo vi /etc/systemd/system/meshtastic-mapper.service
 # Change: User=maxg
 # To:     User=pi  (or your username)
 ```
+### Max Range Requirements
+
+For the max range feature to work, your local tracker (connected to Raspberry Pi) must have a position set. This can be either:
+- **GPS** - tracker with built-in GPS that reports position automatically
+- **Fixed position** - manually set coordinates:
+```bash
+~/.local/bin/meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
+```
+
+Without position data, max range will show "-" in the stats panel.
+
 
 ## Architecture
 
