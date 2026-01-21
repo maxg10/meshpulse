@@ -13,6 +13,7 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 - ?? **JSON API** - Easy integration with other tools
 - ?? **Multi-tracker support** - Merge data from multiple trackers
 - ?? **Slow hardware support** - Works on Raspberry Pi Model B+ (512MB RAM)
+- 📏 **Max range display** - Shows distance to farthest directly reachable node (hops=0)
 
 ## Quick Start
 
@@ -112,6 +113,12 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.3 - Max Range Feature**
+- 📏 Distance calculation to farthest directly reachable node (hops=0)
+- 🔍 Click to locate farthest node on map
+- 🆔 Auto-detection of local node ID via `meshtastic --no-nodes --info`
+- 📊 Max distance displayed in stats panel
+
 **v1.2 - TTL & Multi-Tracker Support**
 - ? Automatic cleanup of nodes older than 24 hours (configurable)
 - ?? Load existing nodes from previous runs (merge data from multiple trackers)
@@ -202,10 +209,6 @@ sudo vi /etc/systemd/system/meshtastic-mapper.service
 # Change: User=maxg
 # To:     User=pi  (or your username)
 ```
-B
-B
-B
-B
 
 ## Architecture
 
@@ -229,6 +232,8 @@ B
   "ts": 1736625600,
   "updated": "2025-01-11T18:40:00",
   "cnt": 7,
+  "max_distance_km": 7.0,
+  "farthest_node": "!e36738ab",
   "nodes": [
     {
       "id": "!7b6c8272",
@@ -237,6 +242,8 @@ B
       "lon": 16.865690,
       "alt": 75,
       "snr": 10.8,
+      "role": "ROUTER",
+      "hops": 0,
       "ts": 1736625600
     }
   ]

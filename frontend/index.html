@@ -47,6 +47,7 @@
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
+	<b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
         <hr style="margin:5px 0">
         <small>Update: <span id="upd">-</span></small>
     </div>
@@ -137,6 +138,21 @@
                     document.getElementById('direct').textContent = direct;
                     document.getElementById('relay').textContent = relay;
                     document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
+                    document.getElementById('maxrange').textContent = d.max_distance_km || '-';
+                    const maxLink = document.getElementById('maxrange-link');
+                    if (d.farthest_node && markers[d.farthest_node]) {
+                        const node = d.nodes.find(n => n.id === d.farthest_node);
+                        maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : d.farthest_node) + ')';
+                        maxLink.style.display = 'inline';
+                        maxLink.onclick = function(e) {
+                            e.preventDefault();
+                            const m = markers[d.farthest_node];
+                            map.setView(m.getLatLng(), 14);
+                            m.openPopup();
+                        };
+                    } else {
+                        maxLink.style.display = 'none';
+                    }
                     
                     // Remove out of date
                     Object.keys(markers).forEach(id=>{

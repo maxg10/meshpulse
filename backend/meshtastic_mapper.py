@@ -20,6 +20,83 @@ class ListenBasedMapper:
         
         # Load existing nodes or start fresh
         self.nodes = self.load_existing_nodes()
+        self.local_node_id = self.get_local_node_id()
+    
+    def get_local_node_id(self):
+        """Get local node ID using meshtastic --no-nodes --info"""
+        try:
+            print("[INFO] Getting local node ID...")
+            result = subprocess.run(
+                [self.meshtastic_cmd, '--port', self.port, '--no-nodes', '--info'],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+        
+            # Parse myNodeNum from output
+            match = re.search(r'"myNodeNum":\s*(\d+)', result.stdout)
+            if match:
+                node_num = int(match.group(1))
+                node_id = f"!{node_num:08x}"
+                print(f"[INFO] Local node ID: {node_id}")
+                return node_id
+            else:
+                print("[WARN] Could not parse myNodeNum from --info output")
+            
+        except subprocess.TimeoutExpired:
+            print("[WARN] Timeout getting local node info")
+        except Exception as e:
+            print(f"[WARN] Error getting local node info: {e}")
+    
+        return None
+
+    def calculate_distance(self, lat1, lon1, lat2, lon2):
+        """Calculate distance between two points using Haversine formula (returns km)"""
+        import math
+        R = 6371  # Earth radius in km
+        
+        lat1_rad = math.radians(lat1)
+        lat2_rad = math.radians(lat2)
+        delta_lat = math.radians(lat2 - lat1)
+        delta_lon = math.radians(lon2 - lon1)
+        
+        a = math.sin(delta_lat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(delta_lon/2)**2
+        c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        
+        return R * c
+    
+    def get_max_distance(self):
+        """Find maximum distance to directly reachable node (hops=0)"""
+        if not self.local_node_id or self.local_node_id not in self.nodes:
+            return None, None
+        
+        local = self.nodes[self.local_node_id]
+        local_lat = local.get('lat')
+        local_lon = local.get('lon')
+        
+        if not local_lat or not local_lon:
+            return None, None
+        
+        max_dist = 0
+        farthest_id = None
+        
+        for node_id, node in self.nodes.items():
+            if node_id == self.local_node_id:
+                continue
+            if node.get('hops', 0) != 0:
+                continue
+            
+            lat = node.get('lat')
+            lon = node.get('lon')
+            if not lat or not lon:
+                continue
+            
+            dist = self.calculate_distance(local_lat, local_lon, lat, lon)
+            if dist > max_dist:
+                max_dist = dist
+                farthest_id = node_id
+        
+        return round(max_dist, 2), farthest_id 
         
     def load_existing_nodes(self):
         """Load nodes from existing JSON file"""
@@ -168,14 +245,18 @@ class ListenBasedMapper:
             print(f"Position parse error: {e}")
         
         return False 
-    
+
     def save_nodes(self):
         """Save to JSON"""
         try:
+            max_dist, farthest_id = self.get_max_distance()
+            
             data = {
                 'ts': int(time.time()),
                 'updated': datetime.now().isoformat(),
                 'cnt': len(self.nodes),
+                'max_distance_km': max_dist,
+                'farthest_node': farthest_id,
                 'nodes': list(self.nodes.values())
             }
             
@@ -185,11 +266,12 @@ class ListenBasedMapper:
             
             os.replace(temp_path, self.json_path)
             
-            print(f"[SAVE] {len(self.nodes)} nodes → {self.json_path}")
+            dist_info = f", max range: {max_dist} km to {farthest_id}" if max_dist else ""
+            print(f"[SAVE] {len(self.nodes)} nodes → {self.json_path}{dist_info}")
             
         except Exception as e:
-            print(f"Save error: {e}")
-    
+            print(f"Save error: {e}") 
+
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
