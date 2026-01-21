@@ -299,6 +299,11 @@ cat /var/www/html/meshtastic/nodes.json
 # Verify web server
 curl http://localhost/meshtastic/nodes.json
 ```
+### Heltec V3 timeout issues
+If you're using Heltec V3 and getting "Timed out waiting for connection completion" errors, add `--no-nodes` flag to the command in `backend/meshtastic_mapper.py`:
+```python
+cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
+```
 
 ## Performance Notes
 

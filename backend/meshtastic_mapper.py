@@ -200,7 +200,7 @@ class ListenBasedMapper:
         print(f"Current nodes in memory: {len(self.nodes)}")
         print("=" * 60)
         
-        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
         
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
