@@ -245,6 +245,30 @@ class ListenBasedMapper:
             print(f"Position parse error: {e}")
         
         return False 
+    
+    def parse_telemetry_update(self, line):
+        """Parse telemetry to refresh node timestamp (keeps nodes 'alive')"""
+        if 'Publishing meshtastic.receive.telemetry:' not in line:
+            return False
+        
+        try:
+            # Extract fromId
+            from_match = re.search(r"'fromId':\s*'([^']+)'", line)
+            if not from_match:
+                return False
+            
+            node_id = from_match.group(1)
+            
+            # Only update timestamp if node already exists
+            if node_id in self.nodes:
+                self.nodes[node_id]['ts'] = int(time.time())
+                print(f"♡ {node_id} telemetry heartbeat")
+                return True
+            
+        except Exception as e:
+            print(f"Telemetry parse error: {e}")
+        
+        return False 
 
     def save_nodes(self):
         """Save to JSON"""
@@ -321,6 +345,7 @@ class ListenBasedMapper:
                     # Parse node info and position updates
                     self.parse_node_info(line)
                     self.parse_position_update(line)
+                    self.parse_telemetry_update(line)
                     # Save periodically
                     if time.time() - last_save > save_interval:
                         self.save_nodes()
