@@ -177,7 +177,7 @@ class ListenBasedMapper:
                         'snr': round(snr, 1),
                         'role': role,
                         'hops': hops,
-                        'ts': last_heard
+                        'ts': last_heard,
                         'seen_at': int(time.time())
                     }
                     
