@@ -164,6 +164,9 @@ class ListenBasedMapper:
                     # Check if node exists and show update message
                     is_new = node_id not in self.nodes
                     
+                    # Use lastHeard from packet if available, otherwise current time
+                    last_heard = node_data.get('lastHeard', int(time.time()))
+                    
                     self.nodes[node_id] = {
                         'id': node_id,
                         'name': name,
@@ -173,7 +176,7 @@ class ListenBasedMapper:
                         'snr': round(snr, 1),
                         'role': role,
                         'hops': hops,
-                        'ts': int(time.time())  # Update timestamp
+                        'ts': last_heard
                     }
                     
                     marker = "✚" if is_new else "↻"
