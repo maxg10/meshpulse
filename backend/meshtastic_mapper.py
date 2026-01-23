@@ -24,31 +24,58 @@ class ListenBasedMapper:
         self.local_node_id = self.get_local_node_id()
     
     def get_local_node_id(self):
-        """Get local node ID using meshtastic --no-nodes --info"""
+        """Get local node info using meshtastic --info"""
         try:
-            print("[INFO] Getting local node ID...")
+            print("[INFO] Getting local node info...")
             result = subprocess.run(
                 [self.meshtastic_cmd, '--port', self.port, '--info'],
                 capture_output=True,
                 text=True,
                 timeout=60
             )
-        
-            # Parse myNodeNum from output
-            match = re.search(r'"myNodeNum":\s*(\d+)', result.stdout)
+            
+            output = result.stdout
+            
+            # Parse myNodeNum
+            match = re.search(r'"myNodeNum":\s*(\d+)', output)
             if match:
                 node_num = int(match.group(1))
                 node_id = f"!{node_num:08x}"
-                print(f"[INFO] Local node ID: {node_id}")
-                return node_id
             else:
-                print("[WARN] Could not parse myNodeNum from --info output")
+                node_id = None
+            
+            # Parse hwModel
+            hw_match = re.search(r'"hwModel":\s*"([^"]+)"', output)
+            hw_model = hw_match.group(1) if hw_match else "Unknown"
+            
+            # Parse firmwareVersion
+            fw_match = re.search(r'"firmwareVersion":\s*"([^"]+)"', output)
+            firmware = fw_match.group(1) if fw_match else "Unknown"
+            
+            # Store tracker info
+            self.tracker_info = {
+                'node_id': node_id,
+                'port': self.port,
+                'hw_model': hw_model,
+                'firmware': firmware
+            }
+            
+            print(f"[INFO] Local node ID: {node_id}")
+            print(f"[INFO] Hardware: {hw_model}, Firmware: {firmware}")
+            
+            return node_id
             
         except subprocess.TimeoutExpired:
             print("[WARN] Timeout getting local node info")
         except Exception as e:
             print(f"[WARN] Error getting local node info: {e}")
-    
+        
+        self.tracker_info = {
+            'node_id': None,
+            'port': self.port,
+            'hw_model': 'Unknown',
+            'firmware': 'Unknown'
+        }
         return None
 
     def calculate_distance(self, lat1, lon1, lat2, lon2):
@@ -289,6 +316,7 @@ class ListenBasedMapper:
                 'cnt': len(self.nodes),
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
+                'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': list(self.nodes.values())
             }
             

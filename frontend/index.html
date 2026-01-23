@@ -43,12 +43,17 @@
     <div id="map"></div>
     <div id="stats">
         <h3>📶 Mesh Stats</h3>
-	<small style="color:#888">v1.4</small><br>
+        <small style="color:#888">v1.4</small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
-	<b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
+        <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
+        <hr style="margin:5px 0">
+        <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
+        <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
+        <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
+        <small><b>Port:</b> <span id="tracker-port">-</span></small><br>
         <hr style="margin:5px 0">
         <small>Update: <span id="upd">-</span></small><br>
     </div>
@@ -140,6 +145,13 @@
                     document.getElementById('relay').textContent = relay;
                     document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
                     document.getElementById('maxrange').textContent = d.max_distance_km || '-';
+                    // Tracker info
+                    if (d.tracker) {
+                        document.getElementById('tracker-model').textContent = d.tracker.hw_model || '-';
+                        document.getElementById('tracker-fw').textContent = d.tracker.firmware || '-';
+                        document.getElementById('tracker-id').textContent = d.tracker.node_id || '-';
+                        document.getElementById('tracker-port').textContent = d.tracker.port || '-';
+                    }
                     const maxLink = document.getElementById('maxrange-link');
                     if (d.farthest_node && markers[d.farthest_node]) {
                         const node = d.nodes.find(n => n.id === d.farthest_node);
