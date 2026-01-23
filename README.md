@@ -6,14 +6,34 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 
 ## Features
 
-- ? **Real-time node tracking** - Live position updates via meshtastic CLI
-- ??? **Interactive map** - Leaflet.js-based web interface  
-- ? **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (24h default)
-- ?? **Auto-restart** - Resilient to connection timeouts
-- ?? **JSON API** - Easy integration with other tools
-- ?? **Multi-tracker support** - Merge data from multiple trackers
-- ?? **Slow hardware support** - Works on Raspberry Pi Model B+ (512MB RAM)
+## Features
+
+- 📡 **Real-time node tracking** - Live position updates via meshtastic CLI
+- 🗺️ **Interactive map** - Leaflet.js-based web interface  
+- ⏰ **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (24h default)
+- 🔄 **Auto-restart** - Resilient to connection timeouts
+- 📋 **JSON API** - Easy integration with other tools
+- 📂 **Multi-tracker support** - Merge data from multiple trackers
+- 🐢 **Slow hardware support** - Works on Raspberry Pi Model B+ (512MB RAM)
 - 📏 **Max range display** - Shows distance to farthest directly reachable node (hops=0)
+- 🎯 **Accurate node status** - Shows real last-heard time from tracker memory
+
+## Node Colors (Real Network State)
+
+The map shows **true network status** based on when your tracker last heard each node:
+
+| Color | Age | Meaning |
+|-------|-----|---------|
+| 🟢 Green | < 1 hour | Recently heard - node is active |
+| 🟡 Yellow | 1-6 hours | Not heard recently - may be inactive or out of range |
+| 🔴 Red | > 6 hours | Stale - tracker hasn't heard this node for a long time |
+
+**Note:** This reflects your tracker's perspective. A "red" node may still be active in the mesh but simply not heard by your specific tracker due to distance or obstacles.
+
+### Shape Indicators
+- **Square** = Router node
+- **Circle** = Client node
+- **Dashed border** = Relayed (hops > 0)
 
 ## Quick Start
 
@@ -113,6 +133,13 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+
+**v1.4 - Accurate Node Status**
+- 🎯 Uses real `lastHeard` timestamp from tracker's memory
+- ♡ Telemetry heartbeat keeps local nodes fresh
+- 🔴 Node colors now reflect true network state (when tracker actually heard the node)
+- 🐛 Fixed: nodes no longer appear "stale" due to infrequent position updates
+
 **v1.3 - Max Range Feature**
 - 📏 Distance calculation to farthest directly reachable node (hops=0)
 - 🔍 Click to locate farthest node on map
@@ -120,11 +147,11 @@ sudo journalctl -u meshtastic-mapper -f
 - 📊 Max distance displayed in stats panel
 
 **v1.2 - TTL & Multi-Tracker Support**
-- ? Automatic cleanup of nodes older than 24 hours (configurable)
-- ?? Load existing nodes from previous runs (merge data from multiple trackers)
-- ?/? Visual indicators for new vs updated nodes
-- ?? Shows node count on startup
-- ?? Hourly cleanup of stale nodes
+- ⏰ Automatic cleanup of nodes older than 24 hours (configurable)
+- 📂 Load existing nodes from previous runs (merge data from multiple trackers)
+- ✚/↻ Visual indicators for new vs updated nodes
+- 🔢 Shows node count on startup
+- 🧹 Hourly cleanup of stale nodes
 
 Check the logs after update - you should see:
 ```
