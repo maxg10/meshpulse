@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+!/usr/bin/env python3
 #ver 1.4
 """
 Meshtastic Mapper - Listen Mode with TTL
@@ -113,6 +113,8 @@ class ListenBasedMapper:
                 continue
             if node.get('hops', 0) != 0:
                 continue
+            if node.get('via_mqtt', False):
+                continue
             
             lat = node.get('lat')
             lon = node.get('lon')
@@ -194,6 +196,8 @@ class ListenBasedMapper:
                     
                     # Use lastHeard from packet if available, otherwise current time
                     last_heard = node_data.get('lastHeard', int(time.time()))
+
+                    via_mqtt = node_data.get('viaMqtt', False)
                     
                     self.nodes[node_id] = {
                         'id': node_id,
@@ -205,7 +209,8 @@ class ListenBasedMapper:
                         'role': role,
                         'hops': hops,
                         'ts': last_heard,
-                        'seen_at': int(time.time())
+                        'seen_at': int(time.time()),
+                        'via_mqtt': via_mqtt
                     }
                     
                     marker = "✚" if is_new else "↻"
