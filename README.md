@@ -4,7 +4,6 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 
 ![Meshtastic Network Map](docs/screenshot.png)
 
-## Features
 
 ## Features
 
@@ -133,11 +132,14 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-
-**v1.4 - Accurate Node Status**
+**v1.4 - Accurate Node Status & Tracker Info**
 - 🎯 Uses real `lastHeard` timestamp from tracker's memory
 - ♡ Telemetry heartbeat keeps local nodes fresh
 - 🔴 Node colors now reflect true network state (when tracker actually heard the node)
+- 📡 Tracker info display (model, firmware, ID, port)
+- 🔘 Filter to show only direct nodes (hops=0)
+- 🚫 MQTT nodes excluded from max range calculation
+- 🐛 Fixed: TTL cleanup no longer removes nodes prematurely
 - 🐛 Fixed: nodes no longer appear "stale" due to infrequent position updates
 
 **v1.3 - Max Range Feature**
