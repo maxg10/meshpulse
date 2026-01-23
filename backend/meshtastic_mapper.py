@@ -1,4 +1,5 @@
-#!/usr/bin/env python3
+#rse_position_update
+!/usr/bin/env python3
 #ver 1.4
 """
 Meshtastic Mapper - Listen Mode with TTL
@@ -28,7 +29,7 @@ class ListenBasedMapper:
         try:
             print("[INFO] Getting local node ID...")
             result = subprocess.run(
-                [self.meshtastic_cmd, '--port', self.port, '--no-nodes', '--info'],
+                [self.meshtastic_cmd, '--port', self.port, '--info'],
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -125,7 +126,7 @@ class ListenBasedMapper:
         removed = []
         
         for node_id, node in list(nodes_dict.items()):
-            age = now - node.get('ts', now)
+            age = now - node.get('seen_at', node.get('ts', now))
             if age > self.max_age:
                 removed.append(node_id)
                 del nodes_dict[node_id]
@@ -178,6 +179,7 @@ class ListenBasedMapper:
                         'role': role,
                         'hops': hops,
                         'ts': last_heard
+                        'seen_at': int(time.time())
                     }
                     
                     marker = "✚" if is_new else "↻"
@@ -227,6 +229,7 @@ class ListenBasedMapper:
                 self.nodes[node_id]['lon'] = round(lon, 6)
                 self.nodes[node_id]['snr'] = round(snr, 1)
                 self.nodes[node_id]['ts'] = int(time.time())
+                self.nodes[node_id]['seen_at'] = int(time.time())
                 print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f}")
             else:
                 # New node from position packet (minimal info)
@@ -239,7 +242,8 @@ class ListenBasedMapper:
                     'snr': round(snr, 1),
                     'role': 'CLIENT',
                     'hops': 0,
-                    'ts': int(time.time())
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time())
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f}")
             
@@ -266,6 +270,7 @@ class ListenBasedMapper:
             # Only update timestamp if node already exists
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
+                self.nodes[node_id]['seen_at'] = int(time.time())
                 print(f"♡ {node_id} telemetry heartbeat")
                 return True
             
@@ -310,7 +315,7 @@ class ListenBasedMapper:
         print(f"Current nodes in memory: {len(self.nodes)}")
         print("=" * 60)
         
-        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
         
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
