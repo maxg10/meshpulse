@@ -1,5 +1,4 @@
-#rse_position_update
-!/usr/bin/env python3
+#!/usr/bin/env python3
 #ver 1.4
 """
 Meshtastic Mapper - Listen Mode with TTL
