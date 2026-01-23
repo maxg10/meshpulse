@@ -55,6 +55,10 @@
         <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
         <small><b>Port:</b> <span id="tracker-port">-</span></small><br>
         <hr style="margin:5px 0">
+        <hr style="margin:5px 0">
+        <label style="font-size:11px;cursor:pointer;">
+            <input type="checkbox" id="filter-direct" onchange="update()"> Show only direct (hops=0)
+        </label><br>
         <small>Update: <span id="upd">-</span></small><br>
     </div>
     <div id="legend" onclick="this.classList.toggle('open')">
@@ -108,7 +112,6 @@
             fetch('nodes.json?'+Date.now())
                 .then(r=>r.json())
                 .then(d=>{
-                    document.getElementById('cnt').textContent = d.cnt||0;
                     document.getElementById('upd').textContent = 
                         new Date(d.updated).toLocaleTimeString('pl-PL');
 
@@ -132,7 +135,11 @@
                             lon: distance * Math.sin(angle)
                         };
                     }
-                    d.nodes.forEach(n => {
+                    // Filter nodes if checkbox is checked
+                    const filterDirect = document.getElementById('filter-direct').checked;
+                    const filteredNodes = filterDirect ? d.nodes.filter(n => n.hops === 0) : d.nodes;
+                    document.getElementById('cnt').textContent = filteredNodes.length;
+                    filteredNodes.forEach(n => {
                         if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
                         else clients++;
                         if (n.hops === 0) direct++;
@@ -169,14 +176,14 @@
                     
                     // Remove out of date
                     Object.keys(markers).forEach(id=>{
-                        if(!d.nodes.find(n=>n.id===id)){
+                        if(!filteredNodes.find(n=>n.id===id)){
                             map.removeLayer(markers[id]);
                             delete markers[id];
                         }
                     });
                     
                     // Add/update
-                    d.nodes.forEach(n=>{
+                    filteredNodes.forEach(n=>{
                         const pop = `<div class="node-popup">
                             <b>${n.name}</b><br>
                             ${n.id}<br>

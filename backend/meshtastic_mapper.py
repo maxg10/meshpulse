@@ -22,6 +22,9 @@ class ListenBasedMapper:
         # Load existing nodes or start fresh
         self.nodes = self.load_existing_nodes()
         self.local_node_id = self.get_local_node_id()
+
+        # Save immediately to show tracker info in UI
+        self.save_nodes()
     
     def get_local_node_id(self):
         """Get local node info using meshtastic --info"""
