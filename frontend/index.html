@@ -188,10 +188,11 @@
                     }
                     
                     // Update no-GPS nodes panel
-                    document.getElementById('no-gps-cnt').textContent = d.cnt_no_pos || 0;
+                    const filteredNoGps = filterDirect ? (d.nodes_no_pos || []).filter(n => n.hops === 0) : (d.nodes_no_pos || []);
+                    document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
                     const noGpsList = document.getElementById('no-gps-list');
-                    if (d.nodes_no_pos && d.nodes_no_pos.length > 0) {
-                        noGpsList.innerHTML = d.nodes_no_pos.map(n => `
+                    if (filteredNoGps.length > 0) {
+                        noGpsList.innerHTML = filteredNoGps.map(n => `
                             <div class="no-gps-item">
                                 <div class="name">${n.name}</div>
                                 <div class="meta">${n.id} | ${n.role}</div>
