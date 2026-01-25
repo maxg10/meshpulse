@@ -5,3 +5,4 @@ __pycache__/
 nodes.json
 .DS_Store
 *.bak
+systemd/meshtastic-mapper.service 

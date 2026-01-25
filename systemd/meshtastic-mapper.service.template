@@ -4,10 +4,10 @@ After=network.target
 
 [Service]
 Type=simple
-User=maxg
-Group=maxg
-WorkingDirectory=/home/maxg
-ExecStart=/usr/bin/python3 -u /home/maxg/meshtastic_mapper.py
+User={{USER}}
+Group={{USER}}
+WorkingDirectory={{REPO_PATH}}
+ExecStart=/usr/bin/python3 -u {{REPO_PATH}}/backend/meshtastic_mapper.py
 Restart=always
 RestartSec=15
 StandardOutput=journal
