@@ -190,20 +190,25 @@
                     // Update no-GPS nodes panel
                     const noMqttNodes = (d.nodes_no_pos || []).filter(n => !n.via_mqtt);
                     const filteredNoGps = filterDirect ? noMqttNodes.filter(n => n.hops === 0) : noMqttNodes;
+                    filteredNoGps.sort((a, b) => b.ts - a.ts);
                     document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
                     const noGpsList = document.getElementById('no-gps-list');
                     if (filteredNoGps.length > 0) {
-                        noGpsList.innerHTML = filteredNoGps.map(n => `
+                        noGpsList.innerHTML = filteredNoGps.map(n => {
+                            const age = Math.floor(Date.now()/1000) - n.ts;
+                            let dotColor = '#22c55e';
+                            if (age > 21600) dotColor = '#ef4444';
+                            else if (age > 3600) dotColor = '#eab308';
+                            return `
                             <div class="no-gps-item">
-                                <div class="name">${n.name}</div>
+                                <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                                 <div class="meta">${n.id} | ${n.role}</div>
                                 <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops || 0} | ${timeAgo(n.ts)}</div>
-                            </div>
-                        `).join('');
+                            </div>`;
+                        }).join('');
                     } else {
                         noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
                     }
-
                     // Remove out of date
                     Object.keys(markers).forEach(id=>{
                         if(!filteredNodes.find(n=>n.id===id)){
