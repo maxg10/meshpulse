@@ -21,6 +21,7 @@ class ListenBasedMapper:
         
         # Load existing nodes or start fresh
         self.nodes = self.load_existing_nodes()
+        self.nodes_no_position = {}  # Nodes without GPS position
         self.local_node_id = self.get_local_node_id()
 
         # Save immediately to show tracker info in UI
@@ -169,8 +170,9 @@ class ListenBasedMapper:
                 print(f"  - {node_id}")
     
     def clean_old_nodes(self):
-        """Clean old nodes from self.nodes"""
+        """Clean old nodes from self.nodes and self.nodes_no_position"""
         self.clean_old_nodes_from_dict(self.nodes)
+        self.clean_old_nodes_from_dict(self.nodes_no_position)
         
     def parse_node_info(self, line):
         """Parse nodeinfo from --listen output"""
@@ -186,7 +188,10 @@ class ListenBasedMapper:
                 name = node_data.get('user', {}).get('longName', node_id)
                 pos = node_data.get('position', {})
                 
-                if node_id and 'latitudeI' in pos and 'longitudeI' in pos:
+                if not node_id:
+                    return False
+                
+                if 'latitudeI' in pos and 'longitudeI' in pos:
                     lat = pos['latitudeI'] / 1e7
                     lon = pos['longitudeI'] / 1e7
                     alt = pos.get('altitude', 0)
@@ -218,6 +223,30 @@ class ListenBasedMapper:
                     
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
+                    return True
+
+                else:
+                    # Node without position - save to separate dict
+                    name = node_data.get('user', {}).get('longName', node_id)
+                    snr = node_data.get('snr', 0)
+                    role = node_data.get('user', {}).get('role', 'CLIENT')
+                    last_heard = node_data.get('lastHeard', int(time.time()))
+                    hops = node_data.get('hopsAway', 0)
+                    
+                    is_new = node_id not in self.nodes_no_position
+                    
+                    self.nodes_no_position[node_id] = {
+                        'id': node_id,
+                        'name': name,
+                        'snr': round(snr, 1),
+                        'role': role,
+                        'hops': hops,
+                        'ts': last_heard,
+                        'seen_at': int(time.time())
+                    }
+                    
+                    marker = "✚" if is_new else "↻"
+                    print(f"{marker} {node_id} {name[:20]} (no GPS)")
                     return True
                     
             except Exception as e:
@@ -322,10 +351,12 @@ class ListenBasedMapper:
                 'ts': int(time.time()),
                 'updated': datetime.now().isoformat(),
                 'cnt': len(self.nodes),
+                'cnt_no_pos': len(self.nodes_no_position),
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
                 'tracker': getattr(self, 'tracker_info', {}),
-                'nodes': list(self.nodes.values())
+                'nodes': list(self.nodes.values()),
+                'nodes_no_pos': list(self.nodes_no_position.values())
             }
             
             temp_path = self.json_path + '.tmp'
@@ -335,7 +366,7 @@ class ListenBasedMapper:
             os.replace(temp_path, self.json_path)
             
             dist_info = f", max range: {max_dist} km to {farthest_id}" if max_dist else ""
-            print(f"[SAVE] {len(self.nodes)} nodes → {self.json_path}{dist_info}")
+            print(f"[SAVE] {len(self.nodes)} nodes + {len(self.nodes_no_position)} no-GPS → {self.json_path}{dist_info}")
             
         except Exception as e:
             print(f"Save error: {e}") 

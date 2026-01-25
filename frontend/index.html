@@ -21,6 +21,15 @@
         .marker.red{background:#ef4444}
         .marker.relay{border-style:dashed}
         
+        #no-gps-panel{position:absolute;top:320px;right:10px;background:rgba(255,255,255,.95);
+               padding:10px;border-radius:6px;z-index:1000;font-size:12px;
+               box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:220px;max-height:300px;overflow-y:auto}
+        #no-gps-panel h4{margin:0 0 8px;font-size:13px}
+        .no-gps-item{padding:4px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
+        .no-gps-item:last-child{border-bottom:none}
+        .no-gps-item .name{font-weight:bold}
+        .no-gps-item .meta{color:#666}
+
         #legend{position:absolute;bottom:20px;left:10px;background:rgba(255,255,255,.95);
         padding:8px 12px;border-radius:6px;z-index:1000;font-size:12px;
         box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
@@ -60,6 +69,10 @@
             <input type="checkbox" id="filter-direct" onchange="update()"> Show only direct (hops=0)
         </label><br>
         <small>Update: <span id="upd">-</span></small><br>
+    </div>
+    <div id="no-gps-panel">
+        <h4>📍 No GPS (<span id="no-gps-cnt">0</span>)</h4>
+        <div id="no-gps-list"></div>
     </div>
     <div id="legend" onclick="this.classList.toggle('open')">
     <h4>📋 Legend ▼</h4>
@@ -174,6 +187,21 @@
                         maxLink.style.display = 'none';
                     }
                     
+                    // Update no-GPS nodes panel
+                    document.getElementById('no-gps-cnt').textContent = d.cnt_no_pos || 0;
+                    const noGpsList = document.getElementById('no-gps-list');
+                    if (d.nodes_no_pos && d.nodes_no_pos.length > 0) {
+                        noGpsList.innerHTML = d.nodes_no_pos.map(n => `
+                            <div class="no-gps-item">
+                                <div class="name">${n.name}</div>
+                                <div class="meta">${n.id} | ${n.role}</div>
+                                <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops || 0} | ${timeAgo(n.ts)}</div>
+                            </div>
+                        `).join('');
+                    } else {
+                        noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
+                    }
+
                     // Remove out of date
                     Object.keys(markers).forEach(id=>{
                         if(!filteredNodes.find(n=>n.id===id)){
