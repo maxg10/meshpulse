@@ -52,7 +52,7 @@
     <div id="map"></div>
     <div id="stats">
         <h3>📶 Mesh Stats</h3>
-        <small style="color:#888">v1.4</small><br>
+        <small style="color:#888">v1.5</small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -150,7 +150,7 @@
                     }
                     // Filter nodes if checkbox is checked
                     const filterDirect = document.getElementById('filter-direct').checked;
-                    const filteredNodes = filterDirect ? d.nodes.filter(n => n.hops === 0) : d.nodes;
+                    const filteredNodes = filterDirect ? d.nodes.filter(n => n.hops === 0 && !n.via_mqtt) : d.nodes;
                     document.getElementById('cnt').textContent = filteredNodes.length;
                     filteredNodes.forEach(n => {
                         if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
@@ -188,7 +188,8 @@
                     }
                     
                     // Update no-GPS nodes panel
-                    const filteredNoGps = filterDirect ? (d.nodes_no_pos || []).filter(n => n.hops === 0) : (d.nodes_no_pos || []);
+                    const noMqttNodes = (d.nodes_no_pos || []).filter(n => !n.via_mqtt);
+                    const filteredNoGps = filterDirect ? noMqttNodes.filter(n => n.hops === 0) : noMqttNodes;
                     document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
                     const noGpsList = document.getElementById('no-gps-list');
                     if (filteredNoGps.length > 0) {

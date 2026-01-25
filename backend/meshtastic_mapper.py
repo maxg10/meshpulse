@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.4
+#ver 1.5
 """
 Meshtastic Mapper - Listen Mode with TTL
 Works on slow Raspberry Pi Model B+
@@ -232,6 +232,7 @@ class ListenBasedMapper:
                     role = node_data.get('user', {}).get('role', 'CLIENT')
                     last_heard = node_data.get('lastHeard', int(time.time()))
                     hops = node_data.get('hopsAway', 0)
+                    via_mqtt = node_data.get('viaMqtt', False)
                     
                     is_new = node_id not in self.nodes_no_position
                     
@@ -241,6 +242,7 @@ class ListenBasedMapper:
                         'snr': round(snr, 1),
                         'role': role,
                         'hops': hops,
+                        'via_mqtt': via_mqtt,
                         'ts': last_heard,
                         'seen_at': int(time.time())
                     }
