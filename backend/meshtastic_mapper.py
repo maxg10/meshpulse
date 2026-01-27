@@ -255,7 +255,6 @@ class ListenBasedMapper:
                 print(f"Parse error: {e}")
         
         return False
-
     def parse_position_update(self, line):
         """Parse position update from --listen output"""
         if 'Publishing meshtastic.receive.position:' not in line:
@@ -287,15 +286,29 @@ class ListenBasedMapper:
             snr_match = re.search(r"'rxSnr':\s*([-\d.]+)", line)
             snr = float(snr_match.group(1)) if snr_match else 0
             
+            # Extract hops (hopStart - hopLimit)
+            hop_start_match = re.search(r"'hopStart':\s*(\d+)", line)
+            hop_limit_match = re.search(r"'hopLimit':\s*(\d+)", line)
+            if hop_start_match and hop_limit_match:
+                hops = int(hop_start_match.group(1)) - int(hop_limit_match.group(1))
+            else:
+                hops = 0
+            
+            # Extract transport mechanism (detect MQTT)
+            transport_match = re.search(r"'transportMechanism':\s*'([^']+)'", line)
+            via_mqtt = transport_match and transport_match.group(1) == 'TRANSPORT_MQTT'
+            
             # Update existing node or create minimal entry
             if node_id in self.nodes:
                 # Update existing node
                 self.nodes[node_id]['lat'] = round(lat, 6)
                 self.nodes[node_id]['lon'] = round(lon, 6)
                 self.nodes[node_id]['snr'] = round(snr, 1)
+                self.nodes[node_id]['hops'] = hops
+                self.nodes[node_id]['via_mqtt'] = via_mqtt
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
-                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f}")
+                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             else:
                 # New node from position packet (minimal info)
                 self.nodes[node_id] = {
@@ -306,19 +319,20 @@ class ListenBasedMapper:
                     'alt': 0,
                     'snr': round(snr, 1),
                     'role': 'CLIENT',
-                    'hops': 0,
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
                     'ts': int(time.time()),
                     'seen_at': int(time.time())
                 }
-                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f}")
+                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
             return True
             
         except Exception as e:
             print(f"Position parse error: {e}")
         
-        return False 
-    
+        return False
+
     def parse_telemetry_update(self, line):
         """Parse telemetry to refresh node timestamp (keeps nodes 'alive')"""
         if 'Publishing meshtastic.receive.telemetry:' not in line:
