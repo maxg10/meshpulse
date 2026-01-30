@@ -13,14 +13,6 @@
         #stats{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.95);
                padding:12px;border-radius:6px;z-index:1000;font-size:13px;
                box-shadow:0 2px 8px rgba(0,0,0,.3)}
-        #stats{cursor:pointer}
-        #stats h3{user-select:none}
-        #stats-content{display:none;margin-top:8px}
-        #stats.open #stats-content{display:block}
-        #no-gps-panel{cursor:pointer}
-        #no-gps-panel h4{user-select:none}
-        #no-gps-content{display:none;margin-top:8px}
-        #no-gps-panel.open #no-gps-content{display:block}
         #stats h3{margin:0 0 8px;font-size:16px}
         .node-popup{font-family:monospace;font-size:11px;line-height:1.4}
         .marker{width:14px;height:14px;border:2px solid #333;border-radius:50%}
@@ -59,9 +51,8 @@
 </head>
 <body>
     <div id="map"></div>
-    <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
-        <h3>📶 Mesh Stats ▼</h3>
-        <div id="stats-content">
+    <div id="stats">
+        <h3>📶 Mesh Stats</h3>
         <small style="color:#888">v1.5</small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
@@ -79,13 +70,10 @@
             <input type="checkbox" id="filter-direct" onchange="update()"> Show only direct (hops=0)
         </label><br>
         <small>Update: <span id="upd">-</span></small><br>
-        </div>
     </div>
-    <div id="no-gps-panel" class="open" onclick="this.classList.toggle('open')">
-        <h4>📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
-        <div id="no-gps-content">
+    <div id="no-gps-panel">
+        <h4>📍 No GPS (<span id="no-gps-cnt">0</span>)</h4>
         <div id="no-gps-list"></div>
-        </div>
     </div>
     <div id="legend" onclick="this.classList.toggle('open')">
     <h4>📋 Legend ▼</h4>
