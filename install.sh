@@ -120,6 +120,7 @@ sudo mkdir -p /var/www/html/meshtastic
 # Copy frontend files
 echo "🌐 Copying frontend files..."
 sudo cp frontend/index.html /var/www/html/meshtastic/
+sudo cp frontend/styles.css /var/www/html/meshtastic/
 sudo cp frontend/favicon.ico /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 

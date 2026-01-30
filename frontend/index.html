@@ -5,57 +5,8 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="styles.css">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <style>
-        *{margin:0;padding:0}
-        body{font-family:Arial,sans-serif}
-        #map{height:100vh;width:100%}
-        #stats{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.95);
-               padding:12px;border-radius:6px;z-index:1000;font-size:13px;
-               box-shadow:0 2px 8px rgba(0,0,0,.3)}
-        #stats{cursor:pointer}
-        #stats h3{user-select:none}
-        #stats-content{display:none;margin-top:8px}
-        #stats.open #stats-content{display:block}
-        #no-gps-panel{cursor:pointer}
-        #no-gps-panel h4{user-select:none}
-        #no-gps-content{display:none;margin-top:8px}
-        #no-gps-panel.open #no-gps-content{display:block}
-        #stats h3{margin:0 0 8px;font-size:16px}
-        .node-popup{font-family:monospace;font-size:11px;line-height:1.4}
-        .marker{width:14px;height:14px;border:2px solid #333;border-radius:50%}
-        .marker.router{border-radius:2px}
-        .marker.green{background:#22c55e}
-        .marker.yellow{background:#eab308}
-        .marker.red{background:#ef4444}
-        .marker.relay{border-style:dashed}
-        
-        #no-gps-panel{position:absolute;top:320px;right:10px;background:rgba(255,255,255,.95);
-               padding:10px;border-radius:6px;z-index:1000;font-size:12px;
-               box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:220px;max-height:300px;overflow-y:auto}
-        #no-gps-panel h4{margin:0 0 8px;font-size:13px}
-        .no-gps-item{padding:4px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
-        .no-gps-item:last-child{border-bottom:none}
-        .no-gps-item .name{font-weight:bold}
-        .no-gps-item .meta{color:#666}
-
-        #legend{position:absolute;bottom:20px;left:10px;background:rgba(255,255,255,.95);
-        padding:8px 12px;border-radius:6px;z-index:1000;font-size:12px;
-        box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
-        #legend h4{margin:0;font-size:13px;user-select:none}
-        #legend-content{display:none;margin-top:8px;padding-top:8px;border-top:1px solid #ddd}
-        #legend.open #legend-content{display:block}
-        #legend .row{display:flex;align-items:center;gap:8px;margin:4px 0}
-        #legend .sample{width:14px;height:14px;border:2px solid #333;flex-shrink:0}
-        #legend .sample.router{border-radius:2px}
-        #legend .sample.circle{border-radius:50%}
-        #legend .sample.green{background:#22c55e}
-        #legend .sample.yellow{background:#eab308}
-        #legend .sample.red{background:#ef4444}
-        #legend .sample.relay{border-style:dashed}
-        #legend .section{font-weight:bold;margin:8px 0 4px;font-size:11px;color:#666}
-        #legend .section:first-child{margin-top:0}
-    </style>
 </head>
 <body>
     <div id="map"></div>
