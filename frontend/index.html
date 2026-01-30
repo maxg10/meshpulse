@@ -173,20 +173,6 @@
                         document.getElementById('tracker-id').textContent = d.tracker.node_id || '-';
                         document.getElementById('tracker-port').textContent = d.tracker.port || '-';
                     }
-                    const maxLink = document.getElementById('maxrange-link');
-                    if (d.farthest_node && markers[d.farthest_node]) {
-                        const node = d.nodes.find(n => n.id === d.farthest_node);
-                        maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : d.farthest_node) + ')';
-                        maxLink.style.display = 'inline';
-                        maxLink.onclick = function(e) {
-                            e.preventDefault();
-                            const m = markers[d.farthest_node];
-                            map.setView(m.getLatLng(), 14);
-                            m.openPopup();
-                        };
-                    } else {
-                        maxLink.style.display = 'none';
-                    }
                     
                     // Update no-GPS nodes panel
                     const noMqttNodes = (d.nodes_no_pos || []).filter(n => !n.via_mqtt);
@@ -249,6 +235,21 @@
                             })
                            })     .bindPopup(pop).addTo(map);
                         }
+                    // Max range link - after markers are created
+                    const maxLink = document.getElementById('maxrange-link');
+                    if (d.farthest_node && markers[d.farthest_node]) {
+                        const node = d.nodes.find(n => n.id === d.farthest_node);
+                        maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : d.farthest_node) + ')'; 
+                        maxLink.style.display = 'inline';
+                        maxLink.onclick = function(e) {
+                            e.preventDefault();
+                            const m = markers[d.farthest_node];
+                            map.setView(m.getLatLng(), 14);
+                            m.openPopup();
+                        };
+                    } else {
+                        maxLink.style.display = 'none';
+                    }
                     });
                 })
                 .catch(e=>console.error(e));
