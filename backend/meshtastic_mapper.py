@@ -20,8 +20,8 @@ class ListenBasedMapper:
         self.max_age = max_age  # 24 hours default
         
         # Load existing nodes or start fresh
-        self.nodes = self.load_existing_nodes()
         self.nodes_no_position = {}  # Nodes without GPS position
+        self.nodes = self.load_existing_nodes()
         self.local_node_id = self.get_local_node_id()
 
         # Save immediately to show tracker info in UI
@@ -131,7 +131,7 @@ class ListenBasedMapper:
                 farthest_id = node_id
         
         return round(max_dist, 2), farthest_id 
-        
+
     def load_existing_nodes(self):
         """Load nodes from existing JSON file"""
         try:
@@ -139,17 +139,25 @@ class ListenBasedMapper:
                 with open(self.json_path, 'r') as f:
                     data = json.load(f)
                     existing_count = data.get('cnt', 0)
-                    if existing_count > 0:
-                        print(f"[LOAD] Found {existing_count} existing nodes from previous run")
-                        # Convert list to dict with id as key
+                    existing_no_pos = data.get('cnt_no_pos', 0)
+                    if existing_count > 0 or existing_no_pos > 0:
+                        print(f"[LOAD] Found {existing_count} nodes + {existing_no_pos} no-GPS from previous run")
+                        # Convert lists to dicts with id as key
                         nodes = {node['id']: node for node in data.get('nodes', [])}
+                        nodes_no_pos = {node['id']: node for node in data.get('nodes_no_pos', [])}
+                    
                         # Clean old nodes immediately
                         self.clean_old_nodes_from_dict(nodes)
-                        print(f"[LOAD] Loaded {len(nodes)} nodes after cleanup")
+                        self.clean_old_nodes_from_dict(nodes_no_pos)
+                    
+                        # Store no-GPS nodes
+                        self.nodes_no_position = nodes_no_pos
+                    
+                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup")
                         return nodes
         except Exception as e:
             print(f"[LOAD] Starting fresh (no existing data): {e}")
-        
+    
         return {}
     
     def clean_old_nodes_from_dict(self, nodes_dict):
@@ -352,6 +360,11 @@ class ListenBasedMapper:
                 self.nodes[node_id]['seen_at'] = int(time.time())
                 print(f"♡ {node_id} telemetry heartbeat")
                 return True
+            elif node_id in self.nodes_no_position:  # ← NOWE
+                self.nodes_no_position[node_id]['ts'] = int(time.time())
+                self.nodes_no_position[node_id]['seen_at'] = int(time.time())
+                print(f"♡ {node_id} telemetry heartbeat (no GPS)")
+            return True
             
         except Exception as e:
             print(f"Telemetry parse error: {e}")
