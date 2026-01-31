@@ -1,3 +1,4 @@
+cat README.md 
 # Meshtastic Network Mapper
 
 Real-time web-based visualization of Meshtastic mesh network nodes. Optimized for low-power devices like Raspberry Pi Model B+.
