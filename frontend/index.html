@@ -13,7 +13,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.5</small><br>
+        <small style="color:#888">v1.6 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -27,7 +27,7 @@
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
         <label style="font-size:11px;cursor:pointer;">
-            <input type="checkbox" id="filter-direct" onchange="update()"> Show only direct (hops=0)
+            <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
         </label><br>
         <small>Update: <span id="upd">-</span></small><br>
         </div>
@@ -53,6 +53,11 @@
         <div class="section">CONNECTION</div>
         <div class="row"><div class="sample circle green"></div> Direct (hops=0)</div>
         <div class="row"><div class="sample circle green relay"></div> Relay (hops&gt;0)</div>
+        
+        <div class="section">DATA SOURCE</div>
+        <div class="row"><span style="color:#22c55e;">●</span> WebSocket (real-time)</div>
+        <div class="row"><span style="color:#eab308;">●</span> Polling (fallback)</div>
+        <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
 </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -64,6 +69,188 @@
         }).addTo(map);
         
         let markers = {};
+        let allNodes = [];
+        let allNodesNoGps = [];
+        let trackerInfo = {};
+        let maxDistanceKm = null;
+        let farthestNode = null;
+        let mapReady = false;
+        let initialFetchDone = false;
+        
+        // WebSocket connection
+        let ws = null;
+        let wsReconnectInterval = null;
+        let pollingInterval = null;
+        let isUsingWebSocket = false;
+        
+        function updateWSStatus(status) {
+            const statusEl = document.getElementById('ws-status');
+            if (status === 'connected') {
+                statusEl.style.color = '#22c55e';
+                statusEl.textContent = '●';
+                statusEl.title = 'WebSocket connected (real-time)';
+            } else if (status === 'polling') {
+                statusEl.style.color = '#eab308';
+                statusEl.textContent = '●';
+                statusEl.title = 'Using polling (fallback)';
+            } else {
+                statusEl.style.color = '#ef4444';
+                statusEl.textContent = '●';
+                statusEl.title = 'Disconnected';
+            }
+        }
+        
+        function connectWebSocket() {
+            const wsUrl = `ws://${window.location.hostname}:8765`;
+            console.log('[WS] Connecting to:', wsUrl);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    console.log('[WS] Connected!');
+                    updateWSStatus('connected');
+                    isUsingWebSocket = true;
+                    
+                    // Stop polling when WebSocket connects
+                    if (pollingInterval) {
+                        clearInterval(pollingInterval);
+                        pollingInterval = null;
+                    }
+                    
+                    // Load initial data if not already done
+                    if (!initialFetchDone) {
+                        console.log('[WS] Loading initial data...');
+                        fetchNodesJSON(0);
+                    }
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        
+                        if (data.type === 'node_update') {
+                            console.log('[WS] Node update:', data.node.id);
+                            handleNodeUpdate(data.node);
+                        }
+                    } catch (e) {
+                        console.error('[WS] Parse error:', e);
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('[WS] Error:', error);
+                    updateWSStatus('disconnected');
+                };
+                
+                ws.onclose = () => {
+                    console.log('[WS] Disconnected, will retry...');
+                    updateWSStatus('polling');
+                    isUsingWebSocket = false;
+                    ws = null;
+                    
+                    // Start polling as fallback
+                    if (!pollingInterval) {
+                        console.log('[WS] Starting polling fallback');
+                        // Immediate fetch BEFORE starting interval
+                        if (!initialFetchDone) {
+                            fetchNodesJSON(0);
+                        }
+                        pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
+                    }
+                    
+                    // Try to reconnect WebSocket after 2 seconds
+                    if (!wsReconnectInterval) {
+                        wsReconnectInterval = setTimeout(() => {
+                            wsReconnectInterval = null;
+                            connectWebSocket();
+                        }, 2000);
+                    }
+                };
+            } catch (e) {
+                console.error('[WS] Connection failed:', e);
+                updateWSStatus('polling');
+                
+                // Fallback to polling
+                if (!pollingInterval) {
+                    if (!initialFetchDone) {
+                        fetchNodesJSON(0);
+                    }
+                    pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
+                }
+            }
+        }
+        
+        function handleNodeUpdate(node) {
+            // Update node in appropriate list
+            if (node.lat && node.lon) {
+                const existingIndex = allNodes.findIndex(n => n.id === node.id);
+                if (existingIndex >= 0) {
+                    allNodes[existingIndex] = node;
+                } else {
+                    allNodes.push(node);
+                }
+            } else {
+                const existingIndex = allNodesNoGps.findIndex(n => n.id === node.id);
+                if (existingIndex >= 0) {
+                    allNodesNoGps[existingIndex] = node;
+                } else {
+                    allNodesNoGps.push(node);
+                }
+            }
+            
+            // Update display
+            updateDisplay();
+        }
+        
+        function fetchNodesJSON(retryCount = 0) {
+            console.log(`[JSON] Fetching nodes.json (attempt ${retryCount + 1})...`);
+            
+            fetch('nodes.json?' + Date.now())
+                .then(r => {
+                    if (!r.ok) {
+                        throw new Error(`HTTP ${r.status}`);
+                    }
+                    return r.json();
+                })
+                .then(d => {
+                    console.log('[JSON] Successfully loaded:', d.cnt || 0, 'nodes');
+                    initialFetchDone = true;
+                    
+                    document.getElementById('upd').textContent = 
+                        new Date(d.updated).toLocaleTimeString('pl-PL');
+                    
+                    // Store data
+                    allNodes = d.nodes || [];
+                    allNodesNoGps = d.nodes_no_pos || [];
+                    trackerInfo = d.tracker || {};
+                    maxDistanceKm = d.max_distance_km;
+                    farthestNode = d.farthest_node;
+                    
+                    // Update display (will wait for map if needed)
+                    updateDisplay();
+                    
+                    // If this was a retry that succeeded, update WS status
+                    if (isUsingWebSocket) {
+                        updateWSStatus('connected');
+                    } else {
+                        updateWSStatus('polling');
+                    }
+                })
+                .catch(e => {
+                    console.error(`[JSON] Fetch error (attempt ${retryCount + 1}):`, e);
+                    
+                    // Retry logic - max 5 attempts with exponential backoff
+                    if (retryCount < 5) {
+                        const delay = Math.min(1000 * Math.pow(1.5, retryCount), 5000); // 1s, 1.5s, 2.25s, 3.4s, 5s
+                        console.log(`[JSON] Retrying in ${Math.round(delay)}ms...`);
+                        setTimeout(() => fetchNodesJSON(retryCount + 1), delay);
+                    } else {
+                        console.error('[JSON] Max retries exceeded');
+                        updateWSStatus('disconnected');
+                    }
+                });
+        }
         
         function timeAgo(timestamp) {
             const now = Math.floor(Date.now() / 1000);
@@ -85,141 +272,166 @@
             return `marker ${color} ${shape} ${relay}`;
         }
         
-        function update() {
-            fetch('nodes.json?'+Date.now())
-                .then(r=>r.json())
-                .then(d=>{
-                    document.getElementById('upd').textContent = 
-                        new Date(d.updated).toLocaleTimeString('pl-PL');
-
-                    // Calculate stats
-                    let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
-                    // Detect overlapping nodes and add offset
-                    function getOffset(node, allNodes) {
-                        let offsetIndex = 0;
-                        for (let other of allNodes) {
-                            if (other.id === node.id) break;
-                            if (Math.abs(other.lat - node.lat) < 0.0001 && 
-                                Math.abs(other.lon - node.lon) < 0.0001) {
-                                offsetIndex++;
-                            }
-                        }
-                        // Offset in circle pattern
-                        const angle = (offsetIndex * 137.5) * Math.PI / 180;
-                        const distance = offsetIndex * 0.0002;
-                        return {
-                            lat: distance * Math.cos(angle),
-                            lon: distance * Math.sin(angle)
-                        };
-                    }
-                    // Filter nodes if checkbox is checked
-                    const filterDirect = document.getElementById('filter-direct').checked;
-                    const filteredNodes = filterDirect ? d.nodes.filter(n => n.hops === 0 && !n.via_mqtt) : d.nodes;
-                    document.getElementById('cnt').textContent = filteredNodes.length;
-                    filteredNodes.forEach(n => {
-                        if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
-                        else clients++;
-                        if (n.hops === 0) direct++;
-                        else relay++;
-                        if (n.snr) { snrSum += n.snr; snrCount++; }
-                    });
-                    document.getElementById('routers').textContent = routers;
-                    document.getElementById('clients').textContent = clients;
-                    document.getElementById('direct').textContent = direct;
-                    document.getElementById('relay').textContent = relay;
-                    document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
-                    document.getElementById('maxrange').textContent = d.max_distance_km || '-';
-                    // Tracker info
-                    if (d.tracker) {
-                        document.getElementById('tracker-model').textContent = d.tracker.hw_model || '-';
-                        document.getElementById('tracker-fw').textContent = d.tracker.firmware || '-';
-                        document.getElementById('tracker-id').textContent = d.tracker.node_id || '-';
-                        document.getElementById('tracker-port').textContent = d.tracker.port || '-';
-                    }
-                    
-                    // Update no-GPS nodes panel
-                    const noMqttNodes = (d.nodes_no_pos || []).filter(n => !n.via_mqtt);
-                    const filteredNoGps = filterDirect ? noMqttNodes.filter(n => n.hops === 0) : noMqttNodes;
-                    filteredNoGps.sort((a, b) => b.ts - a.ts);
-                    document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
-                    const noGpsList = document.getElementById('no-gps-list');
-                    if (filteredNoGps.length > 0) {
-                        noGpsList.innerHTML = filteredNoGps.map(n => {
-                            const age = Math.floor(Date.now()/1000) - n.ts;
-                            let dotColor = '#22c55e';
-                            if (age > 21600) dotColor = '#ef4444';
-                            else if (age > 3600) dotColor = '#eab308';
-                            return `
-                            <div class="no-gps-item">
-                                <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
-                                <div class="meta">${n.id} | ${n.role}</div>
-                                <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops || 0} | ${timeAgo(n.ts)}</div>
-                            </div>`;
-                        }).join('');
-                    } else {
-                        noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
-                    }
-                    // Remove out of date
-                    Object.keys(markers).forEach(id=>{
-                        if(!filteredNodes.find(n=>n.id===id)){
-                            map.removeLayer(markers[id]);
-                            delete markers[id];
-                        }
-                    });
-                    
-                    // Add/update
-                    filteredNodes.forEach(n=>{
-                        const pop = `<div class="node-popup">
-                            <b>${n.name}</b><br>
-                            ${n.id}<br>
-                            SNR: ${n.snr} dB<br>
-                            Alt: ${n.alt}m<br>
-                            Hops: ${n.hops || 0}<br>
-                            <small>Seen: ${timeAgo(n.ts)}</small>
-                        </div>`;
-                        const offset = getOffset(n, d.nodes);
-                        const displayLat = n.lat + offset.lat;
-                        const displayLon = n.lon + offset.lon; 
-
-                        if(markers[n.id]){
-                            markers[n.id].setLatLng([displayLat, displayLon]);
-                            markers[n.id].setIcon(L.divIcon({
-                                className: getMarkerClass(n),
-                                iconSize: [14, 14],
-                                iconAnchor: [7, 7]
-                            }));
-                            markers[n.id].setPopupContent(pop);
-                        }else{
-                            markers[n.id] = L.marker([displayLat, displayLon], {
-                                icon: L.divIcon({
-                                    className: getMarkerClass(n),
-                                    iconSize: [14, 14],
-                                    iconAnchor: [7, 7]
-                            })
-                           })     .bindPopup(pop).addTo(map);
-                        }
-                    // Max range link - after markers are created
-                    const maxLink = document.getElementById('maxrange-link');
-                    if (d.farthest_node && markers[d.farthest_node]) {
-                        const node = d.nodes.find(n => n.id === d.farthest_node);
-                        maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : d.farthest_node) + ')'; 
-                        maxLink.style.display = 'inline';
-                        maxLink.onclick = function(e) {
-                            e.preventDefault();
-                            const m = markers[d.farthest_node];
-                            map.setView(m.getLatLng(), 14);
-                            m.openPopup();
-                        };
-                    } else {
-                        maxLink.style.display = 'none';
-                    }
-                    });
-                })
-                .catch(e=>console.error(e));
+        function getOffset(node, allNodesArray) {
+            let offsetIndex = 0;
+            for (let other of allNodesArray) {
+                if (other.id === node.id) break;
+                if (Math.abs(other.lat - node.lat) < 0.0001 && 
+                    Math.abs(other.lon - node.lon) < 0.0001) {
+                    offsetIndex++;
+                }
+            }
+            // Offset in circle pattern
+            const angle = (offsetIndex * 137.5) * Math.PI / 180;
+            const distance = offsetIndex * 0.0002;
+            return {
+                lat: distance * Math.cos(angle),
+                lon: distance * Math.sin(angle)
+            };
         }
         
-        update();
-        setInterval(update, 15000); // Co 15s
+        function updateDisplay() {
+            // Wait for map to be ready (Safari fix)
+            if (!mapReady) {
+                console.log('[MAP] Map not ready yet, will retry when map loads...');
+                return;
+            }
+            
+            // Filter nodes if checkbox is checked
+            const filterDirect = document.getElementById('filter-direct').checked;
+            const filteredNodes = filterDirect ? allNodes.filter(n => n.hops === 0 && !n.via_mqtt) : allNodes;
+            
+            console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
+            
+            // Calculate stats
+            let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
+            
+            filteredNodes.forEach(n => {
+                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
+                else clients++;
+                if (n.hops === 0) direct++;
+                else relay++;
+                if (n.snr) { snrSum += n.snr; snrCount++; }
+            });
+            
+            document.getElementById('cnt').textContent = filteredNodes.length;
+            document.getElementById('routers').textContent = routers;
+            document.getElementById('clients').textContent = clients;
+            document.getElementById('direct').textContent = direct;
+            document.getElementById('relay').textContent = relay;
+            document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
+            document.getElementById('maxrange').textContent = maxDistanceKm || '-';
+            
+            // Tracker info
+            document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
+            document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
+            document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
+            document.getElementById('tracker-port').textContent = trackerInfo.port || '-';
+            
+            // Update no-GPS nodes panel
+            const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
+            const filteredNoGps = filterDirect ? noMqttNodes.filter(n => n.hops === 0) : noMqttNodes;
+            filteredNoGps.sort((a, b) => b.ts - a.ts);
+            document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
+            const noGpsList = document.getElementById('no-gps-list');
+            if (filteredNoGps.length > 0) {
+                noGpsList.innerHTML = filteredNoGps.map(n => {
+                    const age = Math.floor(Date.now()/1000) - n.ts;
+                    let dotColor = '#22c55e';
+                    if (age > 21600) dotColor = '#ef4444';
+                    else if (age > 3600) dotColor = '#eab308';
+                    return `
+                    <div class="no-gps-item">
+                        <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
+                        <div class="meta">${n.id} | ${n.role}</div>
+                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops || 0} | ${timeAgo(n.ts)}</div>
+                    </div>`;
+                }).join('');
+            } else {
+                noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
+            }
+            
+            // Remove outdated markers
+            Object.keys(markers).forEach(id=>{
+                if(!filteredNodes.find(n=>n.id===id)){
+                    map.removeLayer(markers[id]);
+                    delete markers[id];
+                }
+            });
+            
+            // Add/update markers
+            filteredNodes.forEach(n=>{
+                const pop = `<div class="node-popup">
+                    <b>${n.name}</b><br>
+                    ${n.id}<br>
+                    SNR: ${n.snr} dB<br>
+                    Alt: ${n.alt}m<br>
+                    Hops: ${n.hops || 0}<br>
+                    <small>Seen: ${timeAgo(n.ts)}</small>
+                </div>`;
+                const offset = getOffset(n, allNodes);
+                const displayLat = n.lat + offset.lat;
+                const displayLon = n.lon + offset.lon; 
+
+                if(markers[n.id]){
+                    markers[n.id].setLatLng([displayLat, displayLon]);
+                    markers[n.id].setIcon(L.divIcon({
+                        className: getMarkerClass(n),
+                        iconSize: [14, 14],
+                        iconAnchor: [7, 7]
+                    }));
+                    markers[n.id].setPopupContent(pop);
+                }else{
+                    markers[n.id] = L.marker([displayLat, displayLon], {
+                        icon: L.divIcon({
+                            className: getMarkerClass(n),
+                            iconSize: [14, 14],
+                            iconAnchor: [7, 7]
+                    })
+                   })     .bindPopup(pop).addTo(map);
+                }
+            });
+            
+            console.log('[MAP] Display updated, total markers:', Object.keys(markers).length);
+            
+            // Max range link
+            const maxLink = document.getElementById('maxrange-link');
+            if (farthestNode && markers[farthestNode]) {
+                const node = allNodes.find(n => n.id === farthestNode);
+                maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : farthestNode) + ')'; 
+                maxLink.style.display = 'inline';
+                maxLink.onclick = function(e) {
+                    e.preventDefault();
+                    const m = markers[farthestNode];
+                    map.setView(m.getLatLng(), 14);
+                    m.openPopup();
+                };
+            } else {
+                maxLink.style.display = 'none';
+            }
+        }
+        
+        // Initialize - wait for map to be fully ready (Safari fix)
+        map.whenReady(() => {
+            console.log('[MAP] Map ready!');
+            mapReady = true;
+            
+            // CRITICAL: Force initial data load BEFORE connecting WebSocket
+            console.log('[MAP] Force loading initial data...');
+            fetchNodesJSON(0);
+            
+            // Give fetch a moment to start, then try WebSocket
+            setTimeout(() => {
+                connectWebSocket();
+            }, 100);
+        });
+        
+        // Update marker colors every 30 seconds (for age calculation)
+        setInterval(() => {
+            if (mapReady) {
+                updateDisplay();
+            }
+        }, 30000);
     </script>
 </body>
 </html>

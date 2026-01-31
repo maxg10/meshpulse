@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
-#ver 1.5
+#ver 1.6 - WebSocket support
+#Max Gieparda (c)2026
 """
-Meshtastic Mapper - Listen Mode with TTL
+Meshtastic Mapper - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
+Real-time updates via WebSocket
 """
 import subprocess
 import json
@@ -11,6 +13,12 @@ import re
 from datetime import datetime
 import sys
 import os
+import asyncio
+import websockets
+import threading
+
+# Global set of connected WebSocket clients
+connected_clients = set()
 
 class ListenBasedMapper:
     def __init__(self, port='/dev/ttyUSB0', max_age=86400):
@@ -231,6 +239,10 @@ class ListenBasedMapper:
                     
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
+                    
+                    # Broadcast to WebSocket clients
+                    asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                    
                     return True
 
                 else:
@@ -257,12 +269,17 @@ class ListenBasedMapper:
                     
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
+                    
+                    # Broadcast to WebSocket clients
+                    asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                    
                     return True
                     
             except Exception as e:
                 print(f"Parse error: {e}")
         
         return False
+    
     def parse_position_update(self, line):
         """Parse position update from --listen output"""
         if 'Publishing meshtastic.receive.position:' not in line:
@@ -334,6 +351,9 @@ class ListenBasedMapper:
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
+            # Broadcast to WebSocket clients
+            asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+            
             return True
             
         except Exception as e:
@@ -359,17 +379,40 @@ class ListenBasedMapper:
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
                 print(f"♡ {node_id} telemetry heartbeat")
+                
+                # Broadcast to WebSocket clients
+                asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                
                 return True
-            elif node_id in self.nodes_no_position:  # ← NOWE
+            elif node_id in self.nodes_no_position:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
                 self.nodes_no_position[node_id]['seen_at'] = int(time.time())
                 print(f"♡ {node_id} telemetry heartbeat (no GPS)")
+                
+                # Broadcast to WebSocket clients
+                asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                
             return True
             
         except Exception as e:
             print(f"Telemetry parse error: {e}")
         
         return False 
+
+    async def broadcast_node_update(self, node_data):
+        """Broadcast node update to all connected WebSocket clients"""
+        if not connected_clients:
+            return
+        
+        message = json.dumps({
+            'type': 'node_update',
+            'node': node_data,
+            'timestamp': int(time.time())
+        })
+        
+        # Broadcast to all connected clients
+        websockets.broadcast(connected_clients, message)
+        print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
 
     def save_nodes(self):
         """Save to JSON"""
@@ -403,11 +446,12 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.2 (with TTL)")
+        print("Meshtastic Mapper - LISTEN MODE v1.6 (with WebSocket)")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
         print(f"Current nodes in memory: {len(self.nodes)}")
+        print(f"WebSocket server: ws://0.0.0.0:8765")
         print("=" * 60)
         
         cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
@@ -450,6 +494,7 @@ class ListenBasedMapper:
                     self.parse_node_info(line)
                     self.parse_position_update(line)
                     self.parse_telemetry_update(line)
+                    
                     # Save periodically
                     if time.time() - last_save > save_interval:
                         self.save_nodes()
@@ -500,8 +545,42 @@ class ListenBasedMapper:
                 time.sleep(30)
                 restart_count += 1
 
+
+# WebSocket server handler
+async def websocket_handler(websocket):
+    """Handle WebSocket connections"""
+    # Register client
+    connected_clients.add(websocket)
+    client_addr = websocket.remote_address
+    print(f"[WS] Client connected: {client_addr}, total clients: {len(connected_clients)}")
+    
+    try:
+        # Keep connection alive
+        async for message in websocket:
+            # Echo back or handle commands if needed
+            print(f"[WS] Received from {client_addr}: {message}")
+    except websockets.exceptions.ConnectionClosed:
+        print(f"[WS] Client disconnected: {client_addr}")
+    finally:
+        # Unregister client
+        connected_clients.remove(websocket)
+        print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
+
+
+async def start_websocket_server():
+    """Start WebSocket server"""
+    print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
+        await asyncio.Future()  # Run forever
+
+
+def run_websocket_server_thread():
+    """Run WebSocket server in separate thread"""
+    asyncio.run(start_websocket_server())
+
+
 if __name__ == '__main__':
-    print("Starting Meshtastic Mapper (Listen Mode with TTL)...")
+    print("Starting Meshtastic Mapper (Listen Mode with WebSocket)...")
     
     # Create output directory
     os.makedirs('/var/www/html/meshtastic', exist_ok=True)
@@ -518,6 +597,14 @@ if __name__ == '__main__':
     print(f"Using port: {port}\n")
     
     try:
+        # Start WebSocket server in background thread
+        ws_thread = threading.Thread(target=run_websocket_server_thread, daemon=True)
+        ws_thread.start()
+        print("[WS] WebSocket server thread started")
+        
+        # Give WebSocket server time to start
+        time.sleep(2)
+        
         # Create mapper with 24h TTL (86400 seconds)
         mapper = ListenBasedMapper(port, max_age=86400)
         mapper.run()

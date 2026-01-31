@@ -58,6 +58,16 @@ else
     MISSING=1
 fi
 
+# Check websockets library
+if python3 -c "import websockets" 2>/dev/null; then
+    WS_VER=$(python3 -c "import websockets; print(websockets.__version__)" 2>/dev/null || echo "unknown")
+    echo -e "${GREEN}✅ websockets - OK ($WS_VER)${NC}"
+else
+    echo -e "${RED}❌ websockets - NOT FOUND${NC}"
+    echo "   Install with: pip3 install websockets --break-system-packages"
+    MISSING=1
+fi
+
 # Check web server (lighttpd or apache2)
 if command -v lighttpd &> /dev/null; then
     echo -e "${GREEN}✅ lighttpd - OK${NC}"
@@ -142,4 +152,6 @@ echo "  1. Start service:  sudo systemctl start meshtastic-mapper"
 echo "  2. Check status:   sudo systemctl status meshtastic-mapper"
 echo "  3. View logs:      sudo journalctl -u meshtastic-mapper -f"
 echo "  4. Open browser:   http://$(hostname).local/meshtastic/"
+echo ""
+echo "WebSocket server will be available at: ws://$(hostname).local:8765"
 echo ""
