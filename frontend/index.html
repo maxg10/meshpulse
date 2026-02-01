@@ -24,6 +24,7 @@
         <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
         <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
         <small><b>Port:</b> <span id="tracker-port">-</span></small><br>
+        <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
         <label style="font-size:11px;cursor:pointer;">
@@ -252,6 +253,16 @@
                 });
         }
         
+        function formatUptime(seconds) {
+            if (!seconds && seconds !== 0) return '-';
+            const d = Math.floor(seconds / 86400);
+            const h = Math.floor((seconds % 86400) / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+            if (h > 0) return h + 'h ' + m + 'm';
+            return m + 'm';
+        }
+
         function timeAgo(timestamp) {
             const now = Math.floor(Date.now() / 1000);
             const diff = now - timestamp;
@@ -327,6 +338,7 @@
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
             document.getElementById('tracker-port').textContent = trackerInfo.port || '-';
+            document.getElementById('tracker-uptime').textContent = formatUptime(trackerInfo.uptime_seconds);
             
             // Update no-GPS nodes panel
             const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
