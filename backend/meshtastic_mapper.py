@@ -178,7 +178,9 @@ class ListenBasedMapper:
             if age > self.max_age:
                 removed.append(node_id)
                 del nodes_dict[node_id]
-        
+                # Broadcast deletion to WebSocket clients
+                asyncio.run(self.broadcast_node_deleted(node_id))
+
         if removed:
             hours = self.max_age // 3600
             print(f"[CLEAN] Removed {len(removed)} old nodes (>{hours}h old)")
@@ -226,6 +228,7 @@ class ListenBasedMapper:
                     # Skip nodes older than max_age
                     if int(time.time()) - last_heard > self.max_age:
                         print(f"⏭ {node_id} skipped (too old: {(int(time.time()) - last_heard) // 86400}d)")
+                        asyncio.run(self.broadcast_node_deleted(node_id))
                         return False
 
                     self.nodes[node_id] = {
@@ -264,6 +267,7 @@ class ListenBasedMapper:
                     # Skip nodes older than max_age
                     if int(time.time()) - last_heard > self.max_age:
                         print(f"⏭ {node_id} skipped (too old: {(int(time.time()) - last_heard) // 86400}d)")
+                        asyncio.run(self.broadcast_node_deleted(node_id))
                         return False
 
                     self.nodes_no_position[node_id] = {
@@ -419,16 +423,31 @@ class ListenBasedMapper:
         """Broadcast node update to all connected WebSocket clients"""
         if not connected_clients:
             return
-        
+
         message = json.dumps({
             'type': 'node_update',
             'node': node_data,
             'timestamp': int(time.time())
         })
-        
+
         # Broadcast to all connected clients
         websockets.broadcast(connected_clients, message)
         print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
+
+    async def broadcast_node_deleted(self, node_id):
+        """Broadcast node deletion to all connected WebSocket clients"""
+        if not connected_clients:
+            return
+
+        message = json.dumps({
+            'type': 'node_deleted',
+            'node_id': node_id,
+            'timestamp': int(time.time())
+        })
+
+        # Broadcast to all connected clients
+        websockets.broadcast(connected_clients, message)
+        print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
     def save_nodes(self):
         """Save to JSON"""

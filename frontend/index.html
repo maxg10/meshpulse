@@ -129,10 +129,27 @@
                 ws.onmessage = (event) => {
                     try {
                         const data = JSON.parse(event.data);
-                        
+
                         if (data.type === 'node_update') {
                             console.log('[WS] Node update:', data.node.id);
                             handleNodeUpdate(data.node);
+                        } else if (data.type === 'node_deleted') {
+                            console.log('[WS] Node deleted:', data.node_id);
+
+                            // Usuń z allNodes
+                            allNodes = allNodes.filter(n => n.id !== data.node_id);
+
+                            // Usuń z allNodesNoGps
+                            allNodesNoGps = allNodesNoGps.filter(n => n.id !== data.node_id);
+
+                            // Usuń marker z mapy jeśli istnieje
+                            if (markers[data.node_id]) {
+                                map.removeLayer(markers[data.node_id]);
+                                delete markers[data.node_id];
+                            }
+
+                            // Odśwież wyświetlanie
+                            updateDisplay();
                         }
                     } catch (e) {
                         console.error('[WS] Parse error:', e);
