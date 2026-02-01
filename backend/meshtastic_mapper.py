@@ -172,9 +172,9 @@ class ListenBasedMapper:
         """Remove nodes older than max_age seconds"""
         now = int(time.time())
         removed = []
-        
+
         for node_id, node in list(nodes_dict.items()):
-            age = now - node.get('seen_at', node.get('ts', now))
+            age = now - node.get('ts', now)
             if age > self.max_age:
                 removed.append(node_id)
                 del nodes_dict[node_id]
