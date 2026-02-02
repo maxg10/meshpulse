@@ -234,7 +234,7 @@ class ListenBasedMapper:
                         'snr': round(snr, 1),
                         'role': role,
                         'hops': hops,
-                        'ts': last_heard,
+                        'ts': int(time.time()),
                         'seen_at': int(time.time()),
                         'via_mqtt': via_mqtt
                     }
@@ -265,7 +265,7 @@ class ListenBasedMapper:
                         'role': role,
                         'hops': hops,
                         'via_mqtt': via_mqtt,
-                        'ts': last_heard,
+                        'ts': int(time.time()),
                         'seen_at': int(time.time())
                     }
                     
