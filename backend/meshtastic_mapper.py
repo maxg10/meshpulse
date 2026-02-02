@@ -225,12 +225,6 @@ class ListenBasedMapper:
 
                     via_mqtt = node_data.get('viaMqtt', False)
 
-                    # Skip nodes older than max_age
-                    if int(time.time()) - last_heard > self.max_age:
-                        print(f"⏭ {node_id} skipped (too old: {(int(time.time()) - last_heard) // 86400}d)")
-                        asyncio.run(self.broadcast_node_deleted(node_id))
-                        return False
-
                     self.nodes[node_id] = {
                         'id': node_id,
                         'name': name,
@@ -263,12 +257,6 @@ class ListenBasedMapper:
                     via_mqtt = node_data.get('viaMqtt', False)
 
                     is_new = node_id not in self.nodes_no_position
-
-                    # Skip nodes older than max_age
-                    if int(time.time()) - last_heard > self.max_age:
-                        print(f"⏭ {node_id} skipped (too old: {(int(time.time()) - last_heard) // 86400}d)")
-                        asyncio.run(self.broadcast_node_deleted(node_id))
-                        return False
 
                     self.nodes_no_position[node_id] = {
                         'id': node_id,
