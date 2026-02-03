@@ -21,7 +21,7 @@ import threading
 connected_clients = set()
 
 class ListenBasedMapper:
-    def __init__(self, port='/dev/ttyUSB0', max_age=86400):
+    def __init__(self, port='/dev/ttyUSB0', max_age=604800):
         self.port = port
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
@@ -629,7 +629,7 @@ if __name__ == '__main__':
         time.sleep(2)
         
         # Create mapper with 24h TTL (86400 seconds)
-        mapper = ListenBasedMapper(port, max_age=86400)
+        mapper = ListenBasedMapper(port, max_age=604800)
         mapper.run()
     except KeyboardInterrupt:
         print("\nStopped by user")
