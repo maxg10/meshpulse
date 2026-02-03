@@ -416,40 +416,46 @@ class ListenBasedMapper:
             return False
 
         try:
-            # Extract the dict
-            dict_str = line.split('Publishing meshtastic.receive.text:')[1].strip()
-            # Safe eval
-            import ast
-            msg_data = ast.literal_eval(dict_str)
+            # Extract fromId
+            from_match = re.search(r"'fromId':\s*'([^']+)'", line)
+            if not from_match:
+                return False
+            from_id = from_match.group(1)
 
-            # Extract fields
-            from_id = msg_data.get('fromId')
-            to_id = msg_data.get('toId')
-            text = msg_data.get('payload', {}).get('text', '')
-            timestamp = msg_data.get('timestamp', int(time.time()))
+            # Extract toId
+            to_match = re.search(r"'toId':\s*'([^']+)'", line)
+            to_id = to_match.group(1) if to_match else '^all'
 
-            if not from_id or not text:
+            # Extract text - try 'text' field first, then payload
+            text_match = re.search(r"'text':\s*'([^']*)'", line)
+            if not text_match:
+                # Try to get from payload bytes
+                payload_match = re.search(r"'payload':\s*b'([^']*)'", line)
+                if payload_match:
+                    text = payload_match.group(1)
+                else:
+                    return False
+            else:
+                text = text_match.group(1)
+
+            if not text:
                 return False
 
-            # Get sender name
+            # Get sender name from nodes
             sender_name = from_id
             if from_id in self.nodes:
                 sender_name = self.nodes[from_id].get('name', from_id)
             elif from_id in self.nodes_no_position:
                 sender_name = self.nodes_no_position[from_id].get('name', from_id)
 
-            # Determine if it's a broadcast or DM
-            is_broadcast = (to_id == '^all')
-
             # Create message object
             message = {
-                'fromId': from_id,
-                'fromName': sender_name,
-                'toId': to_id,
+                'from_id': from_id,
+                'from_name': sender_name,
+                'to_id': to_id,
                 'text': text,
-                'timestamp': timestamp,
-                'isBroadcast': is_broadcast,
-                'isDM': not is_broadcast and to_id == self.local_node_id
+                'timestamp': int(time.time()),
+                'is_dm': to_id != '^all'
             }
 
             # Add to messages list (newest first, max 50)
@@ -457,12 +463,12 @@ class ListenBasedMapper:
             if len(self.messages) > 50:
                 self.messages = self.messages[:50]
 
-            # Print message
-            msg_type = "BROADCAST" if is_broadcast else f"DM to {to_id}"
-            print(f"💬 {from_id} ({sender_name}): {text[:50]} [{msg_type}]")
+            # Log
+            dm_marker = " [DM]" if message['is_dm'] else ""
+            print(f"💬 {sender_name}: {text}{dm_marker}")
 
             # Broadcast to WebSocket clients
-            asyncio.run(self.broadcast_new_message(message))
+            asyncio.run(self.broadcast_message(message))
 
             return True
 
@@ -501,7 +507,7 @@ class ListenBasedMapper:
         websockets.broadcast(connected_clients, message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
-    async def broadcast_new_message(self, message_data):
+    async def broadcast_message(self, message_data):
         """Broadcast new text message to all connected WebSocket clients"""
         if not connected_clients:
             return
@@ -514,7 +520,7 @@ class ListenBasedMapper:
 
         # Broadcast to all connected clients
         websockets.broadcast(connected_clients, message)
-        print(f"[WS] Broadcasted message from {message_data['fromId']} to {len(connected_clients)} clients")
+        print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
 
     def save_nodes(self):
         """Save to JSON"""

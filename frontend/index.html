@@ -158,7 +158,7 @@
                             // Odśwież wyświetlanie
                             updateDisplay();
                         } else if (data.type === 'new_message') {
-                            console.log('[WS] New message from:', data.message.fromId);
+                            console.log('[WS] New message from:', data.message.from_id);
                             handleNewMessage(data.message);
                         }
                     } catch (e) {
@@ -255,14 +255,14 @@
 
             if (allMessages.length > 0) {
                 messagesList.innerHTML = allMessages.map(msg => {
-                    const isDM = msg.isDM;
+                    const isDM = msg.is_dm;
                     const itemClass = isDM ? 'message-item message-dm' : 'message-item';
-                    const msgType = msg.isBroadcast ? '' : ' (DM)';
+                    const msgType = msg.is_dm ? ' (DM)' : '';
                     return `
                     <div class="${itemClass}">
                         <div class="msg-header">
                             <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                            <span class="msg-sender">${msg.fromName}${msgType}</span>
+                            <span class="msg-sender">${msg.from_name}${msgType}</span>
                         </div>
                         <div class="msg-text">${msg.text}</div>
                     </div>`;
