@@ -61,6 +61,12 @@
         <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
 </div>
+    <div id="messages-panel" onclick="this.classList.toggle('open')">
+        <h4>💬 Messages ▼ (<span id="messages-cnt">0</span>)</h4>
+        <div id="messages-content">
+            <div id="messages-list"></div>
+        </div>
+    </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
         const map = L.map('map').setView([52.4064, 16.9252], 11);
@@ -72,6 +78,7 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
+        let allMessages = [];
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
@@ -150,6 +157,9 @@
 
                             // Odśwież wyświetlanie
                             updateDisplay();
+                        } else if (data.type === 'new_message') {
+                            console.log('[WS] New message from:', data.message.fromId);
+                            handleNewMessage(data.message);
                         }
                     } catch (e) {
                         console.error('[WS] Parse error:', e);
@@ -216,9 +226,50 @@
                     allNodesNoGps.push(node);
                 }
             }
-            
+
             // Update display
             updateDisplay();
+        }
+
+        function handleNewMessage(message) {
+            // Add to messages list (newest first, max 50)
+            allMessages.unshift(message);
+            if (allMessages.length > 50) {
+                allMessages = allMessages.slice(0, 50);
+            }
+
+            // Update display
+            updateMessagesDisplay();
+        }
+
+        function formatMessageTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+        function updateMessagesDisplay() {
+            document.getElementById('messages-cnt').textContent = allMessages.length;
+            const messagesList = document.getElementById('messages-list');
+
+            if (allMessages.length > 0) {
+                messagesList.innerHTML = allMessages.map(msg => {
+                    const isDM = msg.isDM;
+                    const itemClass = isDM ? 'message-item message-dm' : 'message-item';
+                    const msgType = msg.isBroadcast ? '' : ' (DM)';
+                    return `
+                    <div class="${itemClass}">
+                        <div class="msg-header">
+                            <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
+                            <span class="msg-sender">${msg.fromName}${msgType}</span>
+                        </div>
+                        <div class="msg-text">${msg.text}</div>
+                    </div>`;
+                }).join('');
+            } else {
+                messagesList.innerHTML = '<div class="message-item meta">No messages</div>';
+            }
         }
         
         function fetchNodesJSON(retryCount = 0) {

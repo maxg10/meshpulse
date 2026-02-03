@@ -26,11 +26,14 @@ class ListenBasedMapper:
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age  # 24 hours default
-        
+
         # Load existing nodes or start fresh
         self.nodes_no_position = {}  # Nodes without GPS position
         self.nodes = self.load_existing_nodes()
         self.local_node_id = self.get_local_node_id()
+
+        # Store text messages (max 50, newest first)
+        self.messages = []
 
         # Save immediately to show tracker info in UI
         self.save_nodes()
@@ -405,7 +408,68 @@ class ListenBasedMapper:
         except Exception as e:
             print(f"Telemetry parse error: {e}")
         
-        return False 
+        return False
+
+    def parse_text_message(self, line):
+        """Parse text message from --listen output"""
+        if 'Publishing meshtastic.receive.text:' not in line:
+            return False
+
+        try:
+            # Extract the dict
+            dict_str = line.split('Publishing meshtastic.receive.text:')[1].strip()
+            # Safe eval
+            import ast
+            msg_data = ast.literal_eval(dict_str)
+
+            # Extract fields
+            from_id = msg_data.get('fromId')
+            to_id = msg_data.get('toId')
+            text = msg_data.get('payload', {}).get('text', '')
+            timestamp = msg_data.get('timestamp', int(time.time()))
+
+            if not from_id or not text:
+                return False
+
+            # Get sender name
+            sender_name = from_id
+            if from_id in self.nodes:
+                sender_name = self.nodes[from_id].get('name', from_id)
+            elif from_id in self.nodes_no_position:
+                sender_name = self.nodes_no_position[from_id].get('name', from_id)
+
+            # Determine if it's a broadcast or DM
+            is_broadcast = (to_id == '^all')
+
+            # Create message object
+            message = {
+                'fromId': from_id,
+                'fromName': sender_name,
+                'toId': to_id,
+                'text': text,
+                'timestamp': timestamp,
+                'isBroadcast': is_broadcast,
+                'isDM': not is_broadcast and to_id == self.local_node_id
+            }
+
+            # Add to messages list (newest first, max 50)
+            self.messages.insert(0, message)
+            if len(self.messages) > 50:
+                self.messages = self.messages[:50]
+
+            # Print message
+            msg_type = "BROADCAST" if is_broadcast else f"DM to {to_id}"
+            print(f"💬 {from_id} ({sender_name}): {text[:50]} [{msg_type}]")
+
+            # Broadcast to WebSocket clients
+            asyncio.run(self.broadcast_new_message(message))
+
+            return True
+
+        except Exception as e:
+            print(f"Text message parse error: {e}")
+
+        return False
 
     async def broadcast_node_update(self, node_data):
         """Broadcast node update to all connected WebSocket clients"""
@@ -436,6 +500,21 @@ class ListenBasedMapper:
         # Broadcast to all connected clients
         websockets.broadcast(connected_clients, message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
+
+    async def broadcast_new_message(self, message_data):
+        """Broadcast new text message to all connected WebSocket clients"""
+        if not connected_clients:
+            return
+
+        message = json.dumps({
+            'type': 'new_message',
+            'message': message_data,
+            'timestamp': int(time.time())
+        })
+
+        # Broadcast to all connected clients
+        websockets.broadcast(connected_clients, message)
+        print(f"[WS] Broadcasted message from {message_data['fromId']} to {len(connected_clients)} clients")
 
     def save_nodes(self):
         """Save to JSON"""
@@ -513,10 +592,11 @@ class ListenBasedMapper:
                         display = line[:100] + '...' if len(line) > 100 else line
                         print(f"[RECV] {display}")
                     
-                    # Parse node info and position updates
+                    # Parse node info, position updates, telemetry, and text messages
                     self.parse_node_info(line)
                     self.parse_position_update(line)
                     self.parse_telemetry_update(line)
+                    self.parse_text_message(line)
                     
                     # Save periodically
                     if time.time() - last_save > save_interval:
