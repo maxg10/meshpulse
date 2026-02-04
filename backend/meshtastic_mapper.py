@@ -693,16 +693,23 @@ if __name__ == '__main__':
     
     # Create output directory
     os.makedirs('/var/www/html/meshtastic', exist_ok=True)
-    
-    # Detect port
-    if os.path.exists('/dev/ttyUSB0'):
-        port = '/dev/ttyUSB0'
-    elif os.path.exists('/dev/ttyACM0'):
-        port = '/dev/ttyACM0'
-    else:
+
+    # Auto-detect serial port
+    port = None
+    possible_ports = [
+        '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2',
+        '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2'
+    ]
+    for p in possible_ports:
+        if os.path.exists(p):
+            port = p
+            break
+
+    if not port:
         print("ERROR: No serial port found")
+        print("Checked:", possible_ports)
         sys.exit(1)
-    
+
     print(f"Using port: {port}\n")
     
     try:
