@@ -126,7 +126,7 @@ class ListenBasedMapper:
         for node_id, node in self.nodes.items():
             if node_id == self.local_node_id:
                 continue
-            if node.get('hops', 0) != 0:
+            if node.get('hops') is None or node.get('hops') != 0:
                 continue
             if node.get('via_mqtt', False):
                 continue
@@ -218,8 +218,8 @@ class ListenBasedMapper:
                     alt = pos.get('altitude', 0)
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
-                    hops = node_data.get('hopsAway', 0)
-                    
+                    hops = node_data.get('hopsAway', None)
+
                     # Check if node exists and show update message
                     is_new = node_id not in self.nodes
                     
@@ -256,7 +256,7 @@ class ListenBasedMapper:
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
                     last_heard = node_data.get('lastHeard', int(time.time()))
-                    hops = node_data.get('hopsAway', 0)
+                    hops = node_data.get('hopsAway', None)
                     via_mqtt = node_data.get('viaMqtt', False)
 
                     is_new = node_id not in self.nodes_no_position
@@ -322,7 +322,7 @@ class ListenBasedMapper:
             if hop_start_match and hop_limit_match:
                 hops = int(hop_start_match.group(1)) - int(hop_limit_match.group(1))
             else:
-                hops = 0
+                hops = None  # Unknown hops - don't assume direct
             
             # Extract transport mechanism (detect MQTT)
             transport_match = re.search(r"'transportMechanism':\s*'([^']+)'", line)

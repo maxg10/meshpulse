@@ -347,7 +347,7 @@
             if (age > 21600) color = 'red';
             else if (age > 3600) color = 'yellow';
             const shape = (node.role === 'ROUTER' || node.role === 'ROUTER_LATE') ? 'router' : '';
-            const relay = (node.hops > 0) ? 'relay' : '';
+            const relay = (node.hops != null && node.hops > 0) ? 'relay' : '';
             return `marker ${color} ${shape} ${relay}`;
         }
         
@@ -424,7 +424,7 @@
                     <div class="no-gps-item">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
-                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops || 0} | ${timeAgo(n.ts)}</div>
+                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
                     </div>`;
                 }).join('');
             } else {
@@ -446,7 +446,7 @@
                     ${n.id}<br>
                     SNR: ${n.snr} dB<br>
                     Alt: ${n.alt}m<br>
-                    Hops: ${n.hops || 0}<br>
+                    Hops: ${n.hops != null ? n.hops : '?'}<br>
                     <small>Seen: ${timeAgo(n.ts)}</small>
                 </div>`;
                 const offset = getOffset(n, allNodes);
