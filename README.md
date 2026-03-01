@@ -8,9 +8,10 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 
 ## Features
 
-- 📡 **Real-time node tracking** - Live position updates via meshtastic CLI
-- 🗺️ **Interactive map** - Leaflet.js-based web interface  
-- ⏰ **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (24h default)
+- 📡 **Real-time node tracking** - Live position updates via WebSocket (falls back to polling)
+- 🗺️ **Interactive map** - Leaflet.js-based web interface
+- 💬 **Text messages** - Broadcasts and DMs displayed in Messages panel, persisted across restarts
+- ⏰ **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (7 days default)
 - 🔄 **Auto-restart** - Resilient to connection timeouts
 - 📋 **JSON API** - Easy integration with other tools
 - 📂 **Multi-tracker support** - Merge data from multiple trackers
@@ -147,6 +148,17 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.7 - Message Persistence & Cache Busting**
+- 💾 Messages now saved to `nodes.json` and restored on restart/page refresh
+- 🔄 Cache-busting meta tags and versioned CSS to prevent stale browser caches
+
+**v1.6 - WebSocket & Text Messages**
+- ⚡ WebSocket server (port 8765) for real-time updates without page refresh
+- 💬 Text message parsing and display (broadcasts and DMs)
+- 🔌 Serial port auto-detection
+- 📡 Node deletion broadcasts when TTL expires
+- ⬆️ Default TTL increased from 24h to 7 days
+
 **v1.5 - Universal Installer**
 - 🔧 Added `install.sh` for easy installation
 - 📝 Service file template (no more hardcoded usernames)
@@ -182,19 +194,19 @@ cp /var/www/html/meshtastic/nodes.json ~/nodes_backup_$(date +%Y%m%d).json
 
 Edit `backend/meshtastic_mapper.py` if needed:
 ```python
-self.port = '/dev/ttyUSB0'  # Change if tracker on different port
+self.port = '/dev/ttyUSB0'  # Change if tracker on different port (auto-detected by default)
 self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
-self.max_age = 86400  # Node TTL in seconds (24h default)
+self.max_age = 604800  # Node TTL in seconds (7 days default)
 ```
 
 ### Change TTL (Time-To-Live)
 
 Nodes older than `max_age` seconds are automatically removed:
 ```python
-# In backend/meshtastic_mapper.py, line ~237:
-mapper = ListenBasedMapper(port, max_age=86400)  # 24 hours
+# In backend/meshtastic_mapper.py, find the ListenBasedMapper instantiation:
+mapper = ListenBasedMapper(port, max_age=604800)  # 7 days (default)
 # Change to:
-mapper = ListenBasedMapper(port, max_age=43200)  # 12 hours
+mapper = ListenBasedMapper(port, max_age=86400)   # 24 hours
 # Or:
 mapper = ListenBasedMapper(port, max_age=172800)  # 48 hours
 ```
@@ -214,16 +226,18 @@ meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
 ### Backend (`backend/meshtastic_mapper.py`)
 
 - Uses `meshtastic --listen` mode to capture node information
-- Parses debug output to extract position data
-- Saves to JSON every 60 seconds
+- Parses debug output to extract position, telemetry, and text message data
+- Saves nodes + messages to JSON every 60 seconds
+- WebSocket server on port 8765 for real-time push updates
 - Auto-restarts on timeout/errors
 
 ### Frontend (`frontend/index.html`)
 
 - Leaflet.js for interactive map
-- Polls `nodes.json` every 15 seconds
-- Shows node name, ID, SNR, altitude
-- Clean, responsive design
+- Primary: WebSocket connection for real-time updates
+- Fallback: polls `nodes.json` every 15 seconds
+- Messages panel shows broadcasts and DMs, persisted across page refreshes
+- Shows node name, ID, SNR, altitude, hops, age
 
 ### Data Format
 ```json
@@ -231,8 +245,10 @@ meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
   "ts": 1736625600,
   "updated": "2025-01-11T18:40:00",
   "cnt": 7,
+  "cnt_no_pos": 2,
   "max_distance_km": 7.0,
   "farthest_node": "!e36738ab",
+  "tracker": {"id": "!7b6c8272", "model": "TBEAM", "firmware": "2.5.0"},
   "nodes": [
     {
       "id": "!7b6c8272",
@@ -244,6 +260,16 @@ meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
       "role": "ROUTER",
       "hops": 0,
       "ts": 1736625600
+    }
+  ],
+  "nodes_no_pos": [],
+  "messages": [
+    {
+      "from_id": "!7b6c8272",
+      "from_name": "Node Name",
+      "text": "Hello mesh!",
+      "timestamp": 1736625600,
+      "is_dm": false
     }
   ]
 }
@@ -329,10 +355,10 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 Pull requests welcome! Areas for improvement:
 
 - [ ] MQTT support for faster updates
-- [ ] WebSocket for real-time updates
 - [ ] Node history/trails on map
 - [ ] Network topology visualization
 - [ ] Mobile-friendly UI improvements
+- [ ] WebSocket authentication (currently assumes trusted LAN)
 
 
 ## License
