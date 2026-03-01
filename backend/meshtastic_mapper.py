@@ -164,7 +164,8 @@ class ListenBasedMapper:
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
                     
-                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup")
+                        self.messages = data.get('messages', [])
+                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {len(self.messages)} messages")
                         return nodes
         except Exception as e:
             print(f"[LOAD] Starting fresh (no existing data): {e}")
@@ -536,7 +537,8 @@ class ListenBasedMapper:
                 'farthest_node': farthest_id,
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': list(self.nodes.values()),
-                'nodes_no_pos': list(self.nodes_no_position.values())
+                'nodes_no_pos': list(self.nodes_no_position.values()),
+                'messages': self.messages
             }
             
             temp_path = self.json_path + '.tmp'

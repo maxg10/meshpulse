@@ -296,6 +296,12 @@
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
                     
+                    // Load messages from JSON
+                    if (d.messages) {
+                        allMessages = d.messages;
+                        updateMessagesDisplay();
+                    }
+
                     // Update display (will wait for map if needed)
                     updateDisplay();
                     
