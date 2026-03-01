@@ -49,7 +49,7 @@ The map shows **true network status** based on when your tracker last heard each
 ```bash
 sudo apt update
 sudo apt install python3 python3-pip lighttpd git -y
-pip3 install meshtastic --break-system-packages
+pip3 install meshtastic websockets --break-system-packages
 
 # Add user to dialout group (for USB access)
 sudo usermod -aG dialout $USER
@@ -84,7 +84,7 @@ If you prefer to install manually or want to understand what's happening:
 # 1. Install dependencies
 sudo apt update
 sudo apt install python3 python3-pip lighttpd -y
-pip3 install meshtastic --break-system-packages
+pip3 install meshtastic websockets --break-system-packages
 
 # 2. Start and enable web server
 sudo systemctl enable lighttpd
