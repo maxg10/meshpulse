@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.6 (WebSocket support)
+**Current Version:** v1.7 (message persistence + cache busting)
 
 ## Running & Deployment
 
@@ -40,8 +40,8 @@ Single Python file (~734 lines) with the `ListenBasedMapper` class:
 - **Subprocess model**: Spawns `meshtastic --listen` as a subprocess, parses stdout line-by-line in real-time. Auto-restarts on process termination.
 - **Four parsers**: `parse_node_info()`, `parse_position_update()`, `parse_telemetry_update()`, `parse_text_message()` — each handles a different packet type from the meshtastic CLI output.
 - **Dual data stores**: `self.nodes` (nodes with GPS positions) and `self.nodes_no_position` (nodes without GPS). Both are dicts keyed by node ID (e.g., `!7b6c8272`).
-- **Messages storage**: `self.messages` list stores up to 50 recent text messages (broadcasts and DMs), newest first.
-- **JSON output**: Writes `nodes.json` every 60 seconds to the web server directory. Stale nodes cleaned every hour based on `max_age` (default 7 days / 604800 seconds).
+- **Messages storage**: `self.messages` list stores up to 50 recent text messages (broadcasts and DMs), newest first. Persisted to `nodes.json` and reloaded on startup.
+- **JSON output**: Writes `nodes.json` every 60 seconds to the web server directory. Includes nodes, no-GPS nodes, messages, and tracker info. Stale nodes cleaned every hour based on `max_age` (default 7 days / 604800 seconds).
 - **WebSocket server**: Async server on port 8765 running in a separate thread via `threading.Thread` + `asyncio`. Broadcasts three message types to all connected clients:
   - `node_update` - real-time node data updates
   - `node_deleted` - when old nodes are removed
@@ -64,6 +64,7 @@ Vanilla JS single-page app with Leaflet.js v1.9.4:
 - **Status indicator**: Green dot = WebSocket connected (real-time), Yellow = polling fallback, Red = disconnected
 - **Real-time updates**: WebSocket messages trigger immediate UI updates without full page refresh
 - **Message display**: Shows sender name, timestamp (HH:MM format), message text, DM indicator
+- **Cache busting**: No-cache meta tags in `<head>`. CSS loaded with `?v=1.7` suffix. `MAPPER_VERSION` constant in JS — increment both when assets change. `nodes.json` already uses `?` + `Date.now()`
 
 ### Data Flow
 
@@ -126,7 +127,13 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.6)
+## Recent Changes (v1.7)
+
+**Added:**
+- Message persistence: messages saved to `nodes.json` and reloaded on startup/page refresh
+- Cache busting: no-cache meta tags, `styles.css?v=1.7`, `MAPPER_VERSION` JS constant
+
+## Previous Changes (v1.6)
 
 **Added:**
 - WebSocket server for real-time updates (no page refresh needed)
@@ -186,7 +193,7 @@ meshtastic-network-mapper/
 
 **Parser robustness**: Parsers use regex and `ast.literal_eval()` to extract data from `meshtastic --listen` output. Format depends on meshtastic CLI version - parsers may need updates if CLI output format changes.
 
-**WebSocket architecture**: Single-threaded async WebSocket server runs in daemon thread. Uses `websockets.broadcast()` for efficient multi-client messaging. No message queuing or persistence.
+**WebSocket architecture**: Single-threaded async WebSocket server runs in daemon thread. Uses `websockets.broadcast()` for efficient multi-client messaging. No message queuing. Messages are persisted to `nodes.json` and survive restarts.
 
 **State management**: Backend maintains authoritative state in dicts. Frontend state is derived from WebSocket updates or periodic JSON fetches. No database.
 
@@ -220,7 +227,6 @@ meshtastic-network-mapper/
 - No authentication on WebSocket server (assumes trusted LAN)
 - MQTT nodes appear in data but excluded from max range calculation
 - Relies on meshtastic CLI output format (may break with CLI updates)
-- No message persistence (messages lost on restart)
 - Safari requires `map.whenReady()` before initial data load
 - Heltec V3 may require `--no-nodes` flag to avoid timeouts
 - No rate limiting on WebSocket connections
