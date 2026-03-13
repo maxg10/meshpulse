@@ -586,6 +586,15 @@
             }
         }
         
+        // Dynamically position No GPS panel below the Stats panel
+        function repositionNoGpsPanel() {
+            const stats = document.getElementById('stats');
+            const noGps = document.getElementById('no-gps-panel');
+            const bottom = stats.getBoundingClientRect().bottom;
+            noGps.style.top = (bottom + 10) + 'px';
+        }
+        new ResizeObserver(repositionNoGpsPanel).observe(document.getElementById('stats'));
+
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
