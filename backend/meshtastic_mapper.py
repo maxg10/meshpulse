@@ -245,10 +245,11 @@ class ListenBasedMapper:
                     
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
-                    
+
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
-                    
+                    asyncio.run(self.broadcast_stats_update())
+
                     return True
 
                 else:
@@ -272,13 +273,14 @@ class ListenBasedMapper:
                         'ts': int(time.time()),
                         'seen_at': int(time.time())
                     }
-                    
+
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
-                    
+
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
-                    
+                    asyncio.run(self.broadcast_stats_update())
+
                     return True
                     
             except Exception as e:
@@ -359,9 +361,10 @@ class ListenBasedMapper:
             
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
-            
+            asyncio.run(self.broadcast_stats_update())
+
             return True
-            
+
         except Exception as e:
             print(f"Position parse error: {e}")
         
@@ -394,15 +397,17 @@ class ListenBasedMapper:
                 
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
-                
+                asyncio.run(self.broadcast_stats_update())
+
                 return True
             elif node_id in self.nodes_no_position:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
                 self.nodes_no_position[node_id]['seen_at'] = int(time.time())
                 print(f"♡ {node_id} telemetry heartbeat (no GPS)")
-                
+
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                asyncio.run(self.broadcast_stats_update())
                 
             return True
             
@@ -522,6 +527,22 @@ class ListenBasedMapper:
         # Broadcast to all connected clients
         websockets.broadcast(connected_clients, message)
         print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
+
+    async def broadcast_stats_update(self):
+        """Broadcast stats update (max distance, farthest node) to all connected WebSocket clients"""
+        if not connected_clients:
+            return
+
+        max_dist, farthest_id = self.get_max_distance()
+
+        message = json.dumps({
+            'type': 'stats_update',
+            'max_distance_km': max_dist,
+            'farthest_node': farthest_id,
+            'timestamp': int(time.time())
+        })
+
+        websockets.broadcast(connected_clients, message)
 
     def save_nodes(self):
         """Save to JSON"""

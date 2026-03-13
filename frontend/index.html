@@ -166,6 +166,25 @@
                         } else if (data.type === 'new_message') {
                             console.log('[WS] New message from:', data.message.from_id);
                             handleNewMessage(data.message);
+                        } else if (data.type === 'stats_update') {
+                            console.log('[WS] Stats update:', data.max_distance_km, 'km to', data.farthest_node);
+                            maxDistanceKm = data.max_distance_km;
+                            farthestNode = data.farthest_node;
+                            document.getElementById('maxrange').textContent = maxDistanceKm || '-';
+                            const maxLink = document.getElementById('maxrange-link');
+                            if (farthestNode && markers[farthestNode]) {
+                                const node = allNodes.find(n => n.id === farthestNode);
+                                maxLink.textContent = '(→ ' + (node ? node.name.substring(0,15) : farthestNode) + ')';
+                                maxLink.style.display = 'inline';
+                                maxLink.onclick = function(e) {
+                                    e.preventDefault();
+                                    const m = markers[farthestNode];
+                                    map.setView(m.getLatLng(), 14);
+                                    m.openPopup();
+                                };
+                            } else {
+                                maxLink.style.display = 'none';
+                            }
                         }
                     } catch (e) {
                         console.error('[WS] Parse error:', e);
