@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.7 (message persistence + cache busting)
+**Current Version:** v1.8 (direct connection lines + heat map)
 
 ## Running & Deployment
 
@@ -127,7 +127,20 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.7)
+## Recent Changes (v1.8)
+
+**Added:**
+- Direct connection lines: checkbox "Show direct lines" in Mesh Stats panel; draws Leaflet polylines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5), opacity 0.6, weight 2px
+- Heat map: checkbox "Show heat map" in Mesh Stats panel; uses leaflet.heat CDN to render node density layer (radius 25, blur 15, maxZoom 17)
+- `snrToColor()`, `updateDirectLines()`, `updateHeatMap()` functions in frontend JS
+- Global state: `directLines[]` array for polyline lifecycle, `heatLayer` for heat map lifecycle
+- `.filter-label` CSS class for consistent checkbox styling
+
+**Changed:**
+- Version bumped to v1.8 (`MAPPER_VERSION`, `styles.css?v=1.8`, stats panel display)
+- `filter-direct` label uses `.filter-label` CSS class (was inline style)
+
+## Previous Changes (v1.7)
 
 **Added:**
 - Message persistence: messages saved to `nodes.json` and reloaded on startup/page refresh

@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.7">
+    <link rel="stylesheet" href="styles.css?v=1.8">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -16,7 +16,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.7 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.8 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -30,8 +30,14 @@
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
-        <label style="font-size:11px;cursor:pointer;">
+        <label class="filter-label">
             <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
+        </label><br>
+        <label class="filter-label">
+            <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()"> Show direct lines
+        </label><br>
+        <label class="filter-label">
+            <input type="checkbox" id="show-heat-map" onchange="updateHeatMap()"> Show heat map
         </label><br>
         <small>Update: <span id="upd">-</span></small><br>
         </div>
@@ -71,6 +77,7 @@
         </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script>
         const map = L.map('map').setView([52.4064, 16.9252], 11);
         
@@ -87,9 +94,11 @@
         let farthestNode = null;
         let mapReady = false;
         let initialFetchDone = false;
-        
-        // Meshtastic Mapper v1.7 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.7';
+        let directLines = [];
+        let heatLayer = null;
+
+        // Meshtastic Mapper v1.8 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.8';
 
         // WebSocket connection
         let ws = null;
@@ -400,6 +409,57 @@
             };
         }
         
+        function snrToColor(snr) {
+            if (snr >= 5) return '#22c55e';
+            if (snr >= -5) return '#eab308';
+            return '#ef4444';
+        }
+
+        function updateDirectLines() {
+            // Remove existing lines
+            directLines.forEach(line => map.removeLayer(line));
+            directLines = [];
+
+            if (!document.getElementById('show-direct-lines').checked) return;
+
+            const trackerId = trackerInfo.node_id;
+            if (!trackerId) return;
+
+            const trackerNode = allNodes.find(n => n.id === trackerId);
+            if (!trackerNode || !trackerNode.lat || !trackerNode.lon) return;
+
+            allNodes.forEach(n => {
+                if (n.id === trackerId || n.hops !== 0 || n.via_mqtt) return;
+                if (!n.lat || !n.lon) return;
+
+                const line = L.polyline(
+                    [[trackerNode.lat, trackerNode.lon], [n.lat, n.lon]],
+                    { color: snrToColor(n.snr), weight: 2, opacity: 0.6 }
+                ).addTo(map);
+                directLines.push(line);
+            });
+        }
+
+        function updateHeatMap() {
+            const showHeat = document.getElementById('show-heat-map').checked;
+
+            if (!showHeat) {
+                if (heatLayer) {
+                    map.removeLayer(heatLayer);
+                    heatLayer = null;
+                }
+                return;
+            }
+
+            const points = allNodes.map(n => [n.lat, n.lon, 1.0]);
+
+            if (heatLayer) {
+                heatLayer.setLatLngs(points);
+            } else {
+                heatLayer = L.heatLayer(points, { radius: 25, blur: 15, maxZoom: 17 }).addTo(map);
+            }
+        }
+
         function updateDisplay() {
             // Wait for map to be ready (Safari fix)
             if (!mapReady) {
@@ -504,7 +564,11 @@
             });
             
             console.log('[MAP] Display updated, total markers:', Object.keys(markers).length);
-            
+
+            // Update overlays
+            updateDirectLines();
+            updateHeatMap();
+
             // Max range link
             const maxLink = document.getElementById('maxrange-link');
             if (farthestNode && markers[farthestNode]) {

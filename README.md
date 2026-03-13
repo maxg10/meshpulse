@@ -18,6 +18,8 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 - 🐢 **Slow hardware support** - Works on Raspberry Pi Model B+ (512MB RAM)
 - 📏 **Max range display** - Shows distance to farthest directly reachable node (hops=0)
 - 🎯 **Accurate node status** - Shows real last-heard time from tracker memory
+- 🔗 **Direct connection lines** - See your real radio reach with SNR-colored lines from tracker to all hops=0 nodes
+- 🔥 **Heat map** - Visualize network density across the map
 
 ## Node Colors (Real Network State)
 
@@ -147,6 +149,10 @@ sudo journalctl -u meshtastic-mapper -f
 ```
 
 ### What's New in Latest Version
+
+**v1.8 - Direct Connection Lines & Heat Map**
+- 🔗 Direct connection lines - visual lines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5)
+- 🔥 Heat map - node density visualization using leaflet.heat
 
 **v1.7 - Message Persistence & Cache Busting**
 - 💾 Messages now saved to `nodes.json` and restored on restart/page refresh
