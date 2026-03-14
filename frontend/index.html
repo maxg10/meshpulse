@@ -26,7 +26,7 @@
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
         <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
         <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
-        <div id="connection-section">
+        <div id="connection-section" onclick="event.stopPropagation()">
         <small><b>Connection:</b>
         <select id="connection-type" onchange="toggleConnectionType()">
             <option value="serial">USB</option>
