@@ -823,6 +823,20 @@ async def websocket_handler(websocket):
     client_addr = websocket.remote_address
     print(f"[WS] Client connected: {client_addr}, total clients: {len(connected_clients)}")
 
+    # Send current connection status and tracker info to newly connected client
+    if mapper and hasattr(mapper, 'tracker_info'):
+        status_msg = json.dumps({
+            'type': 'connection_status',
+            'status': 'connected',
+            'message': '',
+            'connection_type': mapper.connection_type,
+            'host': mapper.host,
+            'port': mapper.port,
+            'tracker': mapper.tracker_info,
+            'timestamp': int(time.time())
+        })
+        await websocket.send(status_msg)
+
     try:
         async for message in websocket:
             try:
