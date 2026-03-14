@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.8">
+    <link rel="stylesheet" href="styles.css?v=1.9">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -82,6 +82,7 @@
         
         <div class="section">DATA SOURCE</div>
         <div class="row"><span style="color:#22c55e;">●</span> WebSocket (real-time)</div>
+        <div class="row"><span style="color:#eab308;" class="ws-connecting">●</span> Connecting...</div>
         <div class="row"><span style="color:#eab308;">●</span> Polling (fallback)</div>
         <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
@@ -124,10 +125,16 @@
         
         function updateWSStatus(status) {
             const statusEl = document.getElementById('ws-status');
+            statusEl.classList.remove('ws-connecting');
             if (status === 'connected') {
                 statusEl.style.color = '#22c55e';
                 statusEl.textContent = '●';
                 statusEl.title = 'WebSocket connected (real-time)';
+            } else if (status === 'connecting') {
+                statusEl.style.color = '#eab308';
+                statusEl.textContent = '●';
+                statusEl.title = 'Connecting...';
+                statusEl.classList.add('ws-connecting');
             } else if (status === 'polling') {
                 statusEl.style.color = '#eab308';
                 statusEl.textContent = '●';
@@ -142,21 +149,30 @@
         function connectWebSocket() {
             const wsUrl = `ws://${window.location.hostname}:8765`;
             console.log('[WS] Connecting to:', wsUrl);
-            
+
+            // Show blinking yellow while connecting
+            updateWSStatus('connecting');
+
             try {
                 ws = new WebSocket(wsUrl);
-                
+
                 ws.onopen = () => {
                     console.log('[WS] Connected!');
                     updateWSStatus('connected');
                     isUsingWebSocket = true;
-                    
+
                     // Stop polling when WebSocket connects
                     if (pollingInterval) {
                         clearInterval(pollingInterval);
                         pollingInterval = null;
                     }
-                    
+
+                    // Clear any pending reconnect
+                    if (wsReconnectInterval) {
+                        clearTimeout(wsReconnectInterval);
+                        wsReconnectInterval = null;
+                    }
+
                     // Load initial data if not already done
                     if (!initialFetchDone) {
                         console.log('[WS] Loading initial data...');
@@ -232,45 +248,55 @@
                 
                 ws.onerror = (error) => {
                     console.error('[WS] Error:', error);
-                    updateWSStatus('disconnected');
+                    // Don't change status here - let onclose handle it
                 };
-                
+
                 ws.onclose = () => {
                     console.log('[WS] Disconnected, will retry...');
-                    if (isUsingWebSocket) {
-                        updateWSStatus('polling');
-                    }
+                    const wasConnected = isUsingWebSocket;
                     isUsingWebSocket = false;
                     ws = null;
-                    
+
+                    // Show red if was connected, otherwise keep trying silently
+                    if (wasConnected) {
+                        updateWSStatus('disconnected');
+                    }
+
                     // Start polling as fallback
                     if (!pollingInterval) {
                         console.log('[WS] Starting polling fallback');
-                        // Immediate fetch BEFORE starting interval
                         if (!initialFetchDone) {
                             fetchNodesJSON(0);
                         }
                         pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
                     }
-                    
-                    // Try to reconnect WebSocket after 2 seconds
+
+                    // Retry after 3 seconds (will show blinking yellow again)
                     if (!wsReconnectInterval) {
                         wsReconnectInterval = setTimeout(() => {
                             wsReconnectInterval = null;
                             connectWebSocket();
-                        }, 2000);
+                        }, 3000);
                     }
                 };
             } catch (e) {
                 console.error('[WS] Connection failed:', e);
-                updateWSStatus('polling');
-                
+                updateWSStatus('disconnected');
+
                 // Fallback to polling
                 if (!pollingInterval) {
                     if (!initialFetchDone) {
                         fetchNodesJSON(0);
                     }
                     pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
+                }
+
+                // Retry after 3 seconds
+                if (!wsReconnectInterval) {
+                    wsReconnectInterval = setTimeout(() => {
+                        wsReconnectInterval = null;
+                        connectWebSocket();
+                    }, 3000);
                 }
             }
         }

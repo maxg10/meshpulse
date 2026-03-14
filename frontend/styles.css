@@ -62,6 +62,12 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:
 .msg-text{color:#000;word-wrap:break-word}
 .message-item.meta{color:#666;font-style:italic}
 
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0.3; }
+}
+.ws-connecting { animation: blink 1s infinite; }
+
 .filter-label{font-size:11px;cursor:pointer;display:inline-block;margin-bottom:2px}
 
 #connection-section{margin:4px 0}
