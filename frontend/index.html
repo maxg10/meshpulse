@@ -247,6 +247,10 @@
                                 toggleConnectionType();
                                 userChangingConnection = false;  // Backend confirmed, allow updateDisplay to sync
                             }
+                            if (data.status === 'connected') {
+                                // Reload data after connection change
+                                setTimeout(() => fetchNodesJSON(0), 500);
+                            }
                         }
                     } catch (e) {
                         console.error('[WS] Parse error:', e);
