@@ -404,7 +404,10 @@
                     // Store data
                     allNodes = d.nodes || [];
                     allNodesNoGps = d.nodes_no_pos || [];
-                    trackerInfo = d.tracker || {};
+                    // Don't overwrite tracker info with empty data from nodes.json
+                    if (d.tracker && Object.keys(d.tracker).length > 0) {
+                        trackerInfo = d.tracker;
+                    }
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
                     
