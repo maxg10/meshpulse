@@ -36,11 +36,11 @@
         <div id="serial-info"><small><span id="serial-port">-</span> <span style="color:#888;">(Auto)</span></small></div>
         <div id="tcp-info" style="display:none;">
             <input type="text" id="tcp-host" placeholder="192.168.1.100" size="14">
-            <button onclick="connectTCP()">Connect</button><br>
-            <label class="filter-label" style="margin-top:4px;">
-                <input type="checkbox" id="keep-previous-data"> Keep previous data
-            </label>
+            <button onclick="connectTCP()">Connect</button>
         </div>
+        <label class="filter-label" style="margin-top:4px;">
+            <input type="checkbox" id="keep-previous-data"> Keep previous data
+        </label><br>
         <div id="connection-message" style="font-size:10px;color:#666;margin-top:2px;"></div>
         </div>
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
@@ -439,10 +439,40 @@
             };
         }
         
+        function connectSerial() {
+            const keepData = document.getElementById('keep-previous-data').checked;
+            const msgEl = document.getElementById('connection-message');
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                msgEl.textContent = 'WebSocket not connected';
+                return;
+            }
+
+            updateConnectionStatus('connecting');
+            msgEl.textContent = 'Switching to USB...';
+            ws.send(JSON.stringify({type: 'connect', connection_type: 'serial', keep_data: keepData}));
+
+            if (!keepData) {
+                allNodes = [];
+                allNodesNoGps = [];
+                allMessages = [];
+                Object.keys(markers).forEach(id => map.removeLayer(markers[id]));
+                markers = {};
+                if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+                directLines.forEach(line => map.removeLayer(line));
+                directLines = [];
+                updateDisplay();
+                updateMessagesDisplay();
+            }
+        }
+
         function toggleConnectionType() {
             const type = document.getElementById('connection-type').value;
             document.getElementById('serial-info').style.display = type === 'serial' ? 'block' : 'none';
             document.getElementById('tcp-info').style.display = type === 'tcp' ? 'block' : 'none';
+            if (type === 'serial') {
+                connectSerial();
+            }
         }
 
         function updateConnectionStatus(status) {
