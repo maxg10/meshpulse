@@ -127,6 +127,7 @@
         let wsReconnectInterval = null;
         let pollingInterval = null;
         let isUsingWebSocket = false;
+        let userChangingConnection = false;  // Prevent updateDisplay from overriding user's choice
         
         function updateWSStatus(status) {
             const statusEl = document.getElementById('ws-status');
@@ -244,6 +245,7 @@
                             if (data.connection_type) {
                                 document.getElementById('connection-type').value = data.connection_type;
                                 toggleConnectionType();
+                                userChangingConnection = false;  // Backend confirmed, allow updateDisplay to sync
                             }
                         }
                     } catch (e) {
@@ -506,12 +508,15 @@
         }
 
         function handleConnectionTypeChange() {
+            userChangingConnection = true;  // Prevent updateDisplay from overriding
             const type = document.getElementById('connection-type').value;
             toggleConnectionType();
             if (type === 'serial') {
                 connectSerial();
             }
             // TCP wymaga wpisania IP i kliknięcia Connect
+            // Reset flag after 10 seconds (enough time for user to enter IP and click Connect)
+            setTimeout(() => { userChangingConnection = false; }, 10000);
         }
 
         function updateConnectionStatus(status) {
@@ -668,14 +673,16 @@
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
-            // Update connection section from tracker info
-            const connType = trackerInfo.connection_type || 'serial';
-            document.getElementById('connection-type').value = connType;
-            document.getElementById('serial-port').textContent = trackerInfo.port || 'Auto';
-            if (trackerInfo.host) {
-                document.getElementById('tcp-host').value = trackerInfo.host;
+            // Update connection section from tracker info (but not if user is changing it)
+            if (!userChangingConnection) {
+                const connType = trackerInfo.connection_type || 'serial';
+                document.getElementById('connection-type').value = connType;
+                document.getElementById('serial-port').textContent = trackerInfo.port || 'Auto';
+                if (trackerInfo.host) {
+                    document.getElementById('tcp-host').value = trackerInfo.host;
+                }
+                toggleConnectionType();
             }
-            toggleConnectionType();
             updateConnectionStatus('connected');
             document.getElementById('tracker-uptime').textContent = formatUptime(trackerInfo.uptime_seconds);
             
