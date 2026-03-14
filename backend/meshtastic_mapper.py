@@ -73,8 +73,7 @@ class ListenBasedMapper:
         else:
             asyncio.run(self.broadcast_connection_status('failed', f'Could not connect via {self.connection_type}'))
 
-        # Save immediately to show tracker info in UI
-        self.save_nodes()
+        # Note: do NOT save here - listener hasn't started yet, nodes are empty
     
     def get_local_node_id(self):
         """Get local node info using meshtastic --info"""
