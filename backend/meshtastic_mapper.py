@@ -600,6 +600,7 @@ class ListenBasedMapper:
             'connection_type': self.connection_type,
             'host': self.host,
             'port': self.port,
+            'tracker': getattr(self, 'tracker_info', {}),
             'timestamp': int(time.time())
         })
         websockets.broadcast(connected_clients, msg)

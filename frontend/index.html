@@ -248,6 +248,13 @@
                                 userChangingConnection = false;  // Backend confirmed, allow updateDisplay to sync
                             }
                             if (data.status === 'connected') {
+                                // Update tracker info from WebSocket immediately
+                                if (data.tracker) {
+                                    trackerInfo = data.tracker;
+                                    document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
+                                    document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
+                                    document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
+                                }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
                             }
