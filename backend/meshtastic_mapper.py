@@ -768,6 +768,7 @@ async def handle_connection_change(data, websocket):
     global mapper, restart_config
     connection_type = data.get('connection_type', 'serial')
     host = (data.get('host') or '').strip()
+    keep_data = data.get('keep_data', False)
 
     # Validate
     if connection_type == 'tcp' and not host:
@@ -789,7 +790,8 @@ async def handle_connection_change(data, websocket):
     restart_config = {
         'connection_type': connection_type,
         'host': host or None,
-        'port': port
+        'port': port,
+        'keep_data': keep_data
     }
 
     # Send "connecting" status
@@ -901,6 +903,23 @@ if __name__ == '__main__':
                 connection_type = restart_config.get('connection_type', 'serial')
                 host = restart_config.get('host')
                 port = restart_config.get('port')
+                keep_data = restart_config.get('keep_data', False)
+
+                # Clear nodes.json if not keeping previous data
+                if not keep_data:
+                    try:
+                        empty_data = {
+                            'ts': int(time.time()),
+                            'updated': datetime.now().isoformat(),
+                            'cnt': 0, 'cnt_no_pos': 0,
+                            'max_distance_km': None, 'farthest_node': None,
+                            'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': []
+                        }
+                        with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
+                            json.dump(empty_data, f, indent=2)
+                        print("[RESTART] Cleared nodes.json (fresh scan)")
+                    except Exception as e:
+                        print(f"[RESTART] Error clearing nodes.json: {e}")
 
                 # Auto-detect port if switching back to serial without a stored port
                 if connection_type == 'serial' and not port:

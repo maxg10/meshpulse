@@ -36,7 +36,10 @@
         <div id="serial-info"><small><span id="serial-port">-</span> <span style="color:#888;">(Auto)</span></small></div>
         <div id="tcp-info" style="display:none;">
             <input type="text" id="tcp-host" placeholder="192.168.1.100" size="14">
-            <button onclick="connectTCP()">Connect</button>
+            <button onclick="connectTCP()">Connect</button><br>
+            <label class="filter-label" style="margin-top:4px;">
+                <input type="checkbox" id="keep-previous-data"> Keep previous data
+            </label>
         </div>
         <div id="connection-message" style="font-size:10px;color:#666;margin-top:2px;"></div>
         </div>
@@ -458,6 +461,7 @@
 
         function connectTCP() {
             const host = document.getElementById('tcp-host').value.trim();
+            const keepData = document.getElementById('keep-previous-data').checked;
             const msgEl = document.getElementById('connection-message');
 
             if (!host) {
@@ -480,7 +484,21 @@
                 return;
             }
 
-            ws.send(JSON.stringify({type: 'connect', connection_type: 'tcp', host: host}));
+            ws.send(JSON.stringify({type: 'connect', connection_type: 'tcp', host: host, keep_data: keepData}));
+
+            // Clear frontend state immediately if not keeping data
+            if (!keepData) {
+                allNodes = [];
+                allNodesNoGps = [];
+                allMessages = [];
+                Object.keys(markers).forEach(id => map.removeLayer(markers[id]));
+                markers = {};
+                if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
+                directLines.forEach(line => map.removeLayer(line));
+                directLines = [];
+                updateDisplay();
+                updateMessagesDisplay();
+            }
 
             // Timeout fallback
             const t = setTimeout(() => {
