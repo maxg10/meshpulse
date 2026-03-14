@@ -237,7 +237,9 @@
                 
                 ws.onclose = () => {
                     console.log('[WS] Disconnected, will retry...');
-                    updateWSStatus('polling');
+                    if (isUsingWebSocket) {
+                        updateWSStatus('polling');
+                    }
                     isUsingWebSocket = false;
                     ws = null;
                     
