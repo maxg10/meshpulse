@@ -658,14 +658,16 @@ class ListenBasedMapper:
         last_save = time.time()
         last_clean = time.time()
         save_interval = 60  # Save every minute
+        first_save_done = False
+        first_save_delay = 10  # First save after 10 seconds
         clean_interval = 3600  # Clean every hour
         restart_count = 0
         
         while True:
             try:
                 print(f"[START] Starting listener (restart #{restart_count})...")
-                start_time = time.time()
-                last_save = start_time
+                last_save = time.time()
+                first_save_done = False
                 
                 # Start process
                 self.current_process = None
@@ -696,10 +698,12 @@ class ListenBasedMapper:
                     self.parse_telemetry_update(line)
                     self.parse_text_message(line)
                     
-                    # Save periodically - first save after 5s, then every 60s
-                    if time.time() - last_save > (5 if last_save == start_time else save_interval):
+                    # Save periodically - first save after 10s, then every 60s
+                    current_interval = first_save_delay if not first_save_done else save_interval
+                    if time.time() - last_save > current_interval:
                         self.save_nodes()
                         last_save = time.time()
+                        first_save_done = True
                     
                     # Clean old nodes periodically
                     if time.time() - last_clean > clean_interval:
