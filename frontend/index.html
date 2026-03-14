@@ -792,8 +792,11 @@
             } else {
                 maxLink.style.display = 'none';
             }
+
+            // Update timestamp on every display refresh
+            document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
         }
-        
+
         // Restore saved TCP host from localStorage
         const savedTcpHost = localStorage.getItem('tcp-host');
         if (savedTcpHost) {
