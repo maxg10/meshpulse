@@ -241,12 +241,6 @@
                                 clearTimeout(window._tcpConnectTimeout);
                                 window._tcpConnectTimeout = null;
                             }
-                            // Sync select if backend reports connection type
-                            if (data.connection_type) {
-                                document.getElementById('connection-type').value = data.connection_type;
-                                toggleConnectionType();
-                                userChangingConnection = false;  // Backend confirmed, allow updateDisplay to sync
-                            }
                             if (data.status === 'connected') {
                                 // Update tracker info from WebSocket immediately
                                 if (data.tracker) {
@@ -257,6 +251,14 @@
                                 }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
+                                // Second reload after first SAVE (includes uptime and nodes)
+                                setTimeout(() => fetchNodesJSON(0), 15000);
+                            }
+                            // Sync select after status confirmed by backend
+                            if (data.connection_type) {
+                                document.getElementById('connection-type').value = data.connection_type;
+                                toggleConnectionType();
+                                userChangingConnection = false;  // Backend confirmed, allow updateDisplay to sync
                             }
                         }
                     } catch (e) {
