@@ -28,7 +28,7 @@
         <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
         <div id="connection-section" onclick="event.stopPropagation()">
         <small><b>Connection:</b>
-        <select id="connection-type" onchange="toggleConnectionType()">
+        <select id="connection-type" onchange="handleConnectionTypeChange()">
             <option value="serial">USB</option>
             <option value="tcp">TCP</option>
         </select>
@@ -470,9 +470,15 @@
             const type = document.getElementById('connection-type').value;
             document.getElementById('serial-info').style.display = type === 'serial' ? 'block' : 'none';
             document.getElementById('tcp-info').style.display = type === 'tcp' ? 'block' : 'none';
+        }
+
+        function handleConnectionTypeChange() {
+            const type = document.getElementById('connection-type').value;
+            toggleConnectionType();
             if (type === 'serial') {
                 connectSerial();
             }
+            // TCP wymaga wpisania IP i kliknięcia Connect
         }
 
         function updateConnectionStatus(status) {
