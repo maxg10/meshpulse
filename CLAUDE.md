@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.8 (direct connection lines + heat map)
+**Current Version:** v1.9 (Safari WebSocket fix)
 
 ## Running & Deployment
 
@@ -127,7 +127,20 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.8)
+## Recent Changes (v1.9)
+
+**Added:**
+- Safari detection: `isSafari` flag using userAgent regex (`/^((?!chrome|android).)*safari/i`)
+- `WS_CONNECT_DELAY` constant: 500ms for Safari, 100ms for others (initial WebSocket connect delay)
+- `WS_RETRY_DELAY` constant: 2000ms for Safari, 1000ms for others (reconnect retry delay)
+- Safari console log in `map.whenReady` block
+
+**Changed:**
+- Version bumped to v1.9 (`MAPPER_VERSION`, stats panel display)
+- All WebSocket retry timeouts use `WS_RETRY_DELAY` instead of hardcoded `1000`
+- Initial connect timeout uses `WS_CONNECT_DELAY` instead of hardcoded `100`
+
+## Previous Changes (v1.8)
 
 **Added:**
 - Direct connection lines: checkbox "Show direct lines" in Mesh Stats panel; draws Leaflet polylines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5), opacity 0.6, weight 2px

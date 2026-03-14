@@ -16,7 +16,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.8 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.9 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -114,8 +114,13 @@
         let directLines = [];
         let heatLayer = null;
 
-        // Meshtastic Mapper v1.8 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.8';
+        // Meshtastic Mapper v1.9 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.9';
+
+        // Detect Safari (has WebSocket timing issues)
+        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+        const WS_CONNECT_DELAY = isSafari ? 500 : 100;  // Safari needs more time
+        const WS_RETRY_DELAY = isSafari ? 2000 : 1000;  // Safari needs longer retry
 
         // WebSocket connection
         let ws = null;
@@ -271,12 +276,12 @@
                         pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
                     }
 
-                    // Retry after 1 second (will show blinking yellow again)
+                    // Retry after WS_RETRY_DELAY (will show blinking yellow again)
                     if (!wsReconnectInterval) {
                         wsReconnectInterval = setTimeout(() => {
                             wsReconnectInterval = null;
                             connectWebSocket();
-                        }, 1000);
+                        }, WS_RETRY_DELAY);
                     }
                 };
             } catch (e) {
@@ -291,12 +296,12 @@
                     pollingInterval = setInterval(() => fetchNodesJSON(0), 15000);
                 }
 
-                // Retry after 1 second
+                // Retry after WS_RETRY_DELAY
                 if (!wsReconnectInterval) {
                     wsReconnectInterval = setTimeout(() => {
                         wsReconnectInterval = null;
                         connectWebSocket();
-                    }, 1000);
+                    }, WS_RETRY_DELAY);
                 }
             }
         }
@@ -786,9 +791,12 @@
             fetchNodesJSON(0);
             
             // Give fetch a moment to start, then try WebSocket
+            if (isSafari) {
+                console.log('[WS] Safari detected, using longer delays');
+            }
             setTimeout(() => {
                 connectWebSocket();
-            }, 100);
+            }, WS_CONNECT_DELAY);
         });
         
         // Update marker colors every 30 seconds (for age calculation)

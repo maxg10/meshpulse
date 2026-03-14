@@ -46,6 +46,7 @@ The map shows **true network status** based on when your tracker last heard each
 - Raspberry Pi (Model B+ or newer) or similar Linux system
 - Meshtastic tracker connected via USB
 - Python 3.7+
+- **Web browser:** Chrome or Firefox recommended (Safari has WebSocket issues)
 
 ### Step 1: Install dependencies
 ```bash
@@ -149,6 +150,9 @@ sudo journalctl -u meshtastic-mapper -f
 ```
 
 ### What's New in Latest Version
+
+**v1.9 - Safari WebSocket Fix**
+- 🦁 Safari detection with longer WebSocket delays (500ms connect, 2s retry vs 100ms/1s for other browsers)
 
 **v1.8 - Direct Connection Lines & Heat Map**
 - 🔗 Direct connection lines - visual lines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5)
@@ -371,9 +375,12 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 
 ## Known Limitations
 
+- **Safari WebSocket issues:** Safari has timing issues with WebSocket connections. The app works but may take longer to establish real-time connection. **Chrome or Firefox recommended.**
+- **No authentication:** WebSocket server assumes trusted LAN environment
+- **MQTT nodes:** Appear in data but excluded from max range calculation (not real radio contacts)
+- **Relies on meshtastic CLI:** Parser may need updates if CLI output format changes
 - **Timeout issues:** `meshtastic --nodes` times out on slow Pi - we use `--listen` mode instead
 - **No real-time packets:** Only updates when nodes broadcast position (every 15-30 min typically)
-- **MQTT not supported:** Direct USB connection only
 
 
 ## Contributing
