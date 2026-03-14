@@ -433,6 +433,8 @@ class ListenBasedMapper:
                 uptime_match = re.search(r"'uptimeSeconds':\s*(\d+)", line)
                 if uptime_match:
                     self.tracker_info['uptime_seconds'] = int(uptime_match.group(1))
+                    # Broadcast updated tracker info with uptime
+                    asyncio.run(self.broadcast_connection_status('connected'))
 
             # Only update timestamp if node already exists
             if node_id in self.nodes:
