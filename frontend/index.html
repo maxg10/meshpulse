@@ -479,7 +479,12 @@
             const msgEl = document.getElementById('connection-message');
 
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                msgEl.textContent = 'WebSocket not connected';
+                if (ws && ws.readyState === WebSocket.CONNECTING) {
+                    msgEl.textContent = 'Waiting for WebSocket...';
+                    setTimeout(() => connectSerial(), 500);
+                } else {
+                    msgEl.textContent = 'WebSocket not connected - refresh page';
+                }
                 return;
             }
 
@@ -553,8 +558,13 @@
             msgEl.textContent = 'Connecting...';
 
             if (!ws || ws.readyState !== WebSocket.OPEN) {
-                updateConnectionStatus('failed');
-                msgEl.textContent = 'WebSocket not connected';
+                if (ws && ws.readyState === WebSocket.CONNECTING) {
+                    msgEl.textContent = 'Waiting for WebSocket...';
+                    setTimeout(() => connectTCP(), 500);
+                } else {
+                    updateConnectionStatus('failed');
+                    msgEl.textContent = 'WebSocket not connected - refresh page';
+                }
                 return;
             }
 
