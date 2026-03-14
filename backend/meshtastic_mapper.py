@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.6 - WebSocket support
+#ver 1.8 - TCP connection support
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -20,12 +20,44 @@ import threading
 # Global set of connected WebSocket clients
 connected_clients = set()
 
+# Config path (shared with frontend)
+CONFIG_PATH = '/var/www/html/meshtastic/config.json'
+
+# Runtime restart support
+mapper = None
+restart_event = threading.Event()
+restart_config = {}
+
+
+def load_config():
+    """Load connection config from JSON file"""
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            return json.load(f)
+    except Exception:
+        return {'connection_type': 'serial', 'port': None, 'host': None}
+
+
+def save_config(connection_type, host=None, port=None):
+    """Save connection config to JSON file"""
+    config = {'connection_type': connection_type, 'host': host, 'port': port}
+    try:
+        os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+        with open(CONFIG_PATH, 'w') as f:
+            json.dump(config, f, indent=2)
+        print(f"[CONFIG] Saved: {connection_type} {host or port or ''}")
+    except Exception as e:
+        print(f"[CONFIG] Save error: {e}")
+
 class ListenBasedMapper:
-    def __init__(self, port='/dev/ttyUSB0', max_age=604800):
+    def __init__(self, connection_type='serial', port=None, host=None, max_age=604800):
+        self.connection_type = connection_type
         self.port = port
+        self.host = host
+        self.current_process = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
-        self.max_age = max_age  # 24 hours default
+        self.max_age = max_age
 
         # Load existing nodes or start fresh
         self.nodes_no_position = {}  # Nodes without GPS position
@@ -35,6 +67,12 @@ class ListenBasedMapper:
         # Store text messages (max 50, newest first)
         self.messages = []
 
+        # Broadcast connection status to any already-connected WS clients
+        if self.local_node_id:
+            asyncio.run(self.broadcast_connection_status('connected'))
+        else:
+            asyncio.run(self.broadcast_connection_status('failed', f'Could not connect via {self.connection_type}'))
+
         # Save immediately to show tracker info in UI
         self.save_nodes()
     
@@ -42,8 +80,12 @@ class ListenBasedMapper:
         """Get local node info using meshtastic --info"""
         try:
             print("[INFO] Getting local node info...")
+            if self.connection_type == 'tcp':
+                cmd_info = [self.meshtastic_cmd, '--host', self.host, '--info']
+            else:
+                cmd_info = [self.meshtastic_cmd, '--port', self.port, '--info']
             result = subprocess.run(
-                [self.meshtastic_cmd, '--port', self.port, '--info'],
+                cmd_info,
                 capture_output=True,
                 text=True,
                 timeout=60
@@ -70,7 +112,9 @@ class ListenBasedMapper:
             # Store tracker info
             self.tracker_info = {
                 'node_id': node_id,
+                'connection_type': self.connection_type,
                 'port': self.port,
+                'host': self.host,
                 'hw_model': hw_model,
                 'firmware': firmware
             }
@@ -87,7 +131,9 @@ class ListenBasedMapper:
         
         self.tracker_info = {
             'node_id': None,
+            'connection_type': self.connection_type,
             'port': self.port,
+            'host': self.host,
             'hw_model': 'Unknown',
             'firmware': 'Unknown'
         }
@@ -544,6 +590,22 @@ class ListenBasedMapper:
 
         websockets.broadcast(connected_clients, message)
 
+    async def broadcast_connection_status(self, status, message=''):
+        """Broadcast connection status to all connected WebSocket clients"""
+        if not connected_clients:
+            return
+        msg = json.dumps({
+            'type': 'connection_status',
+            'status': status,
+            'message': str(message),
+            'connection_type': self.connection_type,
+            'host': self.host,
+            'port': self.port,
+            'timestamp': int(time.time())
+        })
+        websockets.broadcast(connected_clients, msg)
+        print(f"[WS] Connection status: {status} ({self.connection_type})")
+
     def save_nodes(self):
         """Save to JSON"""
         try:
@@ -577,16 +639,19 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.6 (with WebSocket)")
+        print("Meshtastic Mapper - LISTEN MODE v1.8 (TCP + WebSocket)")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
         print(f"Current nodes in memory: {len(self.nodes)}")
         print(f"WebSocket server: ws://0.0.0.0:8765")
         print("=" * 60)
-        
-        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
-        
+
+        if self.connection_type == 'tcp':
+            cmd = [self.meshtastic_cmd, '--host', self.host, '--listen']
+        else:
+            cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
         
@@ -601,6 +666,7 @@ class ListenBasedMapper:
                 print(f"[START] Starting listener (restart #{restart_count})...")
                 
                 # Start process
+                self.current_process = None
                 process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
@@ -608,7 +674,8 @@ class ListenBasedMapper:
                     text=True,
                     bufsize=1
                 )
-                
+                self.current_process = process
+
                 # Read output line by line
                 for line in iter(process.stdout.readline, ''):
                     if not line:
@@ -637,15 +704,33 @@ class ListenBasedMapper:
                         self.clean_old_nodes()
                         self.save_nodes()
                         last_clean = time.time()
-                    
+
+                    # Check for connection change request
+                    if restart_event.is_set():
+                        print("[RESTART] Connection change requested, stopping listener...")
+                        try:
+                            process.terminate()
+                            process.wait(timeout=5)
+                        except Exception:
+                            process.kill()
+                        self.current_process = None
+                        self.save_nodes()
+                        return
+
                 # Process ended
+                self.current_process = None
                 return_code = process.wait()
                 print(f"[WARN] Process ended with code {return_code}")
-                
+
+                # Check if restart was requested
+                if restart_event.is_set():
+                    self.save_nodes()
+                    return
+
                 # Final save before restart
                 if self.nodes:
                     self.save_nodes()
-                
+
                 # Wait before restart
                 print("[WAIT] Restarting in 10 seconds...")
                 time.sleep(10)
@@ -678,24 +763,72 @@ class ListenBasedMapper:
                 restart_count += 1
 
 
+async def handle_connection_change(data, websocket):
+    """Handle connection type change request from frontend"""
+    global mapper, restart_config
+    connection_type = data.get('connection_type', 'serial')
+    host = (data.get('host') or '').strip()
+
+    # Validate
+    if connection_type == 'tcp' and not host:
+        await websocket.send(json.dumps({
+            'type': 'connection_status', 'status': 'failed',
+            'message': 'No host specified'
+        }))
+        return
+
+    print(f"[WS] Connection change: {connection_type} {host or ''}")
+
+    # Determine port for serial
+    port = mapper.port if (mapper and connection_type == 'serial') else None
+
+    # Save config
+    save_config(connection_type, host=host or None, port=port)
+
+    # Store restart params
+    restart_config = {
+        'connection_type': connection_type,
+        'host': host or None,
+        'port': port
+    }
+
+    # Send "connecting" status
+    await websocket.send(json.dumps({
+        'type': 'connection_status', 'status': 'connecting',
+        'message': f'Switching to {connection_type}' + (f': {host}' if host else '') + '...'
+    }))
+
+    # Terminate current subprocess to trigger run() exit
+    if mapper and mapper.current_process:
+        try:
+            mapper.current_process.terminate()
+        except Exception as e:
+            print(f"[WS] Error terminating process: {e}")
+
+    restart_event.set()
+
+
 # WebSocket server handler
 async def websocket_handler(websocket):
     """Handle WebSocket connections"""
-    # Register client
     connected_clients.add(websocket)
     client_addr = websocket.remote_address
     print(f"[WS] Client connected: {client_addr}, total clients: {len(connected_clients)}")
-    
+
     try:
-        # Keep connection alive
         async for message in websocket:
-            # Echo back or handle commands if needed
-            print(f"[WS] Received from {client_addr}: {message}")
+            try:
+                data = json.loads(message)
+                if data.get('type') == 'connect':
+                    await handle_connection_change(data, websocket)
+                else:
+                    print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
+            except json.JSONDecodeError:
+                print(f"[WS] Invalid JSON from {client_addr}")
     except websockets.exceptions.ConnectionClosed:
         print(f"[WS] Client disconnected: {client_addr}")
     finally:
-        # Unregister client
-        connected_clients.remove(websocket)
+        connected_clients.discard(websocket)
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
@@ -712,41 +845,76 @@ def run_websocket_server_thread():
 
 
 if __name__ == '__main__':
-    print("Starting Meshtastic Mapper (Listen Mode with WebSocket)...")
-    
+    print("Starting Meshtastic Mapper (Listen Mode with WebSocket + TCP)...")
+
     # Create output directory
     os.makedirs('/var/www/html/meshtastic', exist_ok=True)
 
-    # Auto-detect serial port
-    port = None
     possible_ports = [
         '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2',
         '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2'
     ]
-    for p in possible_ports:
-        if os.path.exists(p):
-            port = p
-            break
 
-    if not port:
-        print("ERROR: No serial port found")
-        print("Checked:", possible_ports)
-        sys.exit(1)
+    def detect_serial_port():
+        for p in possible_ports:
+            if os.path.exists(p):
+                return p
+        return None
 
-    print(f"Using port: {port}\n")
-    
+    # Load config
+    config = load_config()
+    connection_type = config.get('connection_type', 'serial')
+    host = config.get('host')
+    port = config.get('port')
+
+    # Auto-detect serial port if needed
+    if connection_type == 'serial' and not port:
+        port = detect_serial_port()
+        if not port:
+            print("ERROR: No serial port found")
+            print("Checked:", possible_ports)
+            sys.exit(1)
+
+    print(f"Connection: {connection_type} {host or port or ''}\n")
+
     try:
         # Start WebSocket server in background thread
         ws_thread = threading.Thread(target=run_websocket_server_thread, daemon=True)
         ws_thread.start()
         print("[WS] WebSocket server thread started")
-        
+
         # Give WebSocket server time to start
         time.sleep(2)
-        
-        # Create mapper with 24h TTL (86400 seconds)
-        mapper = ListenBasedMapper(port, max_age=604800)
-        mapper.run()
+
+        # Mapper loop with runtime restart support
+        while True:
+            mapper = ListenBasedMapper(
+                connection_type=connection_type,
+                port=port,
+                host=host,
+                max_age=604800
+            )
+            mapper.run()
+
+            if restart_event.is_set():
+                restart_event.clear()
+                connection_type = restart_config.get('connection_type', 'serial')
+                host = restart_config.get('host')
+                port = restart_config.get('port')
+
+                # Auto-detect port if switching back to serial without a stored port
+                if connection_type == 'serial' and not port:
+                    port = detect_serial_port()
+                    if not port:
+                        print("[RESTART] ERROR: No serial port found, keeping previous config")
+                        connection_type = mapper.connection_type
+                        host = mapper.host
+                        port = mapper.port
+
+                print(f"[RESTART] New connection: {connection_type} {host or port or ''}")
+            else:
+                break
+
     except KeyboardInterrupt:
         print("\nStopped by user")
     except Exception as e:

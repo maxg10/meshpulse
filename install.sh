@@ -134,6 +134,12 @@ sudo cp frontend/styles.css /var/www/html/meshtastic/
 sudo cp frontend/favicon.ico /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
+# Create config.json from example if it doesn't exist
+if [ ! -f "$REPO_PATH/config.json" ]; then
+    echo "⚙️  Creating config.json from example..."
+    cp "$REPO_PATH/config.json.example" "$REPO_PATH/config.json"
+fi
+
 # Reload systemd
 echo "🔄 Reloading systemd..."
 sudo systemctl daemon-reload

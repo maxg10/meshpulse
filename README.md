@@ -196,6 +196,26 @@ cp /var/www/html/meshtastic/nodes.json ~/nodes_backup_$(date +%Y%m%d).json
 ```
 
 
+## TCP Connection (WiFi Trackers)
+
+If your tracker has WiFi (Heltec V3, T-Beam, T-Deck, Station G2), you can connect over TCP instead of USB:
+
+1. Enable WiFi on your tracker via the Meshtastic app
+2. Note the tracker's IP address (shown in the app)
+3. In the web interface, open **Mesh Stats** and change **Connection** from `USB` to `TCP`
+4. Enter the IP address and click **Connect**
+
+The backend will restart automatically with the new connection settings. Your choice is saved to `config.json` and persists across service restarts.
+
+**Benefits:**
+- Tracker can be on a roof or remote location without a USB cable
+- Power via PoE adapter or solar panel
+- One Raspberry Pi can be reconfigured to connect to different trackers
+
+**Requirements:**
+- Tracker and Raspberry Pi must be on the same local network
+- Meshtastic firmware with WiFi support
+
 ## Configuration
 
 Edit `backend/meshtastic_mapper.py` if needed:
