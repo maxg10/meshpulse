@@ -49,6 +49,16 @@ else
     MISSING=1
 fi
 
+# Check pip3
+if command -v pip3 &> /dev/null; then
+    PIP_VER=$(pip3 --version 2>&1 | awk '{print $2}')
+    echo -e "${GREEN}✅ pip3 - OK ($PIP_VER)${NC}"
+else
+    echo -e "${RED}❌ pip3 - NOT FOUND${NC}"
+    echo "   Install with: sudo apt install python3-pip"
+    MISSING=1
+fi
+
 # Check meshtastic CLI
 if command -v meshtastic &> /dev/null || [ -f ~/.local/bin/meshtastic ]; then
     echo -e "${GREEN}✅ meshtastic - OK${NC}"
