@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.11">
+    <link rel="stylesheet" href="styles.css?v=1.12">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -16,11 +16,12 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.11 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.12 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
+        <b>Signal:</b> <span id="signal-bars">-</span><br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
@@ -136,7 +137,7 @@
         let losAbortController = null;
 
         // Meshtastic Mapper v1.11 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.11';
+        const MAPPER_VERSION = '1.12';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -938,6 +939,29 @@
             document.getElementById('direct').textContent = direct;
             document.getElementById('relay').textContent = relay;
             document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
+
+            // Signal quality indicator from RSSI of direct (hops=0, non-MQTT) nodes
+            const directRssiValues = filteredNodes
+                .filter(n => n.hops === 0 && !n.via_mqtt && !isOwnTracker(n.id) && n.rssi != null)
+                .map(n => n.rssi);
+            if (directRssiValues.length > 0) {
+                const avgRssi = directRssiValues.reduce((a, b) => a + b, 0) / directRssiValues.length;
+                let bars;
+                if (avgRssi >= -80) bars = 5;
+                else if (avgRssi >= -95) bars = 4;
+                else if (avgRssi >= -105) bars = 3;
+                else if (avgRssi >= -115) bars = 2;
+                else bars = 1;
+                const barChars = ['▁', '▃', '▅', '▇', '█'];
+                const filled = barChars.slice(0, bars).join('');
+                const empty = barChars.slice(bars).join('');
+                const color = bars >= 4 ? '#22c55e' : bars === 3 ? '#eab308' : '#ef4444';
+                document.getElementById('signal-bars').innerHTML =
+                    `<span style="color:${color}">${filled}</span><span style="color:#555">${empty}</span> <small style="color:#888">${Math.round(avgRssi)} dBm</small>`;
+            } else {
+                document.getElementById('signal-bars').textContent = '-';
+            }
+
             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
             
             // Tracker info
@@ -1019,6 +1043,7 @@
                         ID: ${n.id}<br>
                         Role: ${n.role || 'CLIENT'}<br>
                         SNR: ${n.snr} dB<br>
+                        RSSI: ${n.rssi != null ? n.rssi + ' dBm' : '-'}<br>
                         Alt: ${n.alt}m<br>
                         Hops: ${n.hops != null ? n.hops : '?'}<br>
                         ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>

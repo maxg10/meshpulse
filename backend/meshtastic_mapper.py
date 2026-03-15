@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.11
+#ver 1.12
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -363,7 +363,10 @@ class ListenBasedMapper:
             # Extract SNR if available
             snr_match = re.search(r"'rxSnr':\s*([-\d.]+)", line)
             snr = float(snr_match.group(1)) if snr_match else 0
-            
+
+            rssi_match = re.search(r"'rxRssi':\s*([-\d]+)", line)
+            rssi = int(rssi_match.group(1)) if rssi_match else None
+
             # Extract hops (hopStart - hopLimit)
             hop_start_match = re.search(r"'hopStart':\s*(\d+)", line)
             hop_limit_match = re.search(r"'hopLimit':\s*(\d+)", line)
@@ -382,6 +385,7 @@ class ListenBasedMapper:
                 self.nodes[node_id]['lat'] = round(lat, 6)
                 self.nodes[node_id]['lon'] = round(lon, 6)
                 self.nodes[node_id]['snr'] = round(snr, 1)
+                self.nodes[node_id]['rssi'] = rssi
                 self.nodes[node_id]['hops'] = hops
                 self.nodes[node_id]['via_mqtt'] = via_mqtt
                 self.nodes[node_id]['ts'] = int(time.time())
@@ -396,6 +400,7 @@ class ListenBasedMapper:
                     'lon': round(lon, 6),
                     'alt': 0,
                     'snr': round(snr, 1),
+                    'rssi': rssi,
                     'role': 'CLIENT',
                     'hops': hops,
                     'via_mqtt': via_mqtt,
@@ -641,7 +646,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.11")
+        print("Meshtastic Mapper - LISTEN MODE v1.12")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
