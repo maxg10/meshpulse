@@ -441,6 +441,15 @@ class ListenBasedMapper:
                     # Broadcast updated tracker info with uptime
                     asyncio.run(self.broadcast_connection_status('connected'))
 
+            # Parse RSSI if present
+            rssi_match = re.search(r"'rxRssi':\s*([-\d]+)", line)
+            if rssi_match:
+                rssi = int(rssi_match.group(1))
+                if node_id in self.nodes:
+                    self.nodes[node_id]['rssi'] = rssi
+                elif node_id in self.nodes_no_position:
+                    self.nodes_no_position[node_id]['rssi'] = rssi
+
             # Only update timestamp if node already exists
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
