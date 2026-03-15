@@ -470,7 +470,14 @@
             return Math.floor(diff / 86400) + 'd ago';
         }
         
+        function isOwnTracker(nodeId) {
+            return trackerInfo.node_id && nodeId === trackerInfo.node_id;
+        }
+
         function getMarkerClass(node) {
+            if (isOwnTracker(node.id)) {
+                return 'marker tracker-home';
+            }
             const age = Math.floor(Date.now()/1000) - node.ts;
             let color = 'green';
             if (age > 21600) color = 'red';
@@ -777,24 +784,34 @@
             
             // Add/update markers
             filteredNodes.forEach(n=>{
-                // Calculate distance for direct nodes (hops=0)
-                let distanceInfo = '';
-                if (n.hops === 0 && !n.via_mqtt && trackerInfo.node_id && trackerInfo.node_id !== n.id) {
-                    const trackerNode = allNodes.find(t => t.id === trackerInfo.node_id);
-                    if (trackerNode && trackerNode.lat && trackerNode.lon) {
-                        const dist = calculateDistance(trackerNode.lat, trackerNode.lon, n.lat, n.lon);
-                        distanceInfo = `Dist: ${dist.toFixed(2)} km<br>`;
+                let pop;
+                if (isOwnTracker(n.id)) {
+                    pop = `<div class="node-popup">
+                        <b>📍 ${n.name}</b><br>
+                        YOUR TRACKER<br>
+                        Role: ${n.role || 'CLIENT'}<br>
+                        Pos: ${n.lat}, ${n.lon}<br>
+                        Alt: ${n.alt}m
+                    </div>`;
+                } else {
+                    let distanceInfo = '';
+                    if (n.hops === 0 && !n.via_mqtt && trackerInfo.node_id && trackerInfo.node_id !== n.id) {
+                        const trackerNode = allNodes.find(t => t.id === trackerInfo.node_id);
+                        if (trackerNode && trackerNode.lat && trackerNode.lon) {
+                            const dist = calculateDistance(trackerNode.lat, trackerNode.lon, n.lat, n.lon);
+                            distanceInfo = `Dist: ${dist.toFixed(2)} km<br>`;
+                        }
                     }
+                    pop = `<div class="node-popup">
+                        <b>${n.name}</b><br>
+                        ID: ${n.id}<br>
+                        Role: ${n.role || 'CLIENT'}<br>
+                        SNR: ${n.snr} dB<br>
+                        Alt: ${n.alt}m<br>
+                        Hops: ${n.hops != null ? n.hops : '?'}<br>
+                        ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>
+                    </div>`;
                 }
-                const pop = `<div class="node-popup">
-                    <b>${n.name}</b><br>
-                    ID: ${n.id}<br>
-                    Role: ${n.role || 'CLIENT'}<br>
-                    SNR: ${n.snr} dB<br>
-                    Alt: ${n.alt}m<br>
-                    Hops: ${n.hops != null ? n.hops : '?'}<br>
-                    ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>
-                </div>`;
                 const offset = getOffset(n, allNodes);
                 const displayLat = n.lat + offset.lat;
                 const displayLon = n.lon + offset.lon; 
