@@ -67,11 +67,11 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:
 
 #radio-panel{position:fixed;left:10px;top:70%;background:rgba(255,255,255,.95);
 padding:10px;border-radius:6px;z-index:1000;font-size:12px;
-box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:250px;max-height:200px;overflow-y:auto;cursor:pointer}
+box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:auto;cursor:pointer}
 #radio-panel h4{margin:0;font-size:13px;user-select:none}
 #radio-content{display:none;margin-top:8px}
 #radio-panel.open #radio-content{display:block}
-.radio-stat-item{padding:3px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
+.radio-stat-item{padding:6px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
 .radio-stat-item:last-child{border-bottom:none}
 .radio-stat-item.meta{color:#666;font-style:italic}
 
