@@ -571,12 +571,19 @@
 
                 const elevations = await fetchElevationData(points);
 
-                const trackerAlt = (trackerNode.alt && trackerNode.alt > 0)
-                    ? trackerNode.alt
-                    : elevations[0] + 6;
-                const nodeAlt = (node.alt && node.alt > 0)
-                    ? node.alt
-                    : elevations[elevations.length - 1] + 6;
+                // Determine antenna heights
+                // Use max of (Alt ASL, terrain elevation) + antenna offset (10m for roof/mast)
+                const antennaOffset = 10;
+
+                const trackerAlt = Math.max(
+                    trackerNode.alt || 0,
+                    elevations[0]
+                ) + antennaOffset;
+
+                const nodeAlt = Math.max(
+                    node.alt || 0,
+                    elevations[elevations.length - 1]
+                ) + antennaOffset;
 
                 const { isObstructed, losLine, fresnelLower, distances } = checkLOS(
                     elevations, trackerAlt, nodeAlt, distance
