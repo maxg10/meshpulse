@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
 *{margin:0;padding:0}
 body{font-family:Arial,sans-serif}
 #map{height:100vh;width:100%}
@@ -13,7 +14,10 @@ body{font-family:Arial,sans-serif}
 #no-gps-content{display:none;margin-top:8px}
 #no-gps-panel.open #no-gps-content{display:block}
 #stats h3{margin:0 0 8px;font-size:16px}
-.node-popup{font-family:monospace;font-size:11px;line-height:1.4}
+.node-popup{font-family:'Inter',sans-serif;font-size:13px;line-height:1.6}
+.node-popup b{font-weight:600}
+.node-popup .node-id{color:#666;font-size:11px}
+.node-popup .node-distance{color:#2563eb;font-weight:600}
 .marker{width:14px;height:14px;border:2px solid #333;border-radius:50%}
 .marker.router{border-radius:2px}
 .marker.green{background:#22c55e}

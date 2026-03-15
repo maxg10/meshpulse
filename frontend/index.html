@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.9">
+    <link rel="stylesheet" href="styles.css?v=1.10">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -16,7 +16,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.9 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.10 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -114,8 +114,8 @@
         let directLines = [];
         let heatLayer = null;
 
-        // Meshtastic Mapper v1.9 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.9';
+        // Meshtastic Mapper v1.10 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.10';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -668,6 +668,17 @@
             }
         }
 
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
         function updateDisplay() {
             // Wait for map to be ready (Safari fix)
             if (!mapReady) {
@@ -750,10 +761,18 @@
             
             // Add/update markers
             filteredNodes.forEach(n=>{
+                let distanceInfo = '';
+                if (n.hops === 0 && !n.via_mqtt && trackerInfo.node_id && trackerInfo.node_id !== n.id) {
+                    const trackerNode = allNodes.find(t => t.id === trackerInfo.node_id);
+                    if (trackerNode && trackerNode.lat && trackerNode.lon) {
+                        const dist = calculateDistance(trackerNode.lat, trackerNode.lon, n.lat, n.lon);
+                        distanceInfo = `<span class="node-distance">📏 ${dist.toFixed(2)} km</span><br>`;
+                    }
+                }
                 const pop = `<div class="node-popup">
                     <b>${n.name}</b><br>
-                    ${n.id}<br>
-                    SNR: ${n.snr} dB<br>
+                    <span class="node-id">${n.id}</span><br>
+                    ${distanceInfo}SNR: ${n.snr} dB<br>
                     Alt: ${n.alt}m<br>
                     Hops: ${n.hops != null ? n.hops : '?'}<br>
                     <small>Seen: ${timeAgo(n.ts)}</small>
