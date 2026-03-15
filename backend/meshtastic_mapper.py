@@ -433,12 +433,29 @@ class ListenBasedMapper:
             
             node_id = from_match.group(1)
 
-            # Extract device uptime for local/tracker node
+            # Extract device uptime and radio stats for local/tracker node
             if node_id == self.local_node_id:
+                tracker_updated = False
+
                 uptime_match = re.search(r"'uptimeSeconds':\s*(\d+)", line)
                 if uptime_match:
                     self.tracker_info['uptime_seconds'] = int(uptime_match.group(1))
-                    # Broadcast updated tracker info with uptime
+                    tracker_updated = True
+
+                # Parse radio stats from localStats
+                radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                radio_stats = {}
+                for field in radio_fields:
+                    m = re.search(rf"'{field}':\s*([\d.]+)", line)
+                    if m:
+                        val = m.group(1)
+                        radio_stats[field] = float(val) if '.' in val else int(val)
+                if radio_stats:
+                    self.tracker_info['radio_stats'] = radio_stats
+                    tracker_updated = True
+
+                if tracker_updated:
                     asyncio.run(self.broadcast_connection_status('connected'))
 
             # Parse RSSI if present
