@@ -704,7 +704,7 @@
                 filteredNodes = filteredNodes.filter(n => n.hops === 0 && !n.via_mqtt);
             }
             if (hideUnknownHops) {
-                filteredNodes = filteredNodes.filter(n => n.hops !== null && n.hops !== undefined);
+                filteredNodes = filteredNodes.filter(n => (n.hops !== null && n.hops !== undefined) || isOwnTracker(n.id));
             }
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
