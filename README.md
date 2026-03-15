@@ -151,6 +151,15 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.11 - RF Line of Sight Analysis**
+- 📡 Line of Sight panel with terrain elevation profile
+- 🏔️ Real terrain data from Open-Elevation API
+- 📊 Interactive Chart.js visualization
+- 🌊 Fresnel zone (60%) clearance calculation
+- ✅ Clear/Obstructed status indicator
+- 🎚️ "Show LOS on click" checkbox to enable/disable feature
+- 🏠 Antenna height estimation: terrain elevation + 10m offset
+
 **v1.10 - Enhanced Popups & Tracker Marker**
 - 📍 Your tracker now shows as blue marker with special popup (YOUR TRACKER)
 - 📏 Distance displayed in popup for direct nodes (hops=0)

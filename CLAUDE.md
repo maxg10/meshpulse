@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.10 (Enhanced popups & tracker marker)
+**Current Version:** v1.11 (RF Line of Sight analysis)
 
 ## Running & Deployment
 
@@ -127,7 +127,32 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.10)
+## Recent Changes (v1.11)
+
+**Added:**
+- LOS panel (`#los-panel`) with terrain profile visualization
+- Chart.js CDN for elevation chart
+- `interpolatePoints()` - generate points between two coordinates
+- `fetchElevationData()` - fetch terrain elevation from Open-Elevation API
+- `fresnelRadius()` - calculate Fresnel zone radius for 868MHz
+- `checkLOS()` - analyze line of sight with Fresnel zone clearance
+- `showLOSPanel()` - display LOS analysis for clicked node
+- `closeLOSPanel()` - close LOS panel and cleanup chart
+- "Show LOS on click" checkbox in Mesh Stats panel
+- CSS styles for LOS panel with animation
+
+**Changed:**
+- Marker click behavior: shows LOS panel for hops=0 nodes when checkbox enabled
+- Antenna height calculation: uses `max(Alt, terrain) + 10m` offset
+- Version bumped to v1.11 (`MAPPER_VERSION`, `styles.css?v=1.11`)
+
+**Technical details:**
+- Open-Elevation API: `https://api.open-elevation.com/api/v1/lookup`
+- 50 sample points along path
+- Fresnel zone: 60% clearance of first zone at 868MHz
+- Antenna offset: 10m (typical roof/mast installation)
+
+## Previous Changes (v1.10)
 
 **Added:**
 - `isOwnTracker()` function to identify own tracker node
