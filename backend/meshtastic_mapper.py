@@ -900,36 +900,30 @@ if __name__ == '__main__':
             print("Waiting for TCP connection configuration via web interface...")
             print(f"Open http://localhost/meshtastic/ and configure TCP connection")
 
-            # Start WebSocket server and wait for connection config
-            import time
-            ws_thread = threading.Thread(target=run_websocket_server_thread, daemon=True)
-            ws_thread.start()
-            print("[WS] WebSocket server started on ws://0.0.0.0:8765")
-
-            # Wait indefinitely for restart_event (triggered by frontend TCP config)
-            while not restart_event.is_set():
-                time.sleep(1)
-
-            # Got config from frontend, continue with new settings
-            restart_event.clear()
-            connection_type = restart_config.get('connection_type', 'tcp')
-            host = restart_config.get('host')
-            port = restart_config.get('port')
-            print(f"[CONFIG] Received: {connection_type} {host or port or ''}")
-
     if connection_type == 'serial' and not port and not host:
         print("Connection: Waiting for configuration...\n")
     else:
         print(f"Connection: {connection_type} {host or port or ''}\n")
 
     try:
-        # Start WebSocket server in background thread
+        # Start WebSocket server in background thread (exactly once)
         ws_thread = threading.Thread(target=run_websocket_server_thread, daemon=True)
         ws_thread.start()
         print("[WS] WebSocket server thread started")
 
         # Give WebSocket server time to start
         time.sleep(2)
+
+        # If no connection configured, wait for TCP config from web UI
+        if connection_type == 'serial' and not port and not host:
+            print("[WAIT] No connection configured - waiting for TCP config from web UI...")
+            while not restart_event.is_set():
+                time.sleep(1)
+            restart_event.clear()
+            connection_type = restart_config.get('connection_type', 'tcp')
+            host = restart_config.get('host')
+            port = restart_config.get('port')
+            print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
         # Mapper loop with runtime restart support
         while True:
