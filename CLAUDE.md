@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.9 (Safari WebSocket fix)
+**Current Version:** v1.10 (Enhanced popups & tracker marker)
 
 ## Running & Deployment
 
@@ -127,7 +127,22 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.9)
+## Recent Changes (v1.10)
+
+**Added:**
+- `isOwnTracker()` function to identify own tracker node
+- Blue marker style `.marker.tracker-home` for own tracker
+- Distance calculation in popup for hops=0 nodes (using `calculateDistance()`)
+- Role field in node popup
+- "Hide unknown hops" checkbox filter
+- Special popup for own tracker showing: name, YOUR TRACKER, Role, Pos, Alt
+
+**Changed:**
+- Popup font changed to Inter for better readability
+- Own tracker excluded from "Hide unknown hops" filter
+- Version bumped to v1.10 (`MAPPER_VERSION`, `styles.css?v=1.10`)
+
+## Previous Changes (v1.9)
 
 **Added:**
 - Safari detection: `isSafari` flag using userAgent regex (`/^((?!chrome|android).)*safari/i`)

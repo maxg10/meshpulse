@@ -151,6 +151,14 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.10 - Enhanced Popups & Tracker Marker**
+- 📍 Your tracker now shows as blue marker with special popup (YOUR TRACKER)
+- 📏 Distance displayed in popup for direct nodes (hops=0)
+- 🎨 Improved popup readability with Inter font
+- 👤 Role field added to node popups
+- 🔍 "Hide unknown hops" filter to remove nodes without hop data (MQTT/unknown)
+- 🏠 Own tracker always visible regardless of filters
+
 **v1.9 - Safari WebSocket Fix**
 - 🦁 Safari detection with longer WebSocket delays (500ms connect, 2s retry vs 100ms/1s for other browsers)
 
