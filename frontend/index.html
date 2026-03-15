@@ -761,21 +761,23 @@
             
             // Add/update markers
             filteredNodes.forEach(n=>{
+                // Calculate distance for direct nodes (hops=0)
                 let distanceInfo = '';
                 if (n.hops === 0 && !n.via_mqtt && trackerInfo.node_id && trackerInfo.node_id !== n.id) {
                     const trackerNode = allNodes.find(t => t.id === trackerInfo.node_id);
                     if (trackerNode && trackerNode.lat && trackerNode.lon) {
                         const dist = calculateDistance(trackerNode.lat, trackerNode.lon, n.lat, n.lon);
-                        distanceInfo = `<span class="node-distance">📏 ${dist.toFixed(2)} km</span><br>`;
+                        distanceInfo = `Dist: ${dist.toFixed(2)} km<br>`;
                     }
                 }
                 const pop = `<div class="node-popup">
                     <b>${n.name}</b><br>
-                    <span class="node-id">${n.id}</span><br>
-                    ${distanceInfo}SNR: ${n.snr} dB<br>
+                    ID: ${n.id}<br>
+                    Role: ${n.role || 'CLIENT'}<br>
+                    SNR: ${n.snr} dB<br>
                     Alt: ${n.alt}m<br>
                     Hops: ${n.hops != null ? n.hops : '?'}<br>
-                    <small>Seen: ${timeAgo(n.ts)}</small>
+                    ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>
                 </div>`;
                 const offset = getOffset(n, allNodes);
                 const displayLat = n.lat + offset.lat;
