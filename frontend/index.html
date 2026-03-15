@@ -21,8 +21,8 @@
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
-        <b>Signal:</b> <span id="signal-bars">-</span><br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
+        <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
         <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
@@ -940,29 +940,15 @@
             document.getElementById('relay').textContent = relay;
             document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
 
-            // Signal quality indicator from RSSI of direct (hops=0, non-MQTT) nodes
-            const directRssiValues = filteredNodes
-                .filter(n => n.hops === 0 && !n.via_mqtt && !isOwnTracker(n.id) && n.rssi != null)
-                .map(n => n.rssi);
-            if (directRssiValues.length > 0) {
-                const avgRssi = directRssiValues.reduce((a, b) => a + b, 0) / directRssiValues.length;
-                let bars;
-                if (avgRssi >= -90) bars = 5;
-                else if (avgRssi >= -100) bars = 4;
-                else if (avgRssi >= -105) bars = 3;
-                else if (avgRssi >= -110) bars = 2;
-                else bars = 1;
-                const barChars = ['▁', '▃', '▅', '▇', '█'];
-                const filled = barChars.slice(0, bars).join('');
-                const empty = barChars.slice(bars).join('');
-                const color = bars >= 4 ? '#22c55e' : bars === 3 ? '#eab308' : '#ef4444';
-                document.getElementById('signal-bars').innerHTML =
-                    `<span style="color:${color}">${filled}</span><span style="color:#555">${empty}</span> <small style="color:#888">${Math.round(avgRssi)} dBm</small>`;
-            } else {
-                document.getElementById('signal-bars').textContent = '-';
-            }
-
             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
+
+            // Farthest node RSSI
+            const farNode = allNodes.find(n => n.id === farthestNode);
+            if (farNode) {
+                document.getElementById('far-signal').textContent = farNode.rssi != null ? farNode.rssi + ' dBm' : '- dBm';
+            } else {
+                document.getElementById('far-signal').textContent = '-';
+            }
             
             // Tracker info
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
@@ -1043,7 +1029,7 @@
                         ID: ${n.id}<br>
                         Role: ${n.role || 'CLIENT'}<br>
                         SNR: ${n.snr} dB<br>
-                        RSSI: ${n.rssi != null ? n.rssi + ' dBm' : '-'}<br>
+                        RSSI: ${n.rssi != null ? n.rssi + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         Alt: ${n.alt}m<br>
                         Hops: ${n.hops != null ? n.hops : '?'}<br>
                         ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>
