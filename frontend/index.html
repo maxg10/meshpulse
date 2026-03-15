@@ -904,7 +904,7 @@
             const hideUnknownHops = document.getElementById('hide-unknown-hops').checked;
             let filteredNodes = allNodes;
             if (filterDirect) {
-                filteredNodes = filteredNodes.filter(n => n.hops === 0 && !n.via_mqtt);
+                filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
             }
             if (hideUnknownHops) {
                 filteredNodes = filteredNodes.filter(n => (n.hops !== null && n.hops !== undefined) || isOwnTracker(n.id));
