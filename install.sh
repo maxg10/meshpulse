@@ -144,6 +144,13 @@ sudo cp frontend/styles.css /var/www/html/meshtastic/
 sudo cp frontend/favicon.ico /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
+# Create empty nodes.json if it doesn't exist
+if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then
+    echo "📄 Creating empty nodes.json..."
+    echo '{"ts":0,"updated":"","cnt":0,"cnt_no_pos":0,"max_distance_km":null,"farthest_node":null,"tracker":{},"nodes":[],"nodes_no_pos":[],"messages":[]}' | sudo tee /var/www/html/meshtastic/nodes.json > /dev/null
+    sudo chown $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/nodes.json
+fi
+
 # Create config.json from example if it doesn't exist
 if [ ! -f "$REPO_PATH/config.json" ]; then
     echo "⚙️  Creating config.json from example..."
