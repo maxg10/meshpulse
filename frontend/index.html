@@ -947,10 +947,10 @@
             if (directRssiValues.length > 0) {
                 const avgRssi = directRssiValues.reduce((a, b) => a + b, 0) / directRssiValues.length;
                 let bars;
-                if (avgRssi >= -80) bars = 5;
-                else if (avgRssi >= -95) bars = 4;
+                if (avgRssi >= -90) bars = 5;
+                else if (avgRssi >= -100) bars = 4;
                 else if (avgRssi >= -105) bars = 3;
-                else if (avgRssi >= -115) bars = 2;
+                else if (avgRssi >= -110) bars = 2;
                 else bars = 1;
                 const barChars = ['▁', '▃', '▅', '▇', '█'];
                 const filled = barChars.slice(0, bars).join('');
