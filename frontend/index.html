@@ -55,6 +55,9 @@
         <label class="filter-label">
             <input type="checkbox" id="show-heat-map" onchange="updateHeatMap()"> Show heat map
         </label><br>
+        <label class="filter-label">
+            <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
+        </label><br>
         <small>Update: <span id="upd">-</span></small><br>
         </div>
     </div>
@@ -688,7 +691,14 @@
             
             // Filter nodes if checkbox is checked
             const filterDirect = document.getElementById('filter-direct').checked;
-            const filteredNodes = filterDirect ? allNodes.filter(n => n.hops === 0 && !n.via_mqtt) : allNodes;
+            const hideUnknownHops = document.getElementById('hide-unknown-hops').checked;
+            let filteredNodes = allNodes;
+            if (filterDirect) {
+                filteredNodes = filteredNodes.filter(n => n.hops === 0 && !n.via_mqtt);
+            }
+            if (hideUnknownHops) {
+                filteredNodes = filteredNodes.filter(n => n.hops !== null && n.hops !== undefined);
+            }
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
             
@@ -730,7 +740,13 @@
             
             // Update no-GPS nodes panel
             const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
-            const filteredNoGps = filterDirect ? noMqttNodes.filter(n => n.hops === 0) : noMqttNodes;
+            let filteredNoGps = noMqttNodes;
+            if (filterDirect) {
+                filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
+            }
+            if (hideUnknownHops) {
+                filteredNoGps = filteredNoGps.filter(n => n.hops !== null && n.hops !== undefined);
+            }
             filteredNoGps.sort((a, b) => b.ts - a.ts);
             document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
             const noGpsList = document.getElementById('no-gps-list');
