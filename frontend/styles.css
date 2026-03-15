@@ -90,7 +90,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:
 }
 #los-panel{
   position:fixed;top:80px;left:10px;
-  width:400px;max-height:350px;
+  width:450px;max-height:350px;
   background:rgba(255,255,255,.95);
   border-radius:8px;
   box-shadow:0 4px 12px rgba(0,0,0,.15);
@@ -124,7 +124,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:
 }
 #los-distance{color:#374151}
 #los-status{font-weight:600}
-#los-chart{display:block;width:100%!important;height:200px!important;padding:8px 10px 4px}
+#los-chart{display:block;width:100%!important;height:220px!important;padding:8px 10px 4px}
 #los-loading{
   text-align:center;padding:30px 12px;
   color:#6b7280;font-size:12px;
