@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.10">
+    <link rel="stylesheet" href="styles.css?v=1.11">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -16,7 +16,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.10 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.11 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -58,6 +58,9 @@
         <label class="filter-label">
             <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
         </label><br>
+        <label class="filter-label">
+            <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
+        </label><br>
         <small>Update: <span id="upd">-</span></small><br>
         </div>
     </div>
@@ -90,6 +93,18 @@
         <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
 </div>
+    <div id="los-panel" style="display:none;">
+        <div id="los-header">
+            <span id="los-title">RF Line of Sight</span>
+            <button id="los-close" onclick="closeLOSPanel()">×</button>
+        </div>
+        <div id="los-info">
+            <span id="los-distance">Distance: -- km</span>
+            <span id="los-status">Status: --</span>
+        </div>
+        <canvas id="los-chart"></canvas>
+        <div id="los-loading">Loading elevation data...</div>
+    </div>
     <div id="messages-panel" onclick="this.classList.toggle('open')">
         <h4>💬 Messages ▼ (<span id="messages-cnt">0</span>)</h4>
         <div id="messages-content">
@@ -98,6 +113,7 @@
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const map = L.map('map').setView([52.4064, 16.9252], 11);
         
@@ -116,9 +132,11 @@
         let initialFetchDone = false;
         let directLines = [];
         let heatLayer = null;
+        let losChart = null;
+        let losAbortController = null;
 
-        // Meshtastic Mapper v1.10 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.10';
+        // Meshtastic Mapper v1.11 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.11';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -470,6 +488,191 @@
             return Math.floor(diff / 86400) + 'd ago';
         }
         
+        function interpolatePoints(lat1, lon1, lat2, lon2, numPoints) {
+            const points = [];
+            for (let i = 0; i <= numPoints; i++) {
+                const fraction = i / numPoints;
+                points.push({
+                    latitude: lat1 + (lat2 - lat1) * fraction,
+                    longitude: lon1 + (lon2 - lon1) * fraction
+                });
+            }
+            return points;
+        }
+
+        async function fetchElevationData(points) {
+            const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ locations: points })
+            });
+            const data = await response.json();
+            return data.results.map(r => r.elevation);
+        }
+
+        function fresnelRadius(d1, d2, frequency = 868) {
+            const c = 299792458;
+            const wavelength = c / (frequency * 1000000);
+            return Math.sqrt((wavelength * d1 * d2) / (d1 + d2));
+        }
+
+        function checkLOS(elevations, startAlt, endAlt, totalDistance) {
+            const numPoints = elevations.length;
+            const distances = elevations.map((_, i) => (i / (numPoints - 1)) * totalDistance * 1000);
+            let isObstructed = false;
+            const losLine = [];
+            const fresnelLower = [];
+            for (let i = 0; i < numPoints; i++) {
+                const fraction = i / (numPoints - 1);
+                const losHeight = startAlt + (endAlt - startAlt) * fraction;
+                losLine.push(losHeight);
+                const d1 = distances[i];
+                const d2 = totalDistance * 1000 - d1;
+                const fRadius = (d1 > 0 && d2 > 0) ? fresnelRadius(d1, d2) * 0.6 : 0;
+                fresnelLower.push(losHeight - fRadius);
+                if (elevations[i] > losHeight - fRadius) {
+                    isObstructed = true;
+                }
+            }
+            return { isObstructed, losLine, fresnelLower, distances };
+        }
+
+        async function showLOSPanel(node) {
+            const panel = document.getElementById('los-panel');
+            const loading = document.getElementById('los-loading');
+            const chartCanvas = document.getElementById('los-chart');
+            const statusEl = document.getElementById('los-status');
+            const distanceEl = document.getElementById('los-distance');
+            const titleEl = document.getElementById('los-title');
+
+            const trackerNode = allNodes.find(n => n.id === trackerInfo.node_id);
+            if (!trackerNode) return;
+
+            panel.style.display = 'block';
+            loading.style.display = 'block';
+            loading.textContent = 'Loading elevation data...';
+            chartCanvas.style.display = 'none';
+            titleEl.textContent = `LOS: ${node.name}`;
+
+            const distance = calculateDistance(trackerNode.lat, trackerNode.lon, node.lat, node.lon);
+            distanceEl.textContent = `Distance: ${distance.toFixed(2)} km`;
+            statusEl.textContent = 'Status: Calculating...';
+            statusEl.style.color = '#666';
+
+            try {
+                if (losAbortController) losAbortController.abort();
+                losAbortController = new AbortController();
+
+                const points = interpolatePoints(
+                    trackerNode.lat, trackerNode.lon,
+                    node.lat, node.lon,
+                    50
+                );
+
+                const elevations = await fetchElevationData(points);
+
+                const trackerAlt = (trackerNode.alt && trackerNode.alt > 0)
+                    ? trackerNode.alt
+                    : elevations[0] + 6;
+                const nodeAlt = (node.alt && node.alt > 0)
+                    ? node.alt
+                    : elevations[elevations.length - 1] + 6;
+
+                const { isObstructed, losLine, fresnelLower, distances } = checkLOS(
+                    elevations, trackerAlt, nodeAlt, distance
+                );
+
+                if (isObstructed) {
+                    statusEl.textContent = 'Status: ⚠️ Obstructed';
+                    statusEl.style.color = '#ef4444';
+                } else {
+                    statusEl.textContent = 'Status: ✅ Clear';
+                    statusEl.style.color = '#22c55e';
+                }
+
+                loading.style.display = 'none';
+                chartCanvas.style.display = 'block';
+
+                const labels = distances.map(d => (d / 1000).toFixed(1));
+
+                if (losChart) losChart.destroy();
+
+                losChart = new Chart(chartCanvas, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Terrain',
+                                data: elevations,
+                                fill: true,
+                                backgroundColor: 'rgba(34, 197, 94, 0.3)',
+                                borderColor: 'rgba(34, 197, 94, 0.8)',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                tension: 0.3
+                            },
+                            {
+                                label: 'Line of Sight',
+                                data: losLine,
+                                fill: false,
+                                borderColor: isObstructed ? '#ef4444' : '#22c55e',
+                                borderWidth: 2,
+                                borderDash: [5, 5],
+                                pointRadius: 0
+                            },
+                            {
+                                label: 'Fresnel Zone (60%)',
+                                data: fresnelLower,
+                                fill: false,
+                                borderColor: 'rgba(59, 130, 246, 0.5)',
+                                borderWidth: 1,
+                                borderDash: [2, 2],
+                                pointRadius: 0
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: true,
+                                position: 'bottom',
+                                labels: { boxWidth: 12, font: { size: 10 } }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                title: { display: true, text: 'Distance (km)', font: { size: 11 } },
+                                ticks: { font: { size: 10 }, maxTicksLimit: 6 }
+                            },
+                            y: {
+                                title: { display: true, text: 'Elevation (m)', font: { size: 11 } },
+                                ticks: { font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+
+            } catch (error) {
+                console.error('[LOS] Error:', error);
+                loading.textContent = 'Error loading elevation data';
+                loading.style.display = 'block';
+                chartCanvas.style.display = 'none';
+                statusEl.textContent = 'Status: ❌ Error';
+                statusEl.style.color = '#ef4444';
+            }
+        }
+
+        function closeLOSPanel() {
+            document.getElementById('los-panel').style.display = 'none';
+            if (losChart) {
+                losChart.destroy();
+                losChart = null;
+            }
+        }
+
         function isOwnTracker(nodeId) {
             return trackerInfo.node_id && nodeId === trackerInfo.node_id;
         }
@@ -830,8 +1033,17 @@
                             className: getMarkerClass(n),
                             iconSize: [14, 14],
                             iconAnchor: [7, 7]
-                    })
-                   })     .bindPopup(pop).addTo(map);
+                        })
+                    }).addTo(map);
+                    markers[n.id].bindPopup(pop);
+                    markers[n.id].on('click', function() {
+                        const showLOS = document.getElementById('show-los-panel').checked;
+                        if (showLOS && n.hops === 0 && !n.via_mqtt && !isOwnTracker(n.id)) {
+                            showLOSPanel(n);
+                        } else {
+                            this.openPopup();
+                        }
+                    });
                 }
             });
             
