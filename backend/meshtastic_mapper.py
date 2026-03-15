@@ -60,9 +60,15 @@ class ListenBasedMapper:
         self.max_age = max_age
 
         # Load existing nodes or start fresh
+        self._loaded_radio_stats = None  # Populated by load_existing_nodes if available
         self.nodes_no_position = {}  # Nodes without GPS position
         self.nodes = self.load_existing_nodes()
         self.local_node_id = self.get_local_node_id()
+
+        # Restore radio_stats from previous run (live data will overwrite once received)
+        if self._loaded_radio_stats and 'radio_stats' not in self.tracker_info:
+            self.tracker_info['radio_stats'] = self._loaded_radio_stats
+            print(f"[LOAD] Restored radio_stats from previous run")
 
         # Store text messages (max 50, newest first)
         self.messages = []
@@ -211,7 +217,13 @@ class ListenBasedMapper:
                     
                         self.messages = data.get('messages', [])
                         print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {len(self.messages)} messages")
-                        return nodes
+
+                    # Always restore radio_stats regardless of node count
+                    saved_radio_stats = data.get('tracker', {}).get('radio_stats')
+                    if saved_radio_stats:
+                        self._loaded_radio_stats = saved_radio_stats
+
+                    return nodes if (existing_count > 0 or existing_no_pos > 0) else {}
         except Exception as e:
             print(f"[LOAD] Starting fresh (no existing data): {e}")
     
