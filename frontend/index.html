@@ -925,7 +925,9 @@
             filteredNodes.forEach(n => {
                 if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
                 else clients++;
-                if (n.hops === 0) direct++;
+                if (isOwnTracker(n.id)) {
+                    // own tracker - don't count in direct/relay stats
+                } else if (n.hops === 0) direct++;
                 else relay++;
                 if (n.snr) { snrSum += n.snr; snrCount++; }
             });
