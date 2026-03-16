@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.12">
+    <link rel="stylesheet" href="styles.css?v=1.13">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -16,7 +16,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.12 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.13 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -106,6 +106,13 @@
         <canvas id="los-chart"></canvas>
         <div id="los-loading">Loading elevation data...</div>
     </div>
+    <div id="traceroute-panel" style="display:none;">
+        <div id="traceroute-header">
+            <span id="traceroute-title">🔍 Traceroute</span>
+            <button id="traceroute-close" onclick="closeTraceroutePanel()">×</button>
+        </div>
+        <div id="traceroute-body"></div>
+    </div>
     <div id="messages-panel" onclick="this.classList.toggle('open')">
         <h4>💬 Messages ▼ (<span id="messages-cnt">0</span>)</h4>
         <div id="messages-content">
@@ -141,9 +148,10 @@
         let heatLayer = null;
         let losChart = null;
         let losAbortController = null;
+        let tracerouteLines = [];
 
-        // Meshtastic Mapper v1.11 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.12';
+        // Meshtastic Mapper v1.13 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.13';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -260,6 +268,9 @@
                             } else {
                                 maxLink.style.display = 'none';
                             }
+                        } else if (data.type === 'traceroute_result') {
+                            console.log('[WS] Traceroute result for:', data.node_id);
+                            handleTracerouteResult(data);
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             updateConnectionStatus(data.status);
@@ -709,6 +720,71 @@
             }
         }
 
+        function startTraceroute(nodeId) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('WebSocket not connected');
+                return;
+            }
+            closeTraceroutePanel();
+            const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
+            document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
+            document.getElementById('traceroute-body').innerHTML = '<div id="traceroute-loading">Running traceroute (~30s)...</div>';
+            document.getElementById('traceroute-panel').style.display = 'block';
+            window._tracerouteNodeId = nodeId;
+            ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
+        }
+
+        function closeTraceroutePanel() {
+            document.getElementById('traceroute-panel').style.display = 'none';
+            tracerouteLines.forEach(line => map.removeLayer(line));
+            tracerouteLines = [];
+            window._tracerouteNodeId = null;
+        }
+
+        function handleTracerouteResult(data) {
+            const body = document.getElementById('traceroute-body');
+            if (data.error) {
+                body.innerHTML = `<div style="color:#ef4444;padding:10px;">Error: ${data.error}</div>`;
+                return;
+            }
+            tracerouteLines.forEach(line => map.removeLayer(line));
+            tracerouteLines = [];
+
+            const route = data.route || [];
+            const routeBack = data.route_back || [];
+
+            function drawHopLines(hops, dashed) {
+                for (let i = 0; i < hops.length - 1; i++) {
+                    const a = hops[i], b = hops[i + 1];
+                    if (a.lat && a.lon && b.lat && b.lon) {
+                        const color = snrToColor(b.snr != null ? b.snr : 0);
+                        const opts = {color, weight: 3, opacity: 0.8};
+                        if (dashed) opts.dashArray = '6,4';
+                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], opts).addTo(map));
+                    }
+                }
+            }
+            drawHopLines(route, false);
+            drawHopLines(routeBack, true);
+
+            function formatHops(hops) {
+                return hops.map((h, i) => {
+                    const snrText = h.snr != null ? ` <span style="color:${snrToColor(h.snr)}">(${h.snr} dB)</span>` : '';
+                    const arrow = i < hops.length - 1 ? '<span class="hop-arrow">→</span>' : '';
+                    return `<span class="traceroute-hop">${h.name || h.id || '?'}${snrText}${arrow}</span>`;
+                }).join('');
+            }
+
+            let html = '';
+            if (route.length > 0) html += `<div style="margin-bottom:4px;"><b>Route:</b><br>${formatHops(route)}</div>`;
+            if (routeBack.length > 0) html += `<div><b>Return:</b><br>${formatHops(routeBack)}</div>`;
+            if (route.length === 0 && routeBack.length === 0) {
+                html = '<div style="color:#666;font-style:italic;">No route info received</div>';
+                if (data.raw) html += `<pre style="font-size:10px;overflow-x:auto;margin-top:4px;">${data.raw.substring(0, 300)}</pre>`;
+            }
+            body.innerHTML = html;
+        }
+
         function isOwnTracker(nodeId) {
             return trackerInfo.node_id && nodeId === trackerInfo.node_id;
         }
@@ -1052,6 +1128,9 @@
                             distanceInfo = `Dist: ${dist.toFixed(2)} km<br>`;
                         }
                     }
+                    const tracerouteBtn = (n.hops > 0 && !n.via_mqtt)
+                        ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
+                        : '';
                     pop = `<div class="node-popup">
                         <b>${n.name}</b><br>
                         ID: ${n.id}<br>
@@ -1060,7 +1139,7 @@
                         RSSI: ${n.rssi != null ? n.rssi + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         Alt: ${n.alt}m<br>
                         Hops: ${n.hops != null ? n.hops : '?'}<br>
-                        ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>
+                        ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>${tracerouteBtn}
                     </div>`;
                 }
                 const offset = getOffset(n, allNodes);

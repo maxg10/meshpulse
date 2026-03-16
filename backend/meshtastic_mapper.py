@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.12
+#ver 1.13
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -684,7 +684,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.12")
+        print("Meshtastic Mapper - LISTEN MODE v1.13")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -814,6 +814,146 @@ class ListenBasedMapper:
                 restart_count += 1
 
 
+def parse_traceroute_output(output):
+    """Parse meshtastic traceroute output into route and route_back hop lists.
+    Handles formats like:
+      NodeA --> NodeB (8.5 dB SNR) --> NodeC (4.0 dB SNR)
+      Route back: NodeC --> NodeB (5.0 dB SNR) --> NodeA
+    Returns (route, route_back) as lists of {'name', 'id', 'snr'} dicts.
+    """
+    route = []
+    route_back = []
+
+    for line in output.split('\n'):
+        line = line.strip()
+        if '-->' not in line:
+            continue
+
+        is_back = 'back' in line.lower()
+
+        # Strip common prefixes
+        hop_part = line
+        for prefix in ['Route back:', 'Route back', 'Route to', 'Route:']:
+            if hop_part.lower().startswith(prefix.lower()):
+                hop_part = hop_part[len(prefix):].lstrip(':').strip()
+                break
+        # Strip trailing colon separated prefix "!xxxx: hop --> ..."
+        colon_idx = hop_part.find(':')
+        if colon_idx != -1 and '-->' not in hop_part[:colon_idx]:
+            hop_part = hop_part[colon_idx + 1:].strip()
+
+        parts = hop_part.split('-->')
+        hops = []
+        for part in parts:
+            part = part.strip()
+            if not part:
+                continue
+
+            # Extract SNR value
+            snr = None
+            snr_match = re.search(r'\(\s*(?:snr\s*:?\s*)?([-\d.]+)\s*(?:dB)?\s*(?:SNR)?\s*\)', part, re.IGNORECASE)
+            if snr_match:
+                try:
+                    snr = float(snr_match.group(1))
+                except ValueError:
+                    pass
+
+            # Clean name by removing SNR annotation
+            name = re.sub(r'\s*\([^)]*\)\s*$', '', part).strip()
+
+            # Extract node ID if present (starts with !)
+            node_id = None
+            id_match = re.search(r'(![\da-f]{4,8})', name, re.IGNORECASE)
+            if id_match:
+                node_id = id_match.group(1).lower()
+
+            hop = {'name': name, 'snr': snr}
+            if node_id:
+                hop['id'] = node_id
+            hops.append(hop)
+
+        if hops:
+            if is_back:
+                route_back = hops
+            else:
+                route = hops
+
+    return route, route_back
+
+
+async def run_traceroute(node_id, websocket):
+    """Run meshtastic --traceroute and send result to the requesting WebSocket client."""
+    try:
+        if not mapper:
+            await websocket.send(json.dumps({
+                'type': 'traceroute_result', 'node_id': node_id, 'error': 'Mapper not ready'
+            }))
+            return
+
+        if mapper.connection_type == 'tcp':
+            cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
+        else:
+            cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--traceroute', node_id]
+
+        print(f"[TRACEROUTE] Running: {' '.join(cmd)}")
+
+        loop = asyncio.get_event_loop()
+        try:
+            result = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=43)
+                ),
+                timeout=45.0
+            )
+            raw_output = result.stdout + result.stderr
+            print(f"[TRACEROUTE] Output: {raw_output[:300]}")
+        except asyncio.TimeoutError:
+            await websocket.send(json.dumps({
+                'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
+            }))
+            return
+
+        route, route_back = parse_traceroute_output(raw_output)
+
+        # Enrich hops with coordinates from known nodes
+        all_known = {**mapper.nodes, **mapper.nodes_no_position}
+        for hop in route + route_back:
+            hop_id = hop.get('id')
+            hop_name = hop.get('name')
+            node_data = None
+            if hop_id and hop_id in all_known:
+                node_data = all_known[hop_id]
+            if not node_data and hop_name:
+                for nid, n in mapper.nodes.items():
+                    if n.get('name') == hop_name:
+                        node_data = n
+                        hop['id'] = nid
+                        break
+            if node_data:
+                if 'lat' in node_data:
+                    hop['lat'] = node_data['lat']
+                    hop['lon'] = node_data['lon']
+                hop['name'] = node_data.get('name', hop.get('name', hop_id))
+
+        await websocket.send(json.dumps({
+            'type': 'traceroute_result',
+            'node_id': node_id,
+            'route': route,
+            'route_back': route_back,
+            'raw': raw_output
+        }))
+
+    except Exception as e:
+        print(f"[TRACEROUTE] Error: {e}")
+        try:
+            await websocket.send(json.dumps({
+                'type': 'traceroute_result', 'node_id': node_id, 'error': str(e)
+            }))
+        except Exception:
+            pass
+
+
 async def handle_connection_change(data, websocket):
     """Handle connection type change request from frontend"""
     global mapper, restart_config
@@ -888,6 +1028,12 @@ async def websocket_handler(websocket):
                 data = json.loads(message)
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
+                elif data.get('type') == 'traceroute':
+                    node_id = data.get('node_id')
+                    if node_id:
+                        asyncio.ensure_future(run_traceroute(node_id, websocket))
+                    else:
+                        print(f"[WS] Traceroute request missing node_id from {client_addr}")
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:

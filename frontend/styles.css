@@ -140,3 +140,40 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
   color:#6b7280;font-size:12px;
   animation:los-pulse 1.4s ease infinite;
 }
+
+#traceroute-panel{
+  position:fixed;top:80px;left:220px;
+  width:350px;max-height:200px;
+  background:rgba(255,255,255,.95);
+  border-radius:8px;
+  box-shadow:0 4px 12px rgba(0,0,0,.15);
+  z-index:1100;
+  overflow:hidden;
+  animation:los-fadein .2s ease;
+  font-size:12px;
+  font-family:Arial,sans-serif;
+}
+#traceroute-header{
+  display:flex;justify-content:space-between;align-items:center;
+  background:#1f2937;color:#f9fafb;
+  padding:8px 12px;
+  font-size:13px;font-weight:600;
+}
+#traceroute-close{
+  background:none;border:none;color:#9ca3af;
+  font-size:18px;line-height:1;cursor:pointer;
+  width:22px;height:22px;border-radius:50%;
+  display:flex;align-items:center;justify-content:center;
+  transition:background .15s,color .15s;
+  padding:0;
+}
+#traceroute-close:hover{background:rgba(255,255,255,.15);color:#f9fafb}
+#traceroute-body{padding:8px 12px;overflow-y:auto;max-height:152px;}
+#traceroute-loading{
+  text-align:center;padding:20px 12px;
+  color:#6b7280;font-size:12px;
+  animation:los-pulse 1.4s ease infinite;
+}
+.traceroute-hop{font-size:12px}
+.hop-arrow{color:#6b7280;margin:0 3px}
+.node-popup button{margin-top:6px;font-size:11px;padding:2px 7px;cursor:pointer}
