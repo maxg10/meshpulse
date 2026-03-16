@@ -117,11 +117,16 @@ class ListenBasedMapper:
             
             # Parse channel names
             channels = []
-            for i in range(8):
-                ch_match = re.search(rf"channels\[{i}\].*?name.*?'([^']*)'", output, re.DOTALL)
-                if ch_match:
-                    name = ch_match.group(1).strip()
-                    channels.append({'index': i, 'name': name if name else f'Channel {i}'})
+            channel_pattern = re.finditer(
+                r'Index (\d+): \w+ psk=\w+\s*\{[^}]*"name":\s*"([^"]*)"',
+                output
+            )
+            for match in channel_pattern:
+                index = int(match.group(1))
+                name = match.group(2).strip()
+                if not name:
+                    name = 'Primary' if index == 0 else f'Channel {index}'
+                channels.append({'index': index, 'name': name})
 
             # Store tracker info
             self.tracker_info = {
@@ -136,8 +141,7 @@ class ListenBasedMapper:
 
             print(f"[INFO] Local node ID: {node_id}")
             print(f"[INFO] Hardware: {hw_model}, Firmware: {firmware}")
-            if channels:
-                print(f"[INFO] Channels: {[c['name'] for c in channels]}")
+            print(f"[INFO] Channels: {[(c['index'], c['name']) for c in channels]}")
 
             return node_id
             
