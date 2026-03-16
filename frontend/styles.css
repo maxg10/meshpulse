@@ -50,7 +50,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
 #legend .section{font-weight:bold;margin:8px 0 4px;font-size:11px;color:#666}
 #legend .section:first-child{margin-top:0}
 
-#messages-panel{position:fixed;bottom:140px;left:10px;background:rgba(255,255,255,.95);
+#messages-panel{position:fixed;top:370px;left:10px;background:rgba(255,255,255,.95);
 padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
 box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:200px;overflow-y:auto;cursor:pointer}
 #messages-panel h4{margin:0;font-size:13px;user-select:none}
