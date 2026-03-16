@@ -118,9 +118,10 @@
         </div>
         <div id="traceroute-body"></div>
     </div>
-    <div id="messages-panel" onclick="this.classList.toggle('open')">
-        <h4>💬 Messages ▼ (<span id="messages-cnt">0</span>)</h4>
+    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4')this.classList.toggle('open')">
+        <h4>💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
         <div id="messages-content">
+            <div id="channel-tabs"></div>
             <div id="messages-list"></div>
         </div>
     </div>
@@ -143,7 +144,12 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
-        let allMessages = [];
+        let allMessages = {};
+        let activeChannel = 0;
+        let channelNames = {};
+        let unreadCounts = {};
+        let soundEnabled = true;
+        let blinkInterval = null;
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
@@ -308,6 +314,10 @@
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
+                                    if (data.tracker.channels) {
+                                        data.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
+                                        updateChannelTabs();
+                                    }
                                     updateRadioDisplay();
                                 }
                                 // Reload data after connection change
@@ -405,13 +415,16 @@
         }
 
         function handleNewMessage(message) {
-            // Add to messages list (newest first, max 50)
-            allMessages.unshift(message);
-            if (allMessages.length > 50) {
-                allMessages = allMessages.slice(0, 50);
-            }
+            const ch = message.channel_index != null ? message.channel_index : 0;
+            if (!allMessages[ch]) allMessages[ch] = [];
+            allMessages[ch].unshift(message);
+            if (allMessages[ch].length > 50) allMessages[ch] = allMessages[ch].slice(0, 50);
 
-            // Update display
+            if (ch !== activeChannel) {
+                unreadCounts[ch] = (unreadCounts[ch] || 0) + 1;
+                startBlink();
+                playBeep();
+            }
             updateMessagesDisplay();
         }
 
@@ -423,11 +436,13 @@
         }
 
         function updateMessagesDisplay() {
-            document.getElementById('messages-cnt').textContent = allMessages.length;
+            const total = Object.values(allMessages).reduce((s, msgs) => s + msgs.length, 0);
+            document.getElementById('messages-total-cnt').textContent = total;
+            updateChannelTabs();
+            const msgs = allMessages[activeChannel] || [];
             const messagesList = document.getElementById('messages-list');
-
-            if (allMessages.length > 0) {
-                messagesList.innerHTML = allMessages.map(msg => {
+            if (msgs.length > 0) {
+                messagesList.innerHTML = msgs.map(msg => {
                     const isDM = msg.is_dm;
                     const itemClass = isDM ? 'message-item message-dm' : 'message-item';
                     const msgType = msg.is_dm ? ' (DM)' : '';
@@ -443,6 +458,63 @@
             } else {
                 messagesList.innerHTML = '<div class="message-item meta">No messages</div>';
             }
+        }
+
+        function updateChannelTabs() {
+            const tabsEl = document.getElementById('channel-tabs');
+            if (!tabsEl) return;
+            const indices = new Set([
+                ...Object.keys(allMessages).map(Number),
+                ...Object.keys(channelNames).map(Number)
+            ]);
+            if (indices.size === 0) { tabsEl.innerHTML = ''; return; }
+            tabsEl.innerHTML = [...indices].sort((a, b) => a - b).map(idx => {
+                const name = channelNames[idx] || `Ch ${idx}`;
+                const unread = unreadCounts[idx] || 0;
+                const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+                const active = idx === activeChannel ? ' active' : '';
+                return `<div class="channel-tab${active}" onclick="event.stopPropagation();setActiveChannel(${idx})">${name}${badge}</div>`;
+            }).join('');
+        }
+
+        function setActiveChannel(index) {
+            activeChannel = index;
+            unreadCounts[index] = 0;
+            const hasUnread = Object.values(unreadCounts).some(c => c > 0);
+            if (!hasUnread) stopBlink();
+            updateMessagesDisplay();
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('sound-toggle').textContent = soundEnabled ? '🔔' : '🔕';
+        }
+
+        function playBeep() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                osc.connect(ctx.destination);
+                osc.frequency.value = 800;
+                osc.start();
+                setTimeout(() => { osc.stop(); ctx.close(); }, 100);
+            } catch(e) {}
+        }
+
+        function startBlink() {
+            const blinkEl = document.getElementById('messages-blink');
+            if (blinkInterval || !blinkEl) return;
+            blinkEl.style.display = 'inline';
+            blinkInterval = setInterval(() => {
+                blinkEl.style.opacity = blinkEl.style.opacity === '0' ? '1' : '0';
+            }, 500);
+        }
+
+        function stopBlink() {
+            const blinkEl = document.getElementById('messages-blink');
+            if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
+            if (blinkEl) { blinkEl.style.display = 'none'; blinkEl.style.opacity = '1'; }
         }
         
         function updateRadioDisplay() {
@@ -498,11 +570,22 @@
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
                     
-                    // Load messages from JSON
+                    // Load messages from JSON (handle both list format and dict format)
                     if (d.messages) {
-                        allMessages = d.messages;
-                        updateMessagesDisplay();
+                        if (Array.isArray(d.messages)) {
+                            allMessages = d.messages.length > 0 ? {0: d.messages} : {};
+                        } else {
+                            allMessages = {};
+                            Object.keys(d.messages).forEach(k => {
+                                allMessages[parseInt(k)] = d.messages[k];
+                            });
+                        }
                     }
+                    // Load channel names from tracker info
+                    if (d.tracker && d.tracker.channels) {
+                        d.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
+                    }
+                    updateMessagesDisplay();
 
                     // Update display (will wait for map if needed)
                     updateDisplay();

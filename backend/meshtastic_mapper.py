@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.13
+#ver 1.14
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -71,8 +71,8 @@ class ListenBasedMapper:
             self.tracker_info['radio_stats'] = self._loaded_radio_stats
             print(f"[LOAD] Restored radio_stats from previous run")
 
-        # Store text messages (max 50, newest first)
-        self.messages = []
+        # Store text messages per channel (dict: {channel_index: [messages]})
+        self.messages = getattr(self, '_loaded_messages', {})
 
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
@@ -115,6 +115,14 @@ class ListenBasedMapper:
             fw_match = re.search(r'"firmwareVersion":\s*"([^"]+)"', output)
             firmware = fw_match.group(1) if fw_match else "Unknown"
             
+            # Parse channel names
+            channels = []
+            for i in range(8):
+                ch_match = re.search(rf"channels\[{i}\].*?name.*?'([^']*)'", output, re.DOTALL)
+                if ch_match:
+                    name = ch_match.group(1).strip()
+                    channels.append({'index': i, 'name': name if name else f'Channel {i}'})
+
             # Store tracker info
             self.tracker_info = {
                 'node_id': node_id,
@@ -122,12 +130,15 @@ class ListenBasedMapper:
                 'port': self.port,
                 'host': self.host,
                 'hw_model': hw_model,
-                'firmware': firmware
+                'firmware': firmware,
+                'channels': channels
             }
-            
+
             print(f"[INFO] Local node ID: {node_id}")
             print(f"[INFO] Hardware: {hw_model}, Firmware: {firmware}")
-            
+            if channels:
+                print(f"[INFO] Channels: {[c['name'] for c in channels]}")
+
             return node_id
             
         except subprocess.TimeoutExpired:
@@ -218,8 +229,15 @@ class ListenBasedMapper:
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
                     
-                        self.messages = data.get('messages', [])
-                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {len(self.messages)} messages")
+                        loaded_msgs = data.get('messages', {})
+                        if isinstance(loaded_msgs, list):
+                            self._loaded_messages = {0: loaded_msgs} if loaded_msgs else {}
+                        elif isinstance(loaded_msgs, dict):
+                            self._loaded_messages = {int(k): v for k, v in loaded_msgs.items()}
+                        else:
+                            self._loaded_messages = {}
+                        total_msgs = sum(len(v) for v in self._loaded_messages.values())
+                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {total_msgs} messages")
 
                     # Always restore radio_stats regardless of node count
                     saved_radio_stats = data.get('tracker', {}).get('radio_stats')
@@ -546,6 +564,10 @@ class ListenBasedMapper:
             if not text:
                 return False
 
+            # Extract channel index
+            ch_match = re.search(r"'channel':\s*(\d+)", line)
+            channel_index = int(ch_match.group(1)) if ch_match else 0
+
             # Get sender name from nodes
             sender_name = from_id
             if from_id in self.nodes:
@@ -560,17 +582,20 @@ class ListenBasedMapper:
                 'to_id': to_id,
                 'text': text,
                 'timestamp': int(time.time()),
-                'is_dm': to_id != '^all'
+                'is_dm': to_id != '^all',
+                'channel_index': channel_index
             }
 
-            # Add to messages list (newest first, max 50)
-            self.messages.insert(0, message)
-            if len(self.messages) > 50:
-                self.messages = self.messages[:50]
+            # Add to channel dict (newest first, max 50 per channel)
+            if channel_index not in self.messages:
+                self.messages[channel_index] = []
+            self.messages[channel_index].insert(0, message)
+            if len(self.messages[channel_index]) > 50:
+                self.messages[channel_index] = self.messages[channel_index][:50]
 
             # Log
             dm_marker = " [DM]" if message['is_dm'] else ""
-            print(f"💬 {sender_name}: {text}{dm_marker}")
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker}")
 
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
@@ -693,7 +718,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.13")
+        print("Meshtastic Mapper - LISTEN MODE v1.14")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -1195,7 +1220,7 @@ if __name__ == '__main__':
                                 'updated': datetime.now().isoformat(),
                                 'cnt': 0, 'cnt_no_pos': 0,
                                 'max_distance_km': None, 'farthest_node': None,
-                                'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': []
+                                'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': {}
                             }
                             with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
                                 json.dump(empty_data, f, indent=2)
