@@ -150,6 +150,7 @@
         let losAbortController = null;
         let tracerouteLines = [];
         let tracerouteTimeout = null;
+        let tracerouteCountdown = null;
 
         // Meshtastic Mapper v1.13 - force reload: update this version number to bust cache
         const MAPPER_VERSION = '1.13';
@@ -278,6 +279,7 @@
                                 } else if (data.status === 'starting') {
                                     body.innerHTML = '<div id="traceroute-loading">🔍 Running traceroute...</div>';
                                 } else if (data.status === 'reconnecting') {
+                                    if (tracerouteCountdown) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; }
                                     body.innerHTML = '<div id="traceroute-loading">🔄 Restarting listener...</div>';
                                 }
                             }
@@ -743,13 +745,27 @@
                 closeTraceroutePanel();
                 const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
                 document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
-                document.getElementById('traceroute-body').innerHTML =
-                    connType === 'serial'
-                        ? '<div id="traceroute-loading">⚠️ Pausing listener for traceroute...</div>'
-                        : '<div id="traceroute-loading">🔍 Running traceroute...</div>';
+                const initMsg = connType === 'serial'
+                    ? '⚠️ Pausing listener for traceroute...'
+                    : '⏳ Running traceroute... (60s)';
+                document.getElementById('traceroute-body').innerHTML = `<div id="traceroute-loading">${initMsg}</div>`;
                 document.getElementById('traceroute-panel').style.display = 'block';
                 window._tracerouteNodeId = nodeId;
                 ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
+                if (tracerouteCountdown) clearInterval(tracerouteCountdown);
+                let secsLeft = 60;
+                tracerouteCountdown = setInterval(() => {
+                    const el = document.getElementById('traceroute-loading');
+                    if (!el) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; return; }
+                    secsLeft--;
+                    if (secsLeft > 0) {
+                        el.textContent = `⏳ Running traceroute... (${secsLeft}s)`;
+                    } else {
+                        el.textContent = '⏱️ Still waiting...';
+                        clearInterval(tracerouteCountdown);
+                        tracerouteCountdown = null;
+                    }
+                }, 1000);
                 if (tracerouteTimeout) clearTimeout(tracerouteTimeout);
                 tracerouteTimeout = setTimeout(() => {
                     tracerouteTimeout = null;
@@ -768,6 +784,7 @@
 
         function closeTraceroutePanel() {
             if (tracerouteTimeout) { clearTimeout(tracerouteTimeout); tracerouteTimeout = null; }
+            if (tracerouteCountdown) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; }
             document.getElementById('traceroute-panel').style.display = 'none';
             tracerouteLines.forEach(line => map.removeLayer(line));
             tracerouteLines = [];
@@ -776,6 +793,7 @@
 
         function handleTracerouteResult(data) {
             if (tracerouteTimeout) { clearTimeout(tracerouteTimeout); tracerouteTimeout = null; }
+            if (tracerouteCountdown) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; }
             const body = document.getElementById('traceroute-body');
             if (data.error) {
                 const err = data.error.toLowerCase();
