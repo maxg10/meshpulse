@@ -4,6 +4,9 @@
 # https://github.com/maxg10/meshtastic-network-mapper
 #
 
+# Get version from backend
+VERSION=$(grep -m1 "^#ver" backend/meshtastic_mapper.py | awk '{print $2}')
+
 set -e
 
 # Colors
@@ -14,6 +17,7 @@ NC='\033[0m' # No Color
 
 echo "========================================"
 echo " Meshtastic Network Mapper - Installer"
+echo " Version: $VERSION"
 echo "========================================"
 echo ""
 
