@@ -927,9 +927,9 @@ async def run_traceroute(node_id, websocket):
             result = await asyncio.wait_for(
                 loop.run_in_executor(
                     None,
-                    lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=43)
+                    lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=57)
                 ),
-                timeout=45.0
+                timeout=60.0
             )
             raw_output = result.stdout + result.stderr
             print(f"[TRACEROUTE] Output: {raw_output[:300]}")
@@ -938,6 +938,7 @@ async def run_traceroute(node_id, websocket):
                 await websocket.send(json.dumps({
                     'type': 'traceroute_status', 'status': 'reconnecting'
                 }))
+                await asyncio.sleep(3)
                 traceroute_restart = True
                 restart_event.set()
             await websocket.send(json.dumps({
@@ -950,6 +951,7 @@ async def run_traceroute(node_id, websocket):
             await websocket.send(json.dumps({
                 'type': 'traceroute_status', 'status': 'reconnecting'
             }))
+            await asyncio.sleep(3)
             traceroute_restart = True
             restart_event.set()
 
