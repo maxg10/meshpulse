@@ -963,6 +963,21 @@ async def run_send_message(text, channel_index, dest_id, websocket):
         await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
 
+        if success:
+            sent_message = {
+                'from_id': mapper.local_node_id,
+                'from_name': 'You',
+                'to_id': dest_id if dest_id else '^all',
+                'text': text,
+                'timestamp': int(time.time()),
+                'is_dm': bool(dest_id),
+                'channel_index': channel_index
+            }
+            if channel_index not in mapper.messages:
+                mapper.messages[channel_index] = []
+            mapper.messages[channel_index].insert(0, sent_message)
+            await mapper.broadcast_message(sent_message)
+
         await asyncio.sleep(2)
         send_restart = True
         restart_event.set()
