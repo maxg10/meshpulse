@@ -116,16 +116,17 @@ class ListenBasedMapper:
             firmware = fw_match.group(1) if fw_match else "Unknown"
             
             # Parse channel names
+            # Join wrapped lines (meshtastic CLI wraps long lines)
+            output_joined = re.sub(r'\n\s*"', '"', output)
             channels = []
             channel_pattern = re.finditer(
                 r'Index (\d+): \w+ psk=\w+\s*\{[^}]*"name":\s*"([^"]*)"',
-                output
+                output_joined
             )
             for match in channel_pattern:
                 index = int(match.group(1))
                 name = match.group(2).strip()
-                if not name:
-                    name = 'Primary' if index == 0 else f'Channel {index}'
+                name = 'Primary' if (index == 0 and not name) else (name if name else f'Channel {index}')
                 channels.append({'index': index, 'name': name})
 
             # Store tracker info
