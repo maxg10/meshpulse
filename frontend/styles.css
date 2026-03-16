@@ -186,4 +186,4 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
 .search-result-item:last-child{border-bottom:none}
 .search-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 .search-no-results{padding:8px 12px;color:#666;font-size:12px;font-style:italic}
-.search-result-highlight{background:#fef9c3!important;transition:background 1s ease}
+.search-result-highlight{background:#fef9c3!important;transition:background 3s ease}

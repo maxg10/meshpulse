@@ -820,9 +820,11 @@
                 const items = document.querySelectorAll('#no-gps-list .no-gps-item');
                 items.forEach(item => {
                     if (item.textContent.includes(nodeId)) {
-                        item.classList.add('search-result-highlight');
                         item.scrollIntoView({behavior: 'smooth', block: 'center'});
-                        setTimeout(() => item.classList.remove('search-result-highlight'), 2000);
+                        setTimeout(() => {
+                            item.classList.add('search-result-highlight');
+                            setTimeout(() => item.classList.remove('search-result-highlight'), 3000);
+                        }, 300);
                     }
                 });
             }
