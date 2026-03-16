@@ -65,9 +65,9 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:200px;overflow-y:
 .msg-text{color:#000;word-wrap:break-word}
 .message-item.meta{color:#666;font-style:italic}
 
-#radio-panel{position:fixed;bottom:80px;left:10px;background:rgba(255,255,255,.95);
+#radio-panel{position:fixed;top:80px;left:10px;background:rgba(255,255,255,.95);
 padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
-box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:180px;overflow-y:auto;cursor:pointer}
+box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:auto;cursor:pointer}
 #radio-panel h4{margin:0;font-size:13px;user-select:none}
 #radio-content{display:none;margin-top:8px}
 #radio-panel.open #radio-content{display:block}
