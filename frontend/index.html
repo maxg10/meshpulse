@@ -268,6 +268,18 @@
                             } else {
                                 maxLink.style.display = 'none';
                             }
+                        } else if (data.type === 'traceroute_status') {
+                            console.log('[WS] Traceroute status:', data.status);
+                            const body = document.getElementById('traceroute-body');
+                            if (body) {
+                                if (data.status === 'starting' && data.connection_type === 'serial') {
+                                    body.innerHTML = '<div id="traceroute-loading">⚠️ Pausing listener for traceroute...</div>';
+                                } else if (data.status === 'starting') {
+                                    body.innerHTML = '<div id="traceroute-loading">🔍 Running traceroute...</div>';
+                                } else if (data.status === 'reconnecting') {
+                                    body.innerHTML = '<div id="traceroute-loading">🔄 Restarting listener...</div>';
+                                }
+                            }
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
@@ -725,13 +737,23 @@
                 alert('WebSocket not connected');
                 return;
             }
-            closeTraceroutePanel();
-            const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
-            document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
-            document.getElementById('traceroute-body').innerHTML = '<div id="traceroute-loading">Running traceroute (~30s)...</div>';
-            document.getElementById('traceroute-panel').style.display = 'block';
-            window._tracerouteNodeId = nodeId;
-            ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
+            const connType = (trackerInfo.connection_type || 'serial');
+            const sendRequest = () => {
+                closeTraceroutePanel();
+                const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
+                document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
+                document.getElementById('traceroute-body').innerHTML =
+                    connType === 'serial'
+                        ? '<div id="traceroute-loading">⚠️ Pausing listener for traceroute...</div>'
+                        : '<div id="traceroute-loading">🔍 Running traceroute...</div>';
+                document.getElementById('traceroute-panel').style.display = 'block';
+                window._tracerouteNodeId = nodeId;
+                ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
+            };
+            if (connType === 'serial') {
+                if (!confirm('⚠️ USB connection: listener will pause ~30-60s during traceroute. Continue?')) return;
+            }
+            sendRequest();
         }
 
         function closeTraceroutePanel() {
@@ -1128,7 +1150,7 @@
                             distanceInfo = `Dist: ${dist.toFixed(2)} km<br>`;
                         }
                     }
-                    const tracerouteBtn = (n.hops > 0 && !n.via_mqtt)
+                    const tracerouteBtn = !n.via_mqtt
                         ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
                         : '';
                     pop = `<div class="node-popup">

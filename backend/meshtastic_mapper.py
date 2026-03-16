@@ -882,7 +882,10 @@ def parse_traceroute_output(output):
 
 
 async def run_traceroute(node_id, websocket):
-    """Run meshtastic --traceroute and send result to the requesting WebSocket client."""
+    """Run meshtastic --traceroute and send result to the requesting WebSocket client.
+    For serial: stops listener subprocess first, restarts after.
+    For TCP: runs in parallel without interrupting listener.
+    """
     try:
         if not mapper:
             await websocket.send(json.dumps({
@@ -890,14 +893,34 @@ async def run_traceroute(node_id, websocket):
             }))
             return
 
-        if mapper.connection_type == 'tcp':
-            cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
-        else:
-            cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--traceroute', node_id]
+        conn_type = mapper.connection_type
 
-        print(f"[TRACEROUTE] Running: {' '.join(cmd)}")
+        # Notify frontend that traceroute is starting
+        await websocket.send(json.dumps({
+            'type': 'traceroute_status',
+            'status': 'starting',
+            'connection_type': conn_type
+        }))
 
         loop = asyncio.get_event_loop()
+
+        if conn_type == 'tcp':
+            # TCP: run alongside listener, no interruption needed
+            cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
+            print(f"[TRACEROUTE] TCP mode, running: {' '.join(cmd)}")
+        else:
+            # Serial: must stop listener to free the port
+            cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--traceroute', node_id]
+            print(f"[TRACEROUTE] Serial mode - stopping listener to free port")
+            if mapper.current_process:
+                try:
+                    mapper.current_process.terminate()
+                except Exception as e:
+                    print(f"[TRACEROUTE] Warning terminating listener: {e}")
+            # Give listener process time to release the serial port
+            await asyncio.sleep(2)
+            print(f"[TRACEROUTE] Running: {' '.join(cmd)}")
+
         try:
             result = await asyncio.wait_for(
                 loop.run_in_executor(
@@ -909,10 +932,22 @@ async def run_traceroute(node_id, websocket):
             raw_output = result.stdout + result.stderr
             print(f"[TRACEROUTE] Output: {raw_output[:300]}")
         except asyncio.TimeoutError:
+            if conn_type == 'serial':
+                await websocket.send(json.dumps({
+                    'type': 'traceroute_status', 'status': 'reconnecting'
+                }))
+                restart_event.set()
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
             }))
             return
+
+        # For serial: restart the listener now
+        if conn_type == 'serial':
+            await websocket.send(json.dumps({
+                'type': 'traceroute_status', 'status': 'reconnecting'
+            }))
+            restart_event.set()
 
         route, route_back = parse_traceroute_output(raw_output)
 
