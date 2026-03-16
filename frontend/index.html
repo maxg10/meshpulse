@@ -8,15 +8,20 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.13">
+    <link rel="stylesheet" href="styles.css?v=1.14">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
     <div id="map"></div>
+    <div id="search-bar">
+        <input type="text" id="search-input" placeholder="🔍 Search node by name or ID..."
+               oninput="searchNodes(this.value)" autocomplete="off">
+        <div id="search-results"></div>
+    </div>
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.13 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.14 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -152,8 +157,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v1.13 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.13';
+        // Meshtastic Mapper v1.14 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.14';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -761,6 +766,78 @@
                 losChart = null;
             }
         }
+
+        function searchNodes(query) {
+            const resultsEl = document.getElementById('search-results');
+            if (query.length < 2) {
+                resultsEl.style.display = 'none';
+                return;
+            }
+            const q = query.toLowerCase();
+            const matches = [];
+            allNodes.forEach(n => {
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push({node: n, hasGps: true});
+                }
+            });
+            allNodesNoGps.forEach(n => {
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push({node: n, hasGps: false});
+                }
+            });
+            const top = matches.slice(0, 8);
+            if (top.length === 0) {
+                resultsEl.innerHTML = '<div class="search-no-results">No results found</div>';
+                resultsEl.style.display = 'block';
+                return;
+            }
+            resultsEl.innerHTML = top.map(({node: n, hasGps}) => {
+                const age = Math.floor(Date.now()/1000) - n.ts;
+                let dotColor = '#22c55e';
+                if (age > 21600) dotColor = '#ef4444';
+                else if (age > 3600) dotColor = '#eab308';
+                const hopsText = n.hops != null ? ` | hops: ${n.hops}` : '';
+                const gpsIcon = hasGps ? '' : ' 📍';
+                return `<div class="search-result-item" onclick="selectSearchResult('${n.id}', ${hasGps})">
+                    <div class="search-dot" style="background:${dotColor}"></div>
+                    <span>${n.name}${gpsIcon} <span style="color:#666;font-size:11px;">${n.id}${hopsText}</span></span>
+                </div>`;
+            }).join('');
+            resultsEl.style.display = 'block';
+        }
+
+        function selectSearchResult(nodeId, hasGps) {
+            if (hasGps) {
+                const node = allNodes.find(n => n.id === nodeId);
+                if (node && node.lat && node.lon) {
+                    map.setView([node.lat, node.lon], 14);
+                    if (markers[nodeId]) markers[nodeId].openPopup();
+                }
+            } else {
+                const noGpsPanel = document.getElementById('no-gps-panel');
+                noGpsPanel.scrollIntoView({behavior: 'smooth'});
+                if (!noGpsPanel.classList.contains('open')) noGpsPanel.classList.add('open');
+                const items = document.querySelectorAll('#no-gps-list .no-gps-item');
+                items.forEach(item => {
+                    if (item.textContent.includes(nodeId)) {
+                        item.classList.add('search-result-highlight');
+                        setTimeout(() => item.classList.remove('search-result-highlight'), 2000);
+                    }
+                });
+            }
+            clearSearch();
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('search-results').style.display = 'none';
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!document.getElementById('search-bar').contains(e.target)) {
+                document.getElementById('search-results').style.display = 'none';
+            }
+        });
 
         function startTraceroute(nodeId) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {

@@ -177,3 +177,13 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
 .traceroute-hop{font-size:12px}
 .hop-arrow{color:#6b7280;margin:0 3px}
 .node-popup button{margin-top:6px;font-size:11px;padding:2px 7px;cursor:pointer}
+
+#search-bar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:1100;width:350px}
+#search-input{width:100%;padding:8px 12px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(0,0,0,.3);font-size:13px;font-family:Arial,sans-serif;background:rgba(255,255,255,.97);box-sizing:border-box}
+#search-results{background:rgba(255,255,255,.97);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);margin-top:4px;max-height:300px;overflow-y:auto;display:none}
+.search-result-item{padding:8px 12px;cursor:pointer;font-size:12px;font-family:Arial,sans-serif;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px}
+.search-result-item:hover{background:#f3f4f6}
+.search-result-item:last-child{border-bottom:none}
+.search-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.search-no-results{padding:8px 12px;color:#666;font-size:12px;font-style:italic}
+.search-result-highlight{background:#fef9c3!important;transition:background 1s ease}
