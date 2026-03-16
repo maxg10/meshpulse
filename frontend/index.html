@@ -775,7 +775,7 @@
                 } else {
                     msg = '❌ Traceroute failed. Try again later.';
                 }
-                body.innerHTML = `<div style="color:#374151;padding:10px;">${msg}</div>`;
+                body.innerHTML = `<div style="color:#374151;padding:10px;">${msg}</div><button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>`;
                 return;
             }
             tracerouteLines.forEach(line => map.removeLayer(line));
@@ -813,6 +813,7 @@
                 html = '<div style="color:#666;font-style:italic;">No route info received</div>';
                 if (data.raw) html += `<pre style="font-size:10px;overflow-x:auto;margin-top:4px;">${data.raw.substring(0, 300)}</pre>`;
             }
+            html += '<button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>';
             body.innerHTML = html;
         }
 
