@@ -1161,7 +1161,7 @@ if __name__ == '__main__':
                 connection_type=connection_type,
                 port=port,
                 host=host,
-                max_age=604800
+                max_age=172800
             )
             mapper.run()
 

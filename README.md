@@ -11,7 +11,7 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 - 📡 **Real-time node tracking** - Live position updates via WebSocket (falls back to polling)
 - 🗺️ **Interactive map** - Leaflet.js-based web interface
 - 💬 **Text messages** - Broadcasts and DMs displayed in Messages panel, persisted across restarts
-- ⏰ **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (7 days default)
+- ⏰ **TTL (Time-To-Live)** - Automatic cleanup of stale nodes (48 hours default)
 - 🔄 **Auto-restart** - Resilient to connection timeouts
 - 📋 **JSON API** - Easy integration with other tools
 - 📂 **Multi-tracker support** - Merge data from multiple trackers
@@ -243,7 +243,7 @@ Edit `backend/meshtastic_mapper.py` if needed:
 ```python
 self.port = '/dev/ttyUSB0'  # Change if tracker on different port (auto-detected by default)
 self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
-self.max_age = 604800  # Node TTL in seconds (7 days default)
+self.max_age = 172800  # Node TTL in seconds (48 hours default)
 ```
 
 ### Change TTL (Time-To-Live)
@@ -251,7 +251,7 @@ self.max_age = 604800  # Node TTL in seconds (7 days default)
 Nodes older than `max_age` seconds are automatically removed:
 ```python
 # In backend/meshtastic_mapper.py, find the ListenBasedMapper instantiation:
-mapper = ListenBasedMapper(port, max_age=604800)  # 7 days (default)
+mapper = ListenBasedMapper(port, max_age=172800)  # 48 hours (default)
 # Change to:
 mapper = ListenBasedMapper(port, max_age=86400)   # 24 hours
 # Or:
