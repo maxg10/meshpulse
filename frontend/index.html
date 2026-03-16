@@ -781,6 +781,7 @@
                 }
             });
             allNodesNoGps.forEach(n => {
+                if (n.via_mqtt) return;
                 if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
                     matches.push({node: n, hasGps: false});
                 }
@@ -815,12 +816,12 @@
                 }
             } else {
                 const noGpsPanel = document.getElementById('no-gps-panel');
-                noGpsPanel.scrollIntoView({behavior: 'smooth'});
                 if (!noGpsPanel.classList.contains('open')) noGpsPanel.classList.add('open');
                 const items = document.querySelectorAll('#no-gps-list .no-gps-item');
                 items.forEach(item => {
                     if (item.textContent.includes(nodeId)) {
                         item.classList.add('search-result-highlight');
+                        item.scrollIntoView({behavior: 'smooth', block: 'center'});
                         setTimeout(() => item.classList.remove('search-result-highlight'), 2000);
                     }
                 });
