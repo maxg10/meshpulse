@@ -327,7 +327,24 @@
                             if (data.success) {
                                 const inp = document.getElementById('send-text');
                                 if (inp) inp.value = '';
+                                const pending = window._pendingSend;
+                                if (pending) {
+                                    const sentMsg = {
+                                        from_id: trackerInfo.node_id,
+                                        from_name: 'You',
+                                        to_id: pending.destId || '^all',
+                                        text: pending.text,
+                                        timestamp: Math.floor(Date.now() / 1000),
+                                        is_dm: !!pending.destId,
+                                        channel_index: pending.channelIndex
+                                    };
+                                    const ch = pending.channelIndex;
+                                    if (!allMessages[ch]) allMessages[ch] = [];
+                                    allMessages[ch].unshift(sentMsg);
+                                    updateMessagesDisplay();
+                                }
                             }
+                            window._pendingSend = null;
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             updateConnectionStatus(data.status);
@@ -578,6 +595,7 @@
                 if (!confirm('⚠️ USB: listener will pause ~5s during send. Continue?')) return;
             }
             document.getElementById('send-btn').disabled = true;
+            window._pendingSend = {text, channelIndex, destId};
             ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
         }
 
