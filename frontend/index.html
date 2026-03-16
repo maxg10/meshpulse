@@ -574,22 +574,27 @@
         function checkLOS(elevations, startAlt, endAlt, totalDistance) {
             const numPoints = elevations.length;
             const distances = elevations.map((_, i) => (i / (numPoints - 1)) * totalDistance * 1000);
+            const R_eff = 8500000; // Effective Earth radius with k=4/3 tropospheric refraction
             let isObstructed = false;
             const losLine = [];
             const fresnelLower = [];
+            const correctedElevations = [];
             for (let i = 0; i < numPoints; i++) {
                 const fraction = i / (numPoints - 1);
                 const losHeight = startAlt + (endAlt - startAlt) * fraction;
                 losLine.push(losHeight);
                 const d1 = distances[i];
                 const d2 = totalDistance * 1000 - d1;
+                const curvatureCorrection = (d1 * d2) / (2 * R_eff);
+                const correctedElev = elevations[i] + curvatureCorrection;
+                correctedElevations.push(correctedElev);
                 const fRadius = (d1 > 0 && d2 > 0) ? fresnelRadius(d1, d2) * 0.6 : 0;
                 fresnelLower.push(losHeight - fRadius);
-                if (elevations[i] > losHeight - fRadius) {
+                if (correctedElev > losHeight - fRadius) {
                     isObstructed = true;
                 }
             }
-            return { isObstructed, losLine, fresnelLower, distances };
+            return { isObstructed, losLine, fresnelLower, distances, correctedElevations };
         }
 
         async function showLOSPanel(node) {
@@ -640,7 +645,7 @@
                     elevations[elevations.length - 1]
                 ) + antennaOffset;
 
-                const { isObstructed, losLine, fresnelLower, distances } = checkLOS(
+                const { isObstructed, losLine, fresnelLower, distances, correctedElevations } = checkLOS(
                     elevations, trackerAlt, nodeAlt, distance
                 );
 
@@ -659,41 +664,63 @@
 
                 if (losChart) losChart.destroy();
 
+                // Obstruction zone: max(correctedTerrain, losLine) filled down to losLine
+                const obstructionZone = isObstructed
+                    ? correctedElevations.map((elev, i) => Math.max(elev, losLine[i]))
+                    : null;
+
+                // LOS line point styles: triangles at start and end
+                const losPointRadius = losLine.map((_, i) => (i === 0 || i === losLine.length - 1) ? 6 : 0);
+                const losPointStyle = losLine.map((_, i) => (i === 0 || i === losLine.length - 1) ? 'triangle' : 'circle');
+
+                const datasets = [
+                    {
+                        label: 'Terrain',
+                        data: correctedElevations,
+                        fill: true,
+                        backgroundColor: 'rgba(139, 115, 85, 0.4)',
+                        borderColor: 'rgba(139, 115, 85, 0.9)',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.3
+                    },
+                    {
+                        label: 'Line of Sight',
+                        data: losLine,
+                        fill: false,
+                        borderColor: isObstructed ? '#ef4444' : '#22c55e',
+                        borderWidth: 3,
+                        borderDash: [5, 5],
+                        pointRadius: losPointRadius,
+                        pointStyle: losPointStyle,
+                        pointBackgroundColor: isObstructed ? '#ef4444' : '#22c55e'
+                    },
+                    {
+                        label: 'Fresnel Zone (60%)',
+                        data: fresnelLower,
+                        fill: false,
+                        borderColor: 'rgba(59, 130, 246, 0.7)',
+                        borderWidth: 1,
+                        borderDash: [2, 2],
+                        pointRadius: 0
+                    }
+                ];
+                if (isObstructed && obstructionZone) {
+                    datasets.splice(1, 0, {
+                        label: 'Obstruction Zone',
+                        data: obstructionZone,
+                        fill: '+1',
+                        backgroundColor: 'rgba(239, 68, 68, 0.3)',
+                        borderColor: 'transparent',
+                        borderWidth: 0,
+                        pointRadius: 0,
+                        tension: 0.3
+                    });
+                }
+
                 losChart = new Chart(chartCanvas, {
                     type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Terrain',
-                                data: elevations,
-                                fill: true,
-                                backgroundColor: 'rgba(34, 197, 94, 0.3)',
-                                borderColor: 'rgba(34, 197, 94, 0.8)',
-                                borderWidth: 2,
-                                pointRadius: 0,
-                                tension: 0.3
-                            },
-                            {
-                                label: 'Line of Sight',
-                                data: losLine,
-                                fill: false,
-                                borderColor: isObstructed ? '#ef4444' : '#22c55e',
-                                borderWidth: 2,
-                                borderDash: [5, 5],
-                                pointRadius: 0
-                            },
-                            {
-                                label: 'Fresnel Zone (60%)',
-                                data: fresnelLower,
-                                fill: false,
-                                borderColor: 'rgba(59, 130, 246, 0.5)',
-                                borderWidth: 1,
-                                borderDash: [2, 2],
-                                pointRadius: 0
-                            }
-                        ]
-                    },
+                    data: { labels: labels, datasets },
                     options: {
                         responsive: true,
                         maintainAspectRatio: false,
@@ -1223,7 +1250,7 @@
                         RSSI: ${n.rssi != null ? n.rssi + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         Alt: ${n.alt}m<br>
                         Hops: ${n.hops != null ? n.hops : '?'}<br>
-                        ${distanceInfo}<small>Seen: ${timeAgo(n.ts)}</small>${tracerouteBtn}
+                        ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
                 }
                 const offset = getOffset(n, allNodes);

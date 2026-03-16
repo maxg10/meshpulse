@@ -208,6 +208,8 @@ class ListenBasedMapper:
                         # Convert lists to dicts with id as key
                         nodes = {node['id']: node for node in data.get('nodes', [])}
                         nodes_no_pos = {node['id']: node for node in data.get('nodes_no_pos', [])}
+                        for n in nodes.values(): n['source'] = 'memory'
+                        for n in nodes_no_pos.values(): n['source'] = 'memory'
                     
                         # Clean old nodes immediately
                         self.clean_old_nodes_from_dict(nodes)
@@ -298,7 +300,8 @@ class ListenBasedMapper:
                         'hops': hops,
                         'ts': int(time.time()),
                         'seen_at': int(time.time()),
-                        'via_mqtt': via_mqtt
+                        'via_mqtt': via_mqtt,
+                        'source': 'live'
                     }
                     
                     marker = "✚" if is_new else "↻"
@@ -329,7 +332,8 @@ class ListenBasedMapper:
                         'hops': hops,
                         'via_mqtt': via_mqtt,
                         'ts': int(time.time()),
-                        'seen_at': int(time.time())
+                        'seen_at': int(time.time()),
+                        'source': 'live'
                     }
 
                     marker = "✚" if is_new else "↻"
@@ -403,6 +407,7 @@ class ListenBasedMapper:
                 self.nodes[node_id]['via_mqtt'] = via_mqtt
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
+                self.nodes[node_id]['source'] = 'live'
                 print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             else:
                 # New node from position packet (minimal info)
@@ -418,7 +423,8 @@ class ListenBasedMapper:
                     'hops': hops,
                     'via_mqtt': via_mqtt,
                     'ts': int(time.time()),
-                    'seen_at': int(time.time())
+                    'seen_at': int(time.time()),
+                    'source': 'live'
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
@@ -484,8 +490,9 @@ class ListenBasedMapper:
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
+                self.nodes[node_id]['source'] = 'live'
                 print(f"♡ {node_id} telemetry heartbeat")
-                
+
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
@@ -494,6 +501,7 @@ class ListenBasedMapper:
             elif node_id in self.nodes_no_position:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
                 self.nodes_no_position[node_id]['seen_at'] = int(time.time())
+                self.nodes_no_position[node_id]['source'] = 'live'
                 print(f"♡ {node_id} telemetry heartbeat (no GPS)")
 
                 # Broadcast to WebSocket clients
