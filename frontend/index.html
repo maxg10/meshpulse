@@ -8,7 +8,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.14">
+    <link rel="stylesheet" href="styles.css?v=1.15">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -21,7 +21,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>📶 Mesh Stats ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.14 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
+        <small style="color:#888">v1.15 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
         <b>Nodes:</b> <span id="cnt">0</span><br>
         <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -123,6 +123,19 @@
         <div id="messages-content">
             <div id="channel-tabs"></div>
             <div id="messages-list"></div>
+            <div id="send-area">
+                <div id="dm-selector" style="display:none;">
+                    <span>To: </span>
+                    <input type="text" id="dm-node-id" placeholder="!nodeID or search..." size="15">
+                    <button onclick="clearDM()">✕</button>
+                </div>
+                <div id="send-row">
+                    <select id="send-channel-select"></select>
+                    <input type="text" id="send-text" placeholder="Type message..." maxlength="200" onkeydown="if(event.key==='Enter')sendMessage()">
+                    <button id="send-btn" onclick="sendMessage()">Send ➤</button>
+                </div>
+                <div id="send-status"></div>
+            </div>
         </div>
     </div>
     <div id="radio-panel" onclick="this.classList.toggle('open')">
@@ -164,8 +177,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v1.14 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.14';
+        // Meshtastic Mapper v1.15 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.15';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -298,6 +311,23 @@
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
+                        } else if (data.type === 'send_status') {
+                            const statusEl = document.getElementById('send-status');
+                            if (statusEl) {
+                                if (data.status === 'sending') {
+                                    statusEl.textContent = '⏳ Sending...';
+                                } else if (data.status === 'done') {
+                                    statusEl.textContent = data.success ? '✅ Sent!' : '❌ Failed';
+                                    if (data.success) setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+                                }
+                            }
+                        } else if (data.type === 'send_result') {
+                            const btn = document.getElementById('send-btn');
+                            if (btn) btn.disabled = false;
+                            if (data.success) {
+                                const inp = document.getElementById('send-text');
+                                if (inp) inp.value = '';
+                            }
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             updateConnectionStatus(data.status);
@@ -439,6 +469,7 @@
             const total = Object.values(allMessages).reduce((s, msgs) => s + msgs.length, 0);
             document.getElementById('messages-total-cnt').textContent = total;
             updateChannelTabs();
+            updateSendChannelSelect();
             const msgs = allMessages[activeChannel] || [];
             const messagesList = document.getElementById('messages-list');
             if (msgs.length > 0) {
@@ -483,6 +514,8 @@
             const hasUnread = Object.values(unreadCounts).some(c => c > 0);
             if (!hasUnread) stopBlink();
             updateMessagesDisplay();
+            const sel = document.getElementById('send-channel-select');
+            if (sel) sel.value = index;
         }
 
         function toggleSound() {
@@ -516,7 +549,51 @@
             if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
             if (blinkEl) { blinkEl.style.display = 'none'; blinkEl.style.opacity = '1'; }
         }
-        
+
+        function updateSendChannelSelect() {
+            const sel = document.getElementById('send-channel-select');
+            if (!sel) return;
+            const indices = [...new Set([
+                ...Object.keys(allMessages).map(Number),
+                ...Object.keys(channelNames).map(Number),
+                0
+            ])].sort((a, b) => a - b);
+            sel.innerHTML = indices.map(idx => {
+                const name = channelNames[idx] || (idx === 0 ? 'Primary' : `Ch ${idx}`);
+                return `<option value="${idx}"${idx === activeChannel ? ' selected' : ''}>${name}</option>`;
+            }).join('');
+        }
+
+        function sendMessage() {
+            const text = (document.getElementById('send-text').value || '').trim();
+            if (!text) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                document.getElementById('send-status').textContent = '❌ Not connected';
+                return;
+            }
+            const channelIndex = parseInt(document.getElementById('send-channel-select').value) || 0;
+            const destId = (document.getElementById('dm-node-id').value || '').trim() || null;
+            const connType = trackerInfo.connection_type || 'serial';
+            if (connType === 'serial') {
+                if (!confirm('⚠️ USB: listener will pause ~5s during send. Continue?')) return;
+            }
+            document.getElementById('send-btn').disabled = true;
+            ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
+        }
+
+        function openDM(nodeId, nodeName) {
+            const panel = document.getElementById('messages-panel');
+            if (!panel.classList.contains('open')) panel.classList.add('open');
+            document.getElementById('dm-selector').style.display = 'flex';
+            document.getElementById('dm-node-id').value = nodeId;
+            setTimeout(() => { const inp = document.getElementById('send-text'); if (inp) inp.focus(); }, 100);
+        }
+
+        function clearDM() {
+            document.getElementById('dm-selector').style.display = 'none';
+            document.getElementById('dm-node-id').value = '';
+        }
+
         function updateRadioDisplay() {
             const rs = trackerInfo.radio_stats;
             const list = document.getElementById('radio-stats-list');
@@ -1401,6 +1478,7 @@
                     }
                     const tracerouteBtn = !n.via_mqtt
                         ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
+                          + `<button onclick="openDM('${n.id}','${n.name.replace(/'/g,"\\'")}')">✉️ Message</button>`
                         : '';
                     pop = `<div class="node-popup">
                         <b>${n.name}</b><br>

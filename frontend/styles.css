@@ -192,3 +192,13 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
 .channel-tab.active{background:#1f2937;color:white;border-color:#1f2937}
 .channel-tab .unread-badge{position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:50%;width:16px;height:16px;font-size:9px;display:flex;align-items:center;justify-content:center}
 #sound-toggle{cursor:pointer;background:none;border:none;font-size:12px;padding:0 4px}
+#send-area{border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px}
+#send-row{display:flex;gap:4px;align-items:center}
+#send-text{flex:1;padding:4px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:12px;font-family:Arial,sans-serif}
+#send-btn{padding:4px 8px;background:#1f2937;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+#send-btn:hover{background:#374151}
+#send-btn:disabled{background:#9ca3af;cursor:not-allowed}
+#send-channel-select{font-size:11px;padding:2px 4px;border:1px solid #e5e7eb;border-radius:4px}
+#dm-selector{font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:4px;background:#dbeafe;padding:3px 6px;border-radius:4px}
+#dm-node-id{font-size:11px;padding:2px 4px;border:1px solid #93c5fd;border-radius:3px}
+#send-status{margin-top:4px;min-height:14px;font-size:10px;color:#666}

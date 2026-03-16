@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.14
+#ver 1.15
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -28,6 +28,7 @@ mapper = None
 restart_event = threading.Event()
 restart_config = {}
 traceroute_restart = False  # True when restart is triggered by traceroute (serial mode)
+send_restart = False        # True when restart is triggered by message send (serial mode)
 
 
 def load_config():
@@ -722,7 +723,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.14")
+        print("Meshtastic Mapper - LISTEN MODE v1.15")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -919,6 +920,71 @@ def parse_traceroute_output(output):
     return route, route_back
 
 
+async def run_send_message(text, channel_index, dest_id, websocket):
+    """Send a text message via meshtastic CLI.
+    For TCP: runs directly without interrupting listener.
+    For serial: stops listener, sends, then restarts listener.
+    """
+    global send_restart
+    try:
+        if not mapper:
+            await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}))
+            return
+
+        await websocket.send(json.dumps({
+            'type': 'send_status', 'status': 'sending', 'connection_type': mapper.connection_type
+        }))
+
+        if mapper.connection_type == 'tcp':
+            if dest_id:
+                cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--sendtext', text,
+                       '--dest', dest_id, '--ch-index', str(channel_index)]
+            else:
+                cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--sendtext', text,
+                       '--ch-index', str(channel_index)]
+        else:
+            if mapper.current_process:
+                mapper.current_process.terminate()
+                await asyncio.sleep(2)
+            if dest_id:
+                cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--sendtext', text,
+                       '--dest', dest_id, '--ch-index', str(channel_index)]
+            else:
+                cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--sendtext', text,
+                       '--ch-index', str(channel_index)]
+
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: subprocess.run(
+                cmd, capture_output=True, text=True, timeout=28
+            )),
+            timeout=30
+        )
+
+        success = result.returncode == 0
+        msg = 'Message sent' if success else (result.stderr.strip() or 'Send failed')
+        print(f"[SEND] ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
+
+        await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+
+        if mapper.connection_type != 'tcp':
+            await asyncio.sleep(2)
+            send_restart = True
+            restart_event.set()
+
+    except asyncio.TimeoutError:
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+        if mapper and mapper.connection_type != 'tcp':
+            send_restart = True
+            restart_event.set()
+    except Exception as e:
+        print(f"[SEND] Error: {e}")
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+
+
 async def run_traceroute(node_id, websocket):
     """Run meshtastic --traceroute and send result to the requesting WebSocket client.
     For serial: stops listener subprocess first, restarts after.
@@ -1112,6 +1178,14 @@ async def websocket_handler(websocket):
                         asyncio.ensure_future(run_traceroute(node_id, websocket))
                     else:
                         print(f"[WS] Traceroute request missing node_id from {client_addr}")
+                elif data.get('type') == 'send_message':
+                    text = data.get('text', '').strip()
+                    channel_index = int(data.get('channel_index', 0))
+                    dest_id = data.get('dest_id') or None
+                    if text:
+                        asyncio.ensure_future(run_send_message(text, channel_index, dest_id, websocket))
+                    else:
+                        print(f"[WS] send_message missing text from {client_addr}")
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
@@ -1209,6 +1283,10 @@ if __name__ == '__main__':
                     traceroute_restart = False
                     # Traceroute-triggered restart: keep same connection, don't clear nodes.json
                     print("[RESTART] Traceroute restart - resuming listener, keeping data")
+                elif send_restart:
+                    send_restart = False
+                    # Send-triggered restart: keep same connection, don't clear nodes.json
+                    print("[RESTART] Send restart - resuming listener, keeping data")
                 else:
                     # Normal connection change
                     connection_type = restart_config.get('connection_type', 'serial')
