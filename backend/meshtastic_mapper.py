@@ -887,6 +887,7 @@ async def run_traceroute(node_id, websocket):
     For serial: stops listener subprocess first, restarts after.
     For TCP: runs in parallel without interrupting listener.
     """
+    global traceroute_restart
     try:
         if not mapper:
             await websocket.send(json.dumps({
@@ -937,7 +938,6 @@ async def run_traceroute(node_id, websocket):
                 await websocket.send(json.dumps({
                     'type': 'traceroute_status', 'status': 'reconnecting'
                 }))
-                global traceroute_restart
                 traceroute_restart = True
                 restart_event.set()
             await websocket.send(json.dumps({
@@ -950,7 +950,6 @@ async def run_traceroute(node_id, websocket):
             await websocket.send(json.dumps({
                 'type': 'traceroute_status', 'status': 'reconnecting'
             }))
-            global traceroute_restart
             traceroute_restart = True
             restart_event.set()
 
