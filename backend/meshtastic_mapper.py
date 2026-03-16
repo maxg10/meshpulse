@@ -27,6 +27,7 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 mapper = None
 restart_event = threading.Event()
 restart_config = {}
+traceroute_restart = False  # True when restart is triggered by traceroute (serial mode)
 
 
 def load_config():
@@ -936,6 +937,8 @@ async def run_traceroute(node_id, websocket):
                 await websocket.send(json.dumps({
                     'type': 'traceroute_status', 'status': 'reconnecting'
                 }))
+                global traceroute_restart
+                traceroute_restart = True
                 restart_event.set()
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
@@ -947,6 +950,8 @@ async def run_traceroute(node_id, websocket):
             await websocket.send(json.dumps({
                 'type': 'traceroute_status', 'status': 'reconnecting'
             }))
+            global traceroute_restart
+            traceroute_restart = True
             restart_event.set()
 
         route, route_back = parse_traceroute_output(raw_output)
@@ -1161,26 +1166,33 @@ if __name__ == '__main__':
 
             if restart_event.is_set():
                 restart_event.clear()
-                connection_type = restart_config.get('connection_type', 'serial')
-                host = restart_config.get('host')
-                port = restart_config.get('port')
-                keep_data = restart_config.get('keep_data', False)
 
-                # Clear nodes.json if not keeping previous data
-                if not keep_data:
-                    try:
-                        empty_data = {
-                            'ts': int(time.time()),
-                            'updated': datetime.now().isoformat(),
-                            'cnt': 0, 'cnt_no_pos': 0,
-                            'max_distance_km': None, 'farthest_node': None,
-                            'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': []
-                        }
-                        with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
-                            json.dump(empty_data, f, indent=2)
-                        print("[RESTART] Cleared nodes.json (fresh scan)")
-                    except Exception as e:
-                        print(f"[RESTART] Error clearing nodes.json: {e}")
+                if traceroute_restart:
+                    traceroute_restart = False
+                    # Traceroute-triggered restart: keep same connection, don't clear nodes.json
+                    print("[RESTART] Traceroute restart - resuming listener, keeping data")
+                else:
+                    # Normal connection change
+                    connection_type = restart_config.get('connection_type', 'serial')
+                    host = restart_config.get('host')
+                    port = restart_config.get('port')
+                    keep_data = restart_config.get('keep_data', False)
+
+                    # Clear nodes.json if not keeping previous data
+                    if not keep_data:
+                        try:
+                            empty_data = {
+                                'ts': int(time.time()),
+                                'updated': datetime.now().isoformat(),
+                                'cnt': 0, 'cnt_no_pos': 0,
+                                'max_distance_km': None, 'farthest_node': None,
+                                'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': []
+                            }
+                            with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
+                                json.dump(empty_data, f, indent=2)
+                            print("[RESTART] Cleared nodes.json (fresh scan)")
+                        except Exception as e:
+                            print(f"[RESTART] Error clearing nodes.json: {e}")
 
                 # Auto-detect port if switching back to serial without a stored port
                 if connection_type == 'serial' and not port:
