@@ -4,9 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
+Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.11 (RF Line of Sight analysis)
+**Current Version:** v1.13 (Traceroute & LOS Improvements)
 
 ## Running & Deployment
 
@@ -35,59 +35,105 @@ There is no build step, test suite, or linter configured for this project.
 
 ### Backend (`backend/meshtastic_mapper.py`)
 
-Single Python file (~734 lines) with the `ListenBasedMapper` class:
+Single Python file (~1225 lines) with the `ListenBasedMapper` class:
 
 - **Subprocess model**: Spawns `meshtastic --listen` as a subprocess, parses stdout line-by-line in real-time. Auto-restarts on process termination.
 - **Four parsers**: `parse_node_info()`, `parse_position_update()`, `parse_telemetry_update()`, `parse_text_message()` — each handles a different packet type from the meshtastic CLI output.
 - **Dual data stores**: `self.nodes` (nodes with GPS positions) and `self.nodes_no_position` (nodes without GPS). Both are dicts keyed by node ID (e.g., `!7b6c8272`).
 - **Messages storage**: `self.messages` list stores up to 50 recent text messages (broadcasts and DMs), newest first. Persisted to `nodes.json` and reloaded on startup.
-- **JSON output**: Writes `nodes.json` every 60 seconds to the web server directory. Includes nodes, no-GPS nodes, messages, and tracker info. Stale nodes cleaned every hour based on `max_age` (default 7 days / 604800 seconds).
-- **WebSocket server**: Async server on port 8765 running in a separate thread via `threading.Thread` + `asyncio`. Broadcasts three message types to all connected clients:
+- **Source tracking**: Every node has a `source` field — `'memory'` when loaded from `nodes.json` at startup, `'live'` once a real packet is received. Frontend shows "from memory" indicator for memory-sourced nodes.
+- **JSON output**: Writes `nodes.json` every 60 seconds to the web server directory. Includes nodes, no-GPS nodes, messages, and tracker info. Stale nodes cleaned every hour based on `max_age` (default 48 hours / 172800 seconds).
+- **WebSocket server**: Async server on port 8765 running in a separate thread via `threading.Thread` + `asyncio`. Broadcasts message types to all connected clients:
   - `node_update` - real-time node data updates
   - `node_deleted` - when old nodes are removed
   - `new_message` - text messages (broadcasts and DMs)
+  - `stats_update` - max distance / farthest node
+  - `connection_status` - tracker connection state + tracker info
+  - `traceroute_status` - traceroute progress (starting/reconnecting)
+  - `traceroute_result` - traceroute hop data + raw output
 - **Serial port detection**: Auto-detects USB serial port from list of common ports (`/dev/ttyUSB[0-2]`, `/dev/ttyACM[0-2]`)
 - **Tracker info**: Extracts local node ID, hardware model, firmware version, and uptime via `meshtastic --info`
 - **Distance**: Haversine formula in `calculate_distance()` for km distances; `get_max_distance()` finds the farthest directly-reachable node (hops=0).
+- **TCP support**: Runtime switching between USB serial and TCP (`--host`) via web UI. Config persisted to `/var/www/html/meshtastic/config.json`.
+- **Runtime restart**: `restart_event` (threading.Event) + `restart_config` dict coordinate connection changes between WebSocket thread and main loop. `traceroute_restart` flag distinguishes traceroute-triggered restarts (preserve nodes.json) from connection-change restarts (may clear nodes.json).
+
+### Traceroute Feature
+
+- **Backend**: `run_traceroute(node_id, websocket)` async coroutine in module scope. Handles two modes:
+  - **TCP mode**: Runs `meshtastic --host <host> --traceroute <node_id>` in asyncio executor alongside the running listener (no interruption). Timeout: 60s.
+  - **Serial/USB mode**: Terminates `mapper.current_process` (listener), waits 2s for port release, runs traceroute, waits 3s after completion, then sets `traceroute_restart = True` + `restart_event.set()` to restart listener without clearing nodes.json.
+- **Parser**: `parse_traceroute_output(output)` handles variable meshtastic CLI output formats. Splits on `-->`, extracts hop names and SNR values via regex. Enriches hops with coordinates from `mapper.nodes`.
+- **WebSocket flow**: `traceroute_status {starting, connection_type}` → subprocess runs → `traceroute_status {reconnecting}` (serial only) → `traceroute_result {route, route_back, raw}`.
+- **Frontend**: `startTraceroute(nodeId)` shows confirm dialog for serial mode. Sends `{type: 'traceroute', node_id}`. Panel shows 60s countdown timer. `handleTracerouteResult()` draws SNR-colored polylines (solid=forward, dashed=return path) and enriches hops from `allNodes` as frontend fallback. 90s safety timeout prevents stuck panel.
+
+### Radio Stats Parsing
+
+`parse_telemetry_update()` extracts `localStats` fields from the tracker's own telemetry:
+- Fields: `channelUtilization`, `airUtilTx`, `numPacketsTx`, `numPacketsRx`, `numPacketsRxBad`, `numRxDupe`, `numTxRelay`, `numOnlineNodes`, `numTotalNodes`
+- Only parsed when `node_id == self.local_node_id`
+- Stored in `self.tracker_info['radio_stats']` dict
+- Persisted to `nodes.json` under `tracker.radio_stats` and restored on startup
+- Frontend Radio panel displays these stats with bad-packet percentage calculation
+
+### RSSI Parsing
+
+- `parse_position_update()`: extracts `rxRssi` from position packets, stores on `self.nodes[node_id]['rssi']`
+- `parse_telemetry_update()`: extracts `rxRssi` from telemetry packets, updates `rssi` on nodes in both `self.nodes` and `self.nodes_no_position`
+- Frontend popup: shows `RSSI: X dBm` for hops=0 nodes, `RSSI: X dBm (last hop)` for relayed nodes
+- Mesh Stats panel shows RSSI of the farthest direct node as "Far signal"
 
 ### Frontend (`frontend/index.html` + `frontend/styles.css`)
 
 Vanilla JS single-page app with Leaflet.js v1.9.4:
 
 - **Data fetching**: Primary WebSocket connection (`ws://host:8765`) with automatic fallback to JSON polling every 15 seconds. Exponential backoff retry (max 5 attempts). Auto-reconnects on WebSocket disconnect.
-- **Node markers**: Color by age (green <1h, yellow 1-6h, red >6h). Shape by role (square=router, circle=client). Dashed border for relayed nodes (hops>0). Offset logic prevents marker overlap.
+- **Node markers**: Color by age (green <1h, yellow 1-6h, red >6h). Shape by role (square=router, circle=client). Dashed border for relayed nodes (hops>0). Offset logic prevents marker overlap. Blue square = own tracker.
 - **UI panels**: All collapsible, positioned on map:
-  - **Mesh Stats** (top-right): Node counts, avg SNR, max range, tracker info (model, firmware, ID, port, uptime), filter checkbox for direct-only nodes, connection status indicator
-  - **No-GPS panel** (top-right below stats): Lists nodes without GPS coordinates, shows SNR/hops/age
-  - **Messages panel** (bottom-left): Shows up to 50 recent text messages (broadcasts and DMs), DMs highlighted in blue
-  - **Legend** (bottom-left): Visual reference for marker colors, shapes, and connection types
-- **Status indicator**: Green dot = WebSocket connected (real-time), Yellow = polling fallback, Red = disconnected
-- **Real-time updates**: WebSocket messages trigger immediate UI updates without full page refresh
-- **Message display**: Shows sender name, timestamp (HH:MM format), message text, DM indicator
-- **Cache busting**: No-cache meta tags in `<head>`. CSS loaded with `?v=1.7` suffix. `MAPPER_VERSION` constant in JS — increment both when assets change. `nodes.json` already uses `?` + `Date.now()`
+  - **Mesh Stats** (top-right): Node counts, avg SNR, max range, far signal (RSSI), tracker info, filter checkboxes, connection status
+  - **No-GPS panel** (top-right, dynamic position below stats): Nodes without GPS
+  - **Radio panel** (top-left, fixed): Channel utilization, air TX %, packet counts, bad packets, TX relay, online/total nodes
+  - **Messages panel** (bottom-left, ~370px from top): Up to 50 recent text messages
+  - **Legend** (bottom-left): Visual reference for marker colors/shapes
+  - **LOS panel** (top-left, fixed): RF line of sight chart, shown on hops=0 node click when checkbox enabled
+  - **Traceroute panel** (top-left, 220px from left): Traceroute results with countdown timer
+- **Status indicator**: Green dot = WebSocket connected (real-time), Yellow blinking = connecting, Yellow = polling fallback, Red = disconnected
+- **Cache busting**: No-cache meta tags. CSS: `styles.css?v=1.13`. JS: `const MAPPER_VERSION = '1.13'`.
+
+### LOS Analysis (`checkLOS()`)
+
+- **Earth curvature correction**: `curvatureCorrection = (d1 * d2) / (2 * R_eff)` where `R_eff = 8500000m` (effective Earth radius with k=4/3 tropospheric refraction factor). Applied to each terrain elevation point before LOS/Fresnel check.
+- **Fresnel zone**: 60% clearance of first zone at 868MHz. `fresnelRadius(d1, d2, 868)` = `sqrt(wavelength * d1 * d2 / (d1 + d2))`
+- **Antenna height**: `max(node.alt, terrain_elev) + 10m` offset at both ends
+- **Chart datasets**: Terrain (brown, filled), Obstruction Zone (red transparent, only when obstructed, fill between terrain and LOS), LOS line (green/red dashed, triangle markers at endpoints, borderWidth 3), Fresnel zone (blue dashed)
+- **Open-Elevation API**: `https://api.open-elevation.com/api/v1/lookup`, 50 sample points per path
 
 ### Data Flow
 
 ```
-Meshtastic device (USB) → meshtastic --listen (subprocess) → Python parser
-  → nodes dict + messages list
+Meshtastic device (USB/TCP) → meshtastic --listen (subprocess) → Python parser
+  → nodes dict (source:'live') + messages list
   → nodes.json (every 60s) → frontend polling (fallback)
   → WebSocket broadcast (real-time) → frontend WebSocket
     ├── node_update events (position/telemetry/nodeinfo)
     ├── node_deleted events (TTL cleanup)
-    └── new_message events (text messages)
+    ├── new_message events (text messages)
+    ├── stats_update events (max distance)
+    ├── connection_status events (tracker info, radio stats)
+    ├── traceroute_status events (progress)
+    └── traceroute_result events (hop data + map lines)
 ```
 
 ## Key Configuration (in `meshtastic_mapper.py`)
 
 - `self.port`: Serial port (auto-detected from `/dev/ttyUSB[0-2]` or `/dev/ttyACM[0-2]`)
 - `self.json_path`: Output location (`/var/www/html/meshtastic/nodes.json`)
-- `self.max_age`: Node TTL in seconds (default `604800` = 7 days, configurable in line 725)
+- `self.max_age`: Node TTL in seconds (default `172800` = 48 hours, set at line ~1172)
 - `self.meshtastic_cmd`: Path to meshtastic CLI (`~/.local/bin/meshtastic`)
-- WebSocket port: `8765` (hardcoded in websocket server, line 682)
-- Save interval: `60` seconds (line 572)
-- Cleanup interval: `3600` seconds / 1 hour (line 573)
-- Max messages: `50` messages stored (line 36, 463)
+- WebSocket port: `8765` (hardcoded in `start_websocket_server()`, line ~1100)
+- Save interval: `60` seconds (line ~714)
+- Cleanup interval: `3600` seconds / 1 hour (line ~717)
+- Max messages: `50` messages stored (line ~402 frontend, backend insert/slice)
+- Traceroute timeout: `60s` outer asyncio, `57s` inner subprocess
 
 ## Dependencies
 
@@ -103,6 +149,8 @@ Meshtastic device (USB) → meshtastic --listen (subprocess) → Python parser
 
 **Frontend:**
 - Leaflet.js v1.9.4 (loaded from CDN)
+- leaflet.heat v0.2.0 (heat map)
+- Chart.js (LOS elevation chart)
 - No build tools required - pure HTML/CSS/JS
 
 ## File Structure
@@ -110,7 +158,7 @@ Meshtastic device (USB) → meshtastic --listen (subprocess) → Python parser
 ```
 meshtastic-network-mapper/
 ├── backend/
-│   └── meshtastic_mapper.py      # Main Python backend (734 lines)
+│   └── meshtastic_mapper.py      # Main Python backend (~1225 lines)
 ├── frontend/
 │   ├── index.html                # Main web interface with inline JS
 │   ├── styles.css                # Separated CSS styles
@@ -127,7 +175,43 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.11)
+## Recent Changes (v1.13)
+
+**Added:**
+- Traceroute feature: `run_traceroute()`, `parse_traceroute_output()` in backend
+- Traceroute USB/TCP handling: serial mode pauses listener, TCP runs alongside
+- `traceroute_restart` global flag — prevents nodes.json clear on traceroute restart
+- `traceroute_status` WebSocket message type (starting/reconnecting)
+- `traceroute_result` WebSocket message type (route/route_back/raw)
+- Frontend: traceroute panel (`#traceroute-panel`) with countdown timer, SNR-colored map lines
+- Frontend: `startTraceroute()`, `closeTraceroutePanel()`, `handleTracerouteResult()`
+- Frontend: 90s safety timeout for stuck traceroute panel
+- Frontend: USB confirm dialog before traceroute ("listener will pause ~60s")
+- Earth curvature correction in `checkLOS()` using `R_eff = 8500000m`
+- LOS chart: earth-tone terrain colors, obstruction zone (red fill), thicker LOS line, triangle endpoint markers, brighter Fresnel blue
+- `source` field on nodes: `'memory'` on load from JSON, `'live'` on live packet
+- Frontend popup: "📋 from memory" indicator with tooltip for memory-sourced nodes
+- Friendly traceroute error messages (timeout/no-route/generic)
+
+**Changed:**
+- Default TTL: 604800s (7 days) → 172800s (48 hours)
+- `checkLOS()` now returns `correctedElevations` (with curvature) alongside other values
+- Chart plots `correctedElevations` instead of raw elevations
+- Traceroute button shown on all non-tracker, non-MQTT node popups (was hops>0 only)
+- Version bumped to v1.13 (`MAPPER_VERSION`, `styles.css?v=1.13`, backend comment)
+
+## Previous Changes (v1.12)
+
+**Added:**
+- TCP connection support: `--host` flag for WiFi-connected trackers
+- Runtime connection switching via web UI (USB ↔ TCP without restart)
+- Config persistence: `config.json` saves connection type and host
+- `connection_status` WebSocket message with tracker info on connect
+- Radio Stats panel (`#radio-panel`) with localStats from telemetry
+- `restart_event` + `restart_config` for runtime mapper restarts
+- `handle_connection_change()` WebSocket handler
+
+## Previous Changes (v1.11)
 
 **Added:**
 - LOS panel (`#los-panel`) with terrain profile visualization
@@ -145,12 +229,6 @@ meshtastic-network-mapper/
 - Marker click behavior: shows LOS panel for hops=0 nodes when checkbox enabled
 - Antenna height calculation: uses `max(Alt, terrain) + 10m` offset
 - Version bumped to v1.11 (`MAPPER_VERSION`, `styles.css?v=1.11`)
-
-**Technical details:**
-- Open-Elevation API: `https://api.open-elevation.com/api/v1/lookup`
-- 50 sample points along path
-- Fresnel zone: 60% clearance of first zone at 868MHz
-- Antenna offset: 10m (typical roof/mast installation)
 
 ## Previous Changes (v1.10)
 
@@ -171,55 +249,16 @@ meshtastic-network-mapper/
 
 **Added:**
 - Safari detection: `isSafari` flag using userAgent regex (`/^((?!chrome|android).)*safari/i`)
-- `WS_CONNECT_DELAY` constant: 500ms for Safari, 100ms for others (initial WebSocket connect delay)
-- `WS_RETRY_DELAY` constant: 2000ms for Safari, 1000ms for others (reconnect retry delay)
-- Safari console log in `map.whenReady` block
-
-**Changed:**
-- Version bumped to v1.9 (`MAPPER_VERSION`, stats panel display)
-- All WebSocket retry timeouts use `WS_RETRY_DELAY` instead of hardcoded `1000`
-- Initial connect timeout uses `WS_CONNECT_DELAY` instead of hardcoded `100`
+- `WS_CONNECT_DELAY` constant: 500ms for Safari, 100ms for others
+- `WS_RETRY_DELAY` constant: 2000ms for Safari, 1000ms for others
 
 ## Previous Changes (v1.8)
 
 **Added:**
-- Direct connection lines: checkbox "Show direct lines" in Mesh Stats panel; draws Leaflet polylines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5), opacity 0.6, weight 2px
-- Heat map: checkbox "Show heat map" in Mesh Stats panel; uses leaflet.heat CDN to render node density layer (radius 25, blur 15, maxZoom 17)
-- `snrToColor()`, `updateDirectLines()`, `updateHeatMap()` functions in frontend JS
-- Global state: `directLines[]` array for polyline lifecycle, `heatLayer` for heat map lifecycle
+- Direct connection lines: checkbox "Show direct lines"; draws Leaflet polylines from tracker to all hops=0 nodes, color-coded by SNR (green ≥5, yellow ≥-5, red <-5), opacity 0.6, weight 2px
+- Heat map: checkbox "Show heat map"; uses leaflet.heat CDN (radius 25, blur 15, maxZoom 17)
+- `snrToColor()`, `updateDirectLines()`, `updateHeatMap()` functions
 - `.filter-label` CSS class for consistent checkbox styling
-
-**Changed:**
-- Version bumped to v1.8 (`MAPPER_VERSION`, `styles.css?v=1.8`, stats panel display)
-- `filter-direct` label uses `.filter-label` CSS class (was inline style)
-
-## Previous Changes (v1.7)
-
-**Added:**
-- Message persistence: messages saved to `nodes.json` and reloaded on startup/page refresh
-- Cache busting: no-cache meta tags, `styles.css?v=1.7`, `MAPPER_VERSION` JS constant
-
-## Previous Changes (v1.6)
-
-**Added:**
-- WebSocket server for real-time updates (no page refresh needed)
-- Text message parsing and display (broadcasts and DMs)
-- Messages panel in UI with up to 50 recent messages
-- Serial port auto-detection
-- Node deletion broadcasts when TTL expires
-- Uptime tracking for local tracker node
-- Separate styles.css file (refactored from inline)
-
-**Changed:**
-- Default TTL increased from 24h to 7 days (604800 seconds)
-- Connection status indicator now shows WebSocket/polling/disconnected states
-- Frontend prioritizes WebSocket, falls back to polling on disconnect
-- Improved Safari compatibility (map.whenReady() fix)
-
-**Fixed:**
-- Node timestamp handling (uses `ts` field consistently)
-- Old node cleanup now broadcasts deletions to WebSocket clients
-- WebSocket reconnection logic with exponential backoff
 
 ## Coding Conventions
 
@@ -243,8 +282,8 @@ meshtastic-network-mapper/
 **CSS:**
 - Separate file (styles.css)
 - Compact formatting (properties on same line for simple rules)
-- Color codes: green=#22c55e, yellow=#eab308, red=#ef4444
-- Position absolute for overlay panels
+- Color codes: green=#22c55e, yellow=#eab308, red=#ef4444, blue=#3b82f6
+- Position fixed for overlay panels
 - Collapsible panels via .open class toggle
 
 ## Development Notes
@@ -268,19 +307,23 @@ meshtastic-network-mapper/
 ## Common Tasks
 
 **Modify node TTL:**
-- Edit line 725 in `backend/meshtastic_mapper.py`: `mapper = ListenBasedMapper(port, max_age=604800)`
+- Edit `max_age=172800` in the `ListenBasedMapper(...)` instantiation in `__main__`
 - Restart service: `sudo systemctl restart meshtastic-mapper`
 
 **Change WebSocket port:**
-- Edit line 682 in `backend/meshtastic_mapper.py`: `async with websockets.serve(websocket_handler, "0.0.0.0", 8765)`
-- Edit line 112 in `frontend/index.html`: `const wsUrl = \`ws://\${window.location.hostname}:8765\``
+- Edit `websockets.serve(websocket_handler, "0.0.0.0", 8765)` in `start_websocket_server()`
+- Edit `const wsUrl = \`ws://\${window.location.hostname}:8765\`` in `frontend/index.html` (line ~194)
 - Restart service and refresh browser
 
 **Add new parser:**
 - Create method `parse_xxx_update(self, line)` in `ListenBasedMapper` class
-- Call it in main loop (line 605)
+- Call it in the main readline loop in `run()`
 - Add WebSocket broadcast call with `asyncio.run(self.broadcast_xxx(data))`
-- Create corresponding handler in frontend WebSocket onmessage (line 136)
+- Create corresponding handler in frontend WebSocket `onmessage`
+
+**Add new WebSocket message type:**
+- Add handler in `websocket_handler()` in the `async for message in websocket:` block
+- Add corresponding `elif data.type === '...'` branch in frontend `ws.onmessage`
 
 **Debugging parsers:**
 - Run backend directly: `python3 backend/meshtastic_mapper.py`
@@ -296,3 +339,5 @@ meshtastic-network-mapper/
 - Safari requires `map.whenReady()` before initial data load
 - Heltec V3 may require `--no-nodes` flag to avoid timeouts
 - No rate limiting on WebSocket connections
+- Traceroute on serial pauses the listener for ~60s (USB port is not shared)
+- Open-Elevation API is a free public service; may be slow or unavailable

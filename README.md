@@ -151,6 +151,22 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.13 - Traceroute & LOS Improvements**
+- 🔍 Traceroute feature - click any node popup to run traceroute
+- 🗺️ Traceroute route visualization with colored lines on map (SNR color-coded)
+- ⏱️ Countdown timer during traceroute with friendly timeout messages
+- ⚠️ USB warning dialog before traceroute (listener pauses ~60s)
+- 📡 RSSI displayed in all node popups (with "last hop" note for relay nodes)
+- 📏 Far signal indicator in Mesh Stats (RSSI of farthest direct node)
+- 📻 Radio Stats panel (channel utilization, bad packets, TX relay, online nodes)
+- 🌍 Earth curvature correction in LOS analysis (accurate for long distances)
+- 🎨 Improved LOS chart (earth tones, obstruction zone, Fresnel zone)
+- 📋 Memory source indicator - nodes loaded from memory show "from memory" in popup
+- ⏰ TTL reduced from 7 days to 48 hours (more accurate network view)
+- 🔧 Fixed: traceroute no longer clears nodes.json on USB restart
+- 🔧 Fixed: standardized fonts across all panels
+- 🔧 Fixed: panel layout (no overlapping)
+
 **v1.11 - RF Line of Sight Analysis**
 - 📡 Line of Sight panel with terrain elevation profile
 - 🏔️ Real terrain data from Open-Elevation API
