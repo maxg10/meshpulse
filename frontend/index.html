@@ -766,7 +766,16 @@
         function handleTracerouteResult(data) {
             const body = document.getElementById('traceroute-body');
             if (data.error) {
-                body.innerHTML = `<div style="color:#ef4444;padding:10px;">Error: ${data.error}</div>`;
+                const err = data.error.toLowerCase();
+                let msg;
+                if (err.includes('timed out') || err.includes('timeout')) {
+                    msg = '⏱️ Traceroute timed out. Node did not respond within 60 seconds. This can happen when the node is too far, busy, or temporarily unreachable.';
+                } else if (err.includes('no route')) {
+                    msg = '🚫 No route found. Node is unreachable from your tracker.';
+                } else {
+                    msg = '❌ Traceroute failed. Try again later.';
+                }
+                body.innerHTML = `<div style="color:#374151;padding:10px;">${msg}</div>`;
                 return;
             }
             tracerouteLines.forEach(line => map.removeLayer(line));
