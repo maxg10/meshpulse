@@ -327,6 +327,7 @@
                             if (data.success) {
                                 const inp = document.getElementById('send-text');
                                 if (inp) inp.value = '';
+                                clearDM();
                                 const pending = window._pendingSend;
                                 if (pending) {
                                     const sentMsg = {
