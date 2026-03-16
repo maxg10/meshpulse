@@ -149,6 +149,7 @@
         let losChart = null;
         let losAbortController = null;
         let tracerouteLines = [];
+        let tracerouteTimeout = null;
 
         // Meshtastic Mapper v1.13 - force reload: update this version number to bust cache
         const MAPPER_VERSION = '1.13';
@@ -749,6 +750,15 @@
                 document.getElementById('traceroute-panel').style.display = 'block';
                 window._tracerouteNodeId = nodeId;
                 ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
+                if (tracerouteTimeout) clearTimeout(tracerouteTimeout);
+                tracerouteTimeout = setTimeout(() => {
+                    tracerouteTimeout = null;
+                    if (window._tracerouteNodeId) {
+                        document.getElementById('traceroute-body').innerHTML =
+                            '<div style="color:#374151;padding:10px;">⏱️ Traceroute did not return a result. Listener should be restarting.</div>' +
+                            '<button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>';
+                    }
+                }, 90000);
             };
             if (connType === 'serial') {
                 if (!confirm('⚠️ USB connection: listener will pause ~30-60s during traceroute. Continue?')) return;
@@ -757,6 +767,7 @@
         }
 
         function closeTraceroutePanel() {
+            if (tracerouteTimeout) { clearTimeout(tracerouteTimeout); tracerouteTimeout = null; }
             document.getElementById('traceroute-panel').style.display = 'none';
             tracerouteLines.forEach(line => map.removeLayer(line));
             tracerouteLines = [];
@@ -764,6 +775,7 @@
         }
 
         function handleTracerouteResult(data) {
+            if (tracerouteTimeout) { clearTimeout(tracerouteTimeout); tracerouteTimeout = null; }
             const body = document.getElementById('traceroute-body');
             if (data.error) {
                 const err = data.error.toLowerCase();
