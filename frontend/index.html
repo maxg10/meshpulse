@@ -152,6 +152,7 @@
         let directLines = [];
         let heatLayer = null;
         let losChart = null;
+        let highlightedNoGpsId = null;
         let losAbortController = null;
         let tracerouteLines = [];
         let tracerouteTimeout = null;
@@ -817,16 +818,11 @@
             } else {
                 const noGpsPanel = document.getElementById('no-gps-panel');
                 if (!noGpsPanel.classList.contains('open')) noGpsPanel.classList.add('open');
-                const items = document.querySelectorAll('#no-gps-list .no-gps-item');
-                items.forEach(item => {
-                    if (item.textContent.includes(nodeId)) {
-                        item.scrollIntoView({behavior: 'smooth', block: 'center'});
-                        setTimeout(() => {
-                            item.classList.add('search-result-highlight');
-                            setTimeout(() => item.classList.remove('search-result-highlight'), 3000);
-                        }, 300);
-                    }
-                });
+                highlightedNoGpsId = nodeId;
+                setTimeout(() => { highlightedNoGpsId = null; updateDisplay(); }, 4000);
+                updateDisplay();
+                const item = document.querySelector('#no-gps-list .search-result-highlight');
+                if (item) item.scrollIntoView({behavior: 'smooth', block: 'center'});
             }
             clearSearch();
         }
@@ -1280,8 +1276,9 @@
                     let dotColor = '#22c55e';
                     if (age > 21600) dotColor = '#ef4444';
                     else if (age > 3600) dotColor = '#eab308';
+                    const isHighlighted = n.id === highlightedNoGpsId;
                     return `
-                    <div class="no-gps-item">
+                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
