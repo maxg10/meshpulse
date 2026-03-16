@@ -328,22 +328,6 @@
                                 const inp = document.getElementById('send-text');
                                 if (inp) inp.value = '';
                                 clearDM();
-                                const pending = window._pendingSend;
-                                if (pending) {
-                                    const sentMsg = {
-                                        from_id: trackerInfo.node_id,
-                                        from_name: 'You',
-                                        to_id: pending.destId || '^all',
-                                        text: pending.text,
-                                        timestamp: Math.floor(Date.now() / 1000),
-                                        is_dm: !!pending.destId,
-                                        channel_index: pending.channelIndex
-                                    };
-                                    const ch = pending.channelIndex;
-                                    if (!allMessages[ch]) allMessages[ch] = [];
-                                    allMessages[ch].unshift(sentMsg);
-                                    updateMessagesDisplay();
-                                }
                             }
                             window._pendingSend = null;
                         } else if (data.type === 'connection_status') {
