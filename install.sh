@@ -61,7 +61,8 @@ fi
 
 # Check meshtastic CLI
 if command -v meshtastic &> /dev/null || [ -f ~/.local/bin/meshtastic ]; then
-    echo -e "${GREEN}✅ meshtastic - OK${NC}"
+    MESH_VER=$(meshtastic --version 2>/dev/null || ~/.local/bin/meshtastic --version 2>/dev/null)
+    echo -e "${GREEN}✅ meshtastic - OK ($MESH_VER)${NC}"
 else
     echo -e "${RED}❌ meshtastic - NOT FOUND${NC}"
     echo "   Install with: pip3 install meshtastic --break-system-packages"
@@ -80,10 +81,12 @@ fi
 
 # Check web server (lighttpd or apache2)
 if command -v lighttpd &> /dev/null; then
-    echo -e "${GREEN}✅ lighttpd - OK${NC}"
+    LIGHTTPD_VER=$(lighttpd -v 2>&1 | head -1 | awk '{print $1}')
+    echo -e "${GREEN}✅ lighttpd - OK ($LIGHTTPD_VER)${NC}"
     WEBSERVER="lighttpd"
 elif command -v apache2 &> /dev/null; then
-    echo -e "${GREEN}✅ apache2 - OK (will use instead of lighttpd)${NC}"
+    APACHE_VER=$(apache2 -v 2>&1 | head -1 | awk '{print $3}')
+    echo -e "${GREEN}✅ apache2 - OK ($APACHE_VER)${NC}"
     WEBSERVER="apache2"
 else
     echo -e "${RED}❌ web server - NOT FOUND${NC}"
