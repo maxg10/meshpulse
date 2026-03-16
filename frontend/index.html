@@ -796,6 +796,26 @@
             const route = data.route || [];
             const routeBack = data.route_back || [];
 
+            // Enrich hops with coordinates from frontend node lists (fallback if backend missed them)
+            function enrichHop(hop) {
+                if (hop.lat && hop.lon) return hop;
+                const byId = hop.id ? allNodes.find(n => n.id === hop.id) : null;
+                const byName = !byId && hop.name ? allNodes.find(n => n.name === hop.name) : null;
+                const match = byId || byName;
+                if (match && match.lat && match.lon) {
+                    hop.lat = match.lat;
+                    hop.lon = match.lon;
+                } else {
+                    // Check no-GPS list just for logging
+                    const noGps = allNodesNoGps.find(n => n.id === hop.id || n.name === hop.name);
+                    if (noGps) console.log('[TRACEROUTE] Hop has no GPS:', hop.name || hop.id);
+                    else console.log('[TRACEROUTE] Hop unknown:', hop.name || hop.id);
+                }
+                return hop;
+            }
+            route.forEach(enrichHop);
+            routeBack.forEach(enrichHop);
+
             function drawHopLines(hops, dashed) {
                 for (let i = 0; i < hops.length - 1; i++) {
                     const a = hops[i], b = hops[i + 1];
@@ -804,6 +824,8 @@
                         const opts = {color, weight: 3, opacity: 0.8};
                         if (dashed) opts.dashArray = '6,4';
                         tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], opts).addTo(map));
+                    } else {
+                        console.log('[TRACEROUTE] Skipping line (no coords):', (a.name || a.id), '→', (b.name || b.id));
                     }
                 }
             }
