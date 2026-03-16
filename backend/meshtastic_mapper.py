@@ -119,15 +119,14 @@ class ListenBasedMapper:
             # Join wrapped lines (meshtastic CLI wraps long lines)
             output_joined = re.sub(r'\n\s*"', '"', output)
             channels = []
-            channel_pattern = re.finditer(
-                r'Index (\d+): \w+ psk=\w+\s*\{[^}]*"name":\s*"([^"]*)"',
-                output_joined
-            )
-            for match in channel_pattern:
-                index = int(match.group(1))
-                name = match.group(2).strip()
-                name = 'Primary' if (index == 0 and not name) else (name if name else f'Channel {index}')
-                channels.append({'index': index, 'name': name})
+            for line in output_joined.split('\n'):
+                idx_match = re.match(r'\s*Index (\d+): \w+ psk=\w+', line)
+                if idx_match:
+                    index = int(idx_match.group(1))
+                    name_match = re.search(r'"name":\s*"([^"]*)"', line)
+                    name = name_match.group(1).strip() if name_match else ''
+                    name = 'Primary' if (index == 0 and not name) else (name if name else f'Channel {index}')
+                    channels.append({'index': index, 'name': name})
 
             # Store tracker info
             self.tracker_info = {
