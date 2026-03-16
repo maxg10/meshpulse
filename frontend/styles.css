@@ -25,16 +25,16 @@ body{font-family:Arial,sans-serif}
 .marker.relay{border-style:dashed}
 
 #no-gps-panel{position:absolute;top:370px;right:10px;background:rgba(255,255,255,.95);
-       padding:10px;border-radius:6px;z-index:1000;font-size:12px;
+       padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
        box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px;max-width:300px;max-height:300px;overflow-y:auto}
 #no-gps-panel h4{margin:0 0 8px;font-size:13px}
-.no-gps-item{padding:4px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
+.no-gps-item{padding:4px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .no-gps-item:last-child{border-bottom:none}
 .no-gps-item .name{font-weight:bold}
 .no-gps-item .meta{color:#666}
 
-#legend{position:absolute;bottom:20px;left:10px;background:rgba(255,255,255,.95);
-padding:8px 12px;border-radius:6px;z-index:1000;font-size:12px;
+#legend{position:fixed;bottom:20px;left:10px;background:rgba(255,255,255,.95);
+padding:8px 12px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
 box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
 #legend h4{margin:0;font-size:13px;user-select:none}
 #legend-content{display:none;margin-top:8px;padding-top:8px;border-top:1px solid #ddd}
@@ -50,13 +50,13 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
 #legend .section{font-weight:bold;margin:8px 0 4px;font-size:11px;color:#666}
 #legend .section:first-child{margin-top:0}
 
-#messages-panel{position:fixed;bottom:360px;left:10px;background:rgba(255,255,255,.95);
-padding:10px;border-radius:6px;z-index:1000;font-size:12px;
-box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:auto;cursor:pointer}
+#messages-panel{position:fixed;bottom:140px;left:10px;background:rgba(255,255,255,.95);
+padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
+box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:200px;overflow-y:auto;cursor:pointer}
 #messages-panel h4{margin:0;font-size:13px;user-select:none}
 #messages-content{display:none;margin-top:8px}
 #messages-panel.open #messages-content{display:block}
-.message-item{padding:6px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
+.message-item{padding:6px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .message-item:last-child{border-bottom:none}
 .message-item.message-dm{background:#dbeafe;padding:6px 4px;border-radius:4px;margin:4px 0}
 .msg-header{display:flex;justify-content:space-between;margin-bottom:3px}
@@ -65,13 +65,13 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:
 .msg-text{color:#000;word-wrap:break-word}
 .message-item.meta{color:#666;font-style:italic}
 
-#radio-panel{position:fixed;left:10px;top:70%;background:rgba(255,255,255,.95);
-padding:10px;border-radius:6px;z-index:1000;font-size:12px;
-box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:300px;overflow-y:auto;cursor:pointer}
+#radio-panel{position:fixed;bottom:80px;left:10px;background:rgba(255,255,255,.95);
+padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
+box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:180px;overflow-y:auto;cursor:pointer}
 #radio-panel h4{margin:0;font-size:13px;user-select:none}
 #radio-content{display:none;margin-top:8px}
 #radio-panel.open #radio-content{display:block}
-.radio-stat-item{padding:6px 0;border-bottom:1px solid #eee;font-family:monospace;font-size:11px}
+.radio-stat-item{padding:6px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .radio-stat-item:last-child{border-bottom:none}
 .radio-stat-item.meta{color:#666;font-style:italic}
 

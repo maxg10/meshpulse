@@ -1138,17 +1138,6 @@
         }
         new ResizeObserver(repositionNoGpsPanel).observe(document.getElementById('stats'));
 
-        // Dynamically position Radio panel below the Messages panel
-        function repositionRadioPanel() {
-            const messages = document.getElementById('messages-panel');
-            const radio = document.getElementById('radio-panel');
-            const rect = messages.getBoundingClientRect();
-            radio.style.top = (rect.bottom + 10) + 'px';
-            radio.style.bottom = 'auto';
-        }
-        new ResizeObserver(repositionRadioPanel).observe(document.getElementById('messages-panel'));
-        window.addEventListener('resize', repositionRadioPanel);
-
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
