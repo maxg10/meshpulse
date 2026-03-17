@@ -54,7 +54,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
 padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
 box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;max-height:200px;overflow-y:auto;cursor:pointer}
 #messages-panel h4{margin:0;font-size:13px;user-select:none}
-#messages-content{display:none;margin-top:8px}
+#messages-content{display:none;margin-top:8px;overflow-y:auto;max-height:200px}
 #messages-panel.open #messages-content{display:block}
 .message-item{padding:6px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .message-item:last-child{border-bottom:none}
@@ -192,7 +192,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
 .channel-tab.active{background:#1f2937;color:white;border-color:#1f2937}
 .channel-tab .unread-badge{position:absolute;top:-6px;right:-6px;background:#ef4444;color:white;border-radius:50%;width:16px;height:16px;font-size:9px;display:flex;align-items:center;justify-content:center}
 #sound-toggle{cursor:pointer;background:none;border:none;font-size:12px;padding:0 4px}
-#send-area{border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px}
+#send-area{border-top:1px solid #e5e7eb;padding-top:8px;margin-top:4px;position:sticky;bottom:0;background:rgba(255,255,255,0.97)}
 #send-row{display:flex;gap:4px;align-items:center}
 #send-text{flex:1;padding:4px 8px;border:1px solid #e5e7eb;border-radius:4px;font-size:12px;font-family:Arial,sans-serif}
 #send-btn{padding:4px 8px;background:#1f2937;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
