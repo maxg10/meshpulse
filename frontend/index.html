@@ -478,12 +478,16 @@
                 messagesList.innerHTML = msgs.map(msg => {
                     const isDM = msg.is_dm;
                     const itemClass = isDM ? 'message-item message-dm' : 'message-item';
-                    const msgType = msg.is_dm ? ' (DM)' : '';
+                    const senderNode = allNodes.find(n => n.id === msg.from_id) ||
+                                       allNodesNoGps.find(n => n.id === msg.from_id);
+                    const senderName = senderNode?.name || msg.from_name || msg.from_id;
+                    const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
+                    const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
                     return `
                     <div class="${itemClass}">
                         <div class="msg-header">
                             <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                            <span class="msg-sender">${msg.from_name}${msgType}</span>
+                            <span class="msg-sender">${senderName}${dmLabel}</span>
                         </div>
                         <div class="msg-text">${msg.text}</div>
                     </div>`;
