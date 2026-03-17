@@ -31,7 +31,7 @@
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
         <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
-        <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
+        <small><b>ID:</b> <span id="tracker-id">-</span> | <span id="tracker-name" style="color:#888">-</span></small><br>
         <div id="connection-section" onclick="event.stopPropagation()">
         <small><b>Connection:</b>
         <select id="connection-type" onchange="handleConnectionTypeChange()">
@@ -1408,6 +1408,8 @@
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
+            const trackerNode = allNodes.find(n => isOwnTracker(n.id));
+            document.getElementById('tracker-name').textContent = trackerNode?.name || '-';
             // Update connection section from tracker info (but not if user is changing it)
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';
