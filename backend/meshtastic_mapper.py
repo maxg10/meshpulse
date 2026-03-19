@@ -64,7 +64,8 @@ class TCPMeshtasticInterface:
             self.host,
             portNumber=self.port,
             noNodes=True,
-            debugOut=None
+            debugOut=None,
+            timeout=15
         )
         iface_ref[0] = self.interface
 
