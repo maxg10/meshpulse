@@ -961,7 +961,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
         # Stop listener to free the connection (required for both TCP and serial)
         if mapper.current_process:
             mapper.current_process.terminate()
-            await asyncio.sleep(2)
+            await asyncio.sleep(5)
 
         if mapper.connection_type == 'tcp':
             base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
