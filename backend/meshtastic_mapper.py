@@ -27,8 +27,9 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 mapper = None
 restart_event = threading.Event()
 restart_config = {}
-traceroute_restart = False  # True when restart is triggered by traceroute (serial mode)
-send_restart = False        # True when restart is triggered by message send (serial mode)
+traceroute_restart = False      # True when restart is triggered by traceroute (serial mode)
+send_restart = False            # True when restart is triggered by message send (serial mode)
+send_restart_no_nodes = False   # True when listener restart after send should use --no-nodes
 
 
 def load_config():
@@ -760,6 +761,11 @@ class ListenBasedMapper:
         else:
             cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
 
+        global send_restart_no_nodes
+        if send_restart_no_nodes:
+            cmd.append('--no-nodes')
+            send_restart_no_nodes = False
+
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
         
@@ -948,7 +954,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
     """Send a text message via meshtastic CLI.
     Stops listener subprocess first (both TCP and serial), sends, then restarts listener.
     """
-    global send_restart
+    global send_restart, send_restart_no_nodes
     try:
         if not mapper:
             await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}))
@@ -1004,6 +1010,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
 
         await asyncio.sleep(2)
         send_restart = True
+        send_restart_no_nodes = True
         restart_event.set()
 
     except asyncio.TimeoutError:
@@ -1011,6 +1018,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
         if mapper:
             send_restart = True
+            send_restart_no_nodes = True
             restart_event.set()
     except Exception as e:
         print(f"[SEND] Error: {e}")
@@ -1018,6 +1026,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
         if mapper:
             send_restart = True
+            send_restart_no_nodes = True
             restart_event.set()
 
 
