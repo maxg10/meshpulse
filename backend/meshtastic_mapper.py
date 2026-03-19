@@ -61,9 +61,10 @@ class TCPMeshtasticInterface:
         pub.subscribe(_on_receive, "meshtastic.receive")
 
         self.interface = meshtastic.tcp_interface.TCPInterface(
-            hostname=self.host,
+            self.host,
             portNumber=self.port,
-            noProto=False
+            noNodes=True,
+            debugOut=None
         )
         iface_ref[0] = self.interface
 
@@ -1116,8 +1117,8 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                print("[WAIT] Retrying in 30 seconds...")
-                time.sleep(30)
+                print("[WAIT] Retrying in 10 seconds...")
+                time.sleep(10)
                 restart_count += 1
 
             finally:
@@ -1444,10 +1445,11 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             mapper.messages[channel_index].insert(0, sent_message)
             await mapper.broadcast_message(sent_message)
 
-        await asyncio.sleep(2)
-        send_restart = True
-        send_restart_no_nodes = True
-        restart_event.set()
+        if mapper.connection_type != 'tcp':
+            await asyncio.sleep(2)
+            send_restart = True
+            send_restart_no_nodes = True
+            restart_event.set()
 
     except asyncio.TimeoutError:
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
