@@ -75,6 +75,9 @@ class ListenBasedMapper:
         # Store text messages per channel (dict: {channel_index: [messages]})
         self.messages = getattr(self, '_loaded_messages', {})
 
+        # Cache of all known node names from nodeinfo packets
+        self.known_names = getattr(self, '_loaded_known_names', {})
+
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
             asyncio.run(self.broadcast_connection_status('connected'))
@@ -244,6 +247,8 @@ class ListenBasedMapper:
                         total_msgs = sum(len(v) for v in self._loaded_messages.values())
                         print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {total_msgs} messages")
 
+                    self._loaded_known_names = data.get('known_names', {})
+
                     # Always restore radio_stats regardless of node count
                     saved_radio_stats = data.get('tracker', {}).get('radio_stats')
                     if saved_radio_stats:
@@ -295,7 +300,10 @@ class ListenBasedMapper:
                 
                 if not node_id:
                     return False
-                
+
+                if name and node_id:
+                    self.known_names[node_id] = name
+
                 if 'latitudeI' in pos and 'longitudeI' in pos:
                     lat = pos['latitudeI'] / 1e7
                     lon = pos['longitudeI'] / 1e7
@@ -331,6 +339,7 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
                     # Update from_name in messages retroactively
+                    self.known_names[node_id] = name
                     for ch_msgs in self.messages.values():
                         for msg in ch_msgs:
                             if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
@@ -369,6 +378,7 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
 
                     # Update from_name in messages retroactively
+                    self.known_names[node_id] = name
                     for ch_msgs in self.messages.values():
                         for msg in ch_msgs:
                             if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
@@ -591,6 +601,8 @@ class ListenBasedMapper:
                 sender_name = self.nodes[from_id].get('name', from_id)
             elif from_id in self.nodes_no_position:
                 sender_name = self.nodes_no_position[from_id].get('name', from_id)
+            elif from_id in self.known_names:
+                sender_name = self.known_names[from_id]
 
             # Create message object
             message = {
@@ -717,7 +729,8 @@ class ListenBasedMapper:
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': list(self.nodes.values()),
                 'nodes_no_pos': list(self.nodes_no_position.values()),
-                'messages': self.messages
+                'messages': self.messages,
+                'known_names': self.known_names
             }
             
             temp_path = self.json_path + '.tmp'
