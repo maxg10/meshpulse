@@ -1106,9 +1106,12 @@ class ListenBasedMapper:
                 break
 
             except Exception as e:
-                print(f"[TCP] Error: {e}")
-                import traceback
-                traceback.print_exc()
+                if restart_count == 0:
+                    print(f"[TCP] First attempt failed (normal for Heltec V3), retrying...")
+                else:
+                    print(f"[TCP] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
 
                 if restart_event.is_set():
                     self.save_nodes()
