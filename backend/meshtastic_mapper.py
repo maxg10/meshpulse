@@ -46,6 +46,7 @@ class TCPMeshtasticInterface:
 
     def connect(self, on_receive=None):
         """Create TCPInterface and subscribe to incoming packets."""
+        import concurrent.futures
         from pubsub import pub
 
         iface_ref = [None]  # mutable cell so inner func captures final value
@@ -60,13 +61,22 @@ class TCPMeshtasticInterface:
         self._on_receive_ref = _on_receive
         pub.subscribe(_on_receive, "meshtastic.receive")
 
-        self.interface = meshtastic.tcp_interface.TCPInterface(
-            self.host,
-            portNumber=self.port,
-            noNodes=True,
-            debugOut=None,
-            timeout=15
-        )
+        def _create_interface():
+            self.interface = meshtastic.tcp_interface.TCPInterface(
+                self.host,
+                portNumber=self.port,
+                noNodes=True,
+                debugOut=None,
+                timeout=15
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_create_interface)
+            try:
+                future.result(timeout=5)
+            except concurrent.futures.TimeoutError:
+                raise Exception("Connection timeout")
+
         iface_ref[0] = self.interface
 
     def disconnect(self):
