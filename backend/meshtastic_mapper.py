@@ -330,6 +330,12 @@ class ListenBasedMapper:
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
+                    # Update from_name in messages retroactively
+                    for ch_msgs in self.messages.values():
+                        for msg in ch_msgs:
+                            if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
+                                msg['from_name'] = name
+
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                     asyncio.run(self.broadcast_stats_update())
@@ -361,6 +367,12 @@ class ListenBasedMapper:
 
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
+
+                    # Update from_name in messages retroactively
+                    for ch_msgs in self.messages.values():
+                        for msg in ch_msgs:
+                            if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
+                                msg['from_name'] = name
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
