@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.13 (Traceroute & LOS Improvements)
+**Current Version:** v1.16 (Python Meshtastic API for TCP)
 
 ## Running & Deployment
 
@@ -97,7 +97,7 @@ Vanilla JS single-page app with Leaflet.js v1.9.4:
   - **LOS panel** (top-left, fixed): RF line of sight chart, shown on hops=0 node click when checkbox enabled
   - **Traceroute panel** (top-left, 220px from left): Traceroute results with countdown timer
 - **Status indicator**: Green dot = WebSocket connected (real-time), Yellow blinking = connecting, Yellow = polling fallback, Red = disconnected
-- **Cache busting**: No-cache meta tags. CSS: `styles.css?v=1.13`. JS: `const MAPPER_VERSION = '1.13'`.
+- **Cache busting**: No-cache meta tags. CSS: `styles.css?v=1.16`. JS: `const MAPPER_VERSION = '1.16'`.
 
 ### LOS Analysis (`checkLOS()`)
 
@@ -175,7 +175,25 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.13)
+## Recent Changes (v1.16)
+
+**Added:**
+- `TCPMeshtasticInterface` class — wraps `meshtastic.tcp_interface.TCPInterface` with `connect(on_receive)`, `disconnect()`, `sendText()` methods
+- New imports: `meshtastic`, `meshtastic.tcp_interface`, `mesh_pb2`, `portnums_pb2`
+- `ListenBasedMapper._run_tcp()` — runs TCP listener using Python API (no CLI subprocess)
+- `ListenBasedMapper._on_tcp_packet(packet)` — routes incoming TCP packets by portnum
+- `ListenBasedMapper.parse_node_info_from_packet(packet)` — parses NODEINFO_APP dict from Python API
+- `ListenBasedMapper.parse_position_from_packet(packet)` — parses POSITION_APP dict from Python API
+- `ListenBasedMapper.parse_telemetry_from_packet(packet)` — parses TELEMETRY_APP dict from Python API
+- `ListenBasedMapper.parse_text_from_packet(packet)` — parses TEXT_MESSAGE_APP dict from Python API
+
+**Changed:**
+- `ListenBasedMapper.run()`: TCP mode now calls `_run_tcp()` instead of spawning CLI subprocess
+- `run_send_message()`: TCP mode creates a dedicated `TCPInterface` for sending only — listener is **not** stopped; no `send_restart` / `restart_event` triggered for TCP
+- `run_send_message()` serial error handlers no longer trigger restart for TCP connections
+- Version bumped to v1.16 (`MAPPER_VERSION`, `styles.css?v=1.16`, backend comment)
+
+## Previous Changes (v1.13)
 
 **Added:**
 - Traceroute feature: `run_traceroute()`, `parse_traceroute_output()` in backend

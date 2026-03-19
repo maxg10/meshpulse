@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.15
+#ver 1.16
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -16,6 +16,9 @@ import os
 import asyncio
 import websockets
 import threading
+import meshtastic
+import meshtastic.tcp_interface
+from meshtastic import mesh_pb2, portnums_pb2
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -30,6 +33,61 @@ restart_config = {}
 traceroute_restart = False      # True when restart is triggered by traceroute (serial mode)
 send_restart = False            # True when restart is triggered by message send (serial mode)
 send_restart_no_nodes = False   # True when listener restart after send should use --no-nodes
+
+
+class TCPMeshtasticInterface:
+    """Wraps meshtastic.tcp_interface.TCPInterface for use as a TCP listener/sender."""
+
+    def __init__(self, host, port=4403):
+        self.host = host
+        self.port = port
+        self.interface = None
+        self._on_receive_ref = None
+
+    def connect(self, on_receive=None):
+        """Create TCPInterface and subscribe to incoming packets."""
+        from pubsub import pub
+
+        iface_ref = [None]  # mutable cell so inner func captures final value
+
+        def _on_receive(packet, interface):
+            if interface is iface_ref[0] and on_receive is not None:
+                try:
+                    on_receive(packet)
+                except Exception as e:
+                    print(f"[TCP] Packet callback error: {e}")
+
+        self._on_receive_ref = _on_receive
+        pub.subscribe(_on_receive, "meshtastic.receive")
+
+        self.interface = meshtastic.tcp_interface.TCPInterface(
+            hostname=self.host,
+            portNumber=self.port,
+            noProto=False
+        )
+        iface_ref[0] = self.interface
+
+    def disconnect(self):
+        """Unsubscribe and close the interface."""
+        from pubsub import pub
+        if self._on_receive_ref is not None:
+            try:
+                pub.unsubscribe(self._on_receive_ref, "meshtastic.receive")
+            except Exception:
+                pass
+            self._on_receive_ref = None
+        if self.interface is not None:
+            try:
+                self.interface.close()
+            except Exception as e:
+                print(f"[TCP] Close error: {e}")
+            self.interface = None
+
+    def sendText(self, text, channelIndex=0, destinationId='^all'):
+        """Send a text message via the TCP interface."""
+        if self.interface is None:
+            raise RuntimeError("TCPMeshtasticInterface not connected")
+        self.interface.sendText(text, channelIndex=channelIndex, destinationId=destinationId)
 
 
 def load_config():
@@ -636,6 +694,259 @@ class ListenBasedMapper:
 
         return False
 
+    # ------------------------------------------------------------------
+    # Python API packet parsers (TCP mode — receive already-decoded dicts)
+    # ------------------------------------------------------------------
+
+    def _on_tcp_packet(self, packet):
+        """Route an incoming TCP API packet to the appropriate parser."""
+        portnum = packet.get('decoded', {}).get('portnum', '')
+        if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
+            self.parse_node_info_from_packet(packet)
+        elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
+            self.parse_position_from_packet(packet)
+        elif portnum in ('TELEMETRY_APP', portnums_pb2.PortNum.Value('TELEMETRY_APP')):
+            self.parse_telemetry_from_packet(packet)
+        elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
+            self.parse_text_from_packet(packet)
+
+    def parse_node_info_from_packet(self, packet):
+        """Parse a NODEINFO_APP packet received via the Python API."""
+        try:
+            decoded = packet.get('decoded', {})
+            user = decoded.get('user', {})
+            node_id = user.get('id') or packet.get('fromId')
+            if not node_id:
+                return False
+
+            name = user.get('longName') or node_id
+            role = user.get('role', 'CLIENT')
+            snr = packet.get('rxSnr', 0)
+            via_mqtt = packet.get('viaMqtt', False)
+
+            hop_start = packet.get('hopStart')
+            hop_limit = packet.get('hopLimit')
+            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+
+            pos = decoded.get('position', {})
+            lat_i = pos.get('latitudeI')
+            lon_i = pos.get('longitudeI')
+            lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
+            lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
+
+            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+                alt = pos.get('altitude', 0)
+                is_new = node_id not in self.nodes
+                self.nodes[node_id] = {
+                    'id': node_id,
+                    'name': name,
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'alt': alt,
+                    'snr': round(snr, 1),
+                    'role': role,
+                    'hops': hops,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'via_mqtt': via_mqtt,
+                    'source': 'live'
+                }
+                marker = "✚" if is_new else "↻"
+                print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
+                self._update_message_names(node_id, name)
+                asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            else:
+                is_new = node_id not in self.nodes_no_position
+                self.nodes_no_position[node_id] = {
+                    'id': node_id,
+                    'name': name,
+                    'snr': round(snr, 1),
+                    'role': role,
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                }
+                marker = "✚" if is_new else "↻"
+                print(f"{marker} {node_id} {name[:20]} (no GPS) [TCP]")
+                self._update_message_names(node_id, name)
+                asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] nodeinfo parse error: {e}")
+        return False
+
+    def parse_position_from_packet(self, packet):
+        """Parse a POSITION_APP packet received via the Python API."""
+        try:
+            node_id = packet.get('fromId')
+            if not node_id:
+                return False
+
+            decoded = packet.get('decoded', {})
+            pos = decoded.get('position', {})
+            lat_i = pos.get('latitudeI')
+            lon_i = pos.get('longitudeI')
+            lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
+            lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
+
+            if lat is None or lon is None or (lat == 0 and lon == 0):
+                return False
+
+            snr = packet.get('rxSnr', 0)
+            rssi = packet.get('rxRssi') or None
+            via_mqtt = packet.get('viaMqtt', False)
+            hop_start = packet.get('hopStart')
+            hop_limit = packet.get('hopLimit')
+            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+
+            if node_id in self.nodes:
+                self.nodes[node_id].update({
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'snr': round(snr, 1),
+                    'rssi': rssi,
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                })
+                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+            else:
+                self.nodes[node_id] = {
+                    'id': node_id,
+                    'name': node_id,
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'alt': pos.get('altitude', 0),
+                    'snr': round(snr, 1),
+                    'rssi': rssi,
+                    'role': 'CLIENT',
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                }
+                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+
+            asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+            asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] position parse error: {e}")
+        return False
+
+    def parse_telemetry_from_packet(self, packet):
+        """Parse a TELEMETRY_APP packet received via the Python API."""
+        try:
+            node_id = packet.get('fromId')
+            if not node_id:
+                return False
+
+            decoded = packet.get('decoded', {})
+            telemetry = decoded.get('telemetry', {})
+
+            if node_id == self.local_node_id:
+                tracker_updated = False
+
+                device_metrics = telemetry.get('deviceMetrics', {})
+                uptime = device_metrics.get('uptimeSeconds')
+                if uptime is not None:
+                    self.tracker_info['uptime_seconds'] = uptime
+                    tracker_updated = True
+
+                local_stats = telemetry.get('localStats', {})
+                radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                radio_stats = {f: local_stats[f] for f in radio_fields if f in local_stats}
+                if not radio_stats:
+                    # Fallback: some firmware reports these in deviceMetrics
+                    radio_stats = {f: device_metrics[f] for f in radio_fields if f in device_metrics}
+                if radio_stats:
+                    self.tracker_info['radio_stats'] = radio_stats
+                    tracker_updated = True
+
+                if tracker_updated:
+                    asyncio.run(self.broadcast_connection_status('connected'))
+
+            rssi = packet.get('rxRssi') or None
+            if rssi is not None:
+                if node_id in self.nodes:
+                    self.nodes[node_id]['rssi'] = rssi
+                elif node_id in self.nodes_no_position:
+                    self.nodes_no_position[node_id]['rssi'] = rssi
+
+            if node_id in self.nodes:
+                self.nodes[node_id]['ts'] = int(time.time())
+                self.nodes[node_id]['seen_at'] = int(time.time())
+                self.nodes[node_id]['source'] = 'live'
+                print(f"♡ {node_id} telemetry heartbeat [TCP]")
+                asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+                return True
+            elif node_id in self.nodes_no_position:
+                self.nodes_no_position[node_id]['ts'] = int(time.time())
+                self.nodes_no_position[node_id]['seen_at'] = int(time.time())
+                self.nodes_no_position[node_id]['source'] = 'live'
+                print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
+                asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] telemetry parse error: {e}")
+        return False
+
+    def parse_text_from_packet(self, packet):
+        """Parse a TEXT_MESSAGE_APP packet received via the Python API."""
+        try:
+            from_id = packet.get('fromId')
+            if not from_id:
+                return False
+
+            to_id = packet.get('toId', '^all')
+            text = packet.get('decoded', {}).get('text', '')
+            if not text:
+                return False
+
+            channel_index = packet.get('channel', 0)
+
+            sender_name = from_id
+            if from_id in self.nodes:
+                sender_name = self.nodes[from_id].get('name', from_id)
+            elif from_id in self.nodes_no_position:
+                sender_name = self.nodes_no_position[from_id].get('name', from_id)
+            elif from_id in self.known_names:
+                sender_name = self.known_names[from_id]
+
+            message = {
+                'from_id': from_id,
+                'from_name': sender_name,
+                'to_id': to_id,
+                'text': text,
+                'timestamp': int(time.time()),
+                'is_dm': to_id != '^all',
+                'channel_index': channel_index
+            }
+
+            if channel_index not in self.messages:
+                self.messages[channel_index] = []
+            self.messages[channel_index].insert(0, message)
+            if len(self.messages[channel_index]) > 50:
+                self.messages[channel_index] = self.messages[channel_index][:50]
+
+            dm_marker = " [DM]" if message['is_dm'] else ""
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
+            asyncio.run(self.broadcast_message(message))
+            return True
+        except Exception as e:
+            print(f"[TCP] text parse error: {e}")
+        return False
+
     async def broadcast_node_update(self, node_data):
         """Broadcast node update to all connected WebSocket clients"""
         if not connected_clients:
@@ -745,10 +1056,81 @@ class ListenBasedMapper:
         except Exception as e:
             print(f"Save error: {e}") 
 
+    def _run_tcp(self):
+        """Run TCP listener using the Python Meshtastic API (no subprocess)."""
+        last_save = time.time()
+        last_clean = time.time()
+        save_interval = 60
+        first_save_done = False
+        first_save_delay = 10
+        clean_interval = 3600
+        restart_count = 0
+
+        while True:
+            tcp_iface = None
+            try:
+                print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
+                tcp_iface = TCPMeshtasticInterface(self.host)
+                tcp_iface.connect(self._on_tcp_packet)
+                print(f"[TCP] Connected to {self.host}")
+
+                last_save = time.time()
+                first_save_done = False
+
+                while True:
+                    if restart_event.is_set():
+                        print("[RESTART] Connection change requested, stopping TCP listener...")
+                        self.save_nodes()
+                        return
+
+                    current_interval = first_save_delay if not first_save_done else save_interval
+                    if time.time() - last_save > current_interval:
+                        self.save_nodes()
+                        last_save = time.time()
+                        first_save_done = True
+
+                    if time.time() - last_clean > clean_interval:
+                        self.clean_old_nodes()
+                        self.save_nodes()
+                        last_clean = time.time()
+
+                    time.sleep(1)
+
+            except KeyboardInterrupt:
+                print("\n\n[STOP] Stopping by user request...")
+                if self.nodes:
+                    print("[SAVE] Final save before exit...")
+                    self.save_nodes()
+                print("[EXIT] Goodbye!")
+                break
+
+            except Exception as e:
+                print(f"[TCP] Error: {e}")
+                import traceback
+                traceback.print_exc()
+
+                if restart_event.is_set():
+                    self.save_nodes()
+                    return
+
+                if self.nodes:
+                    self.save_nodes()
+
+                print("[WAIT] Retrying in 30 seconds...")
+                time.sleep(30)
+                restart_count += 1
+
+            finally:
+                if tcp_iface is not None:
+                    try:
+                        tcp_iface.disconnect()
+                    except Exception:
+                        pass
+
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.15")
+        print("Meshtastic Mapper - LISTEN MODE v1.16")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -756,12 +1138,16 @@ class ListenBasedMapper:
         print(f"WebSocket server: ws://0.0.0.0:8765")
         print("=" * 60)
 
-        if self.connection_type == 'tcp':
-            cmd = [self.meshtastic_cmd, '--host', self.host, '--listen']
-        else:
-            cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
-
         global send_restart_no_nodes
+
+        if self.connection_type == 'tcp':
+            # TCP: use Python API listener, not CLI subprocess
+            send_restart_no_nodes = False  # --no-nodes flag not applicable for TCP API
+            self._run_tcp()
+            return
+
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+
         if send_restart_no_nodes:
             cmd.append('--no-nodes')
             send_restart_no_nodes = False
@@ -951,8 +1337,9 @@ def parse_traceroute_output(output):
 
 
 async def run_send_message(text, channel_index, dest_id, websocket):
-    """Send a text message via meshtastic CLI.
-    Stops listener subprocess first (both TCP and serial), sends, then restarts listener.
+    """Send a text message.
+    TCP mode: uses a dedicated TCPInterface (no listener stop needed).
+    Serial mode: stops listener subprocess first, then restarts.
     """
     global send_restart, send_restart_no_nodes
     try:
@@ -964,17 +1351,66 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             'type': 'send_status', 'status': 'sending', 'connection_type': mapper.connection_type
         }))
 
-        # Stop listener to free the connection (required for both TCP and serial)
+        if mapper.connection_type == 'tcp':
+            # TCP: create a separate TCPInterface just for sending; do NOT stop listener
+            loop = asyncio.get_event_loop()
+
+            def _do_tcp_send():
+                iface = meshtastic.tcp_interface.TCPInterface(
+                    hostname=mapper.host, noProto=False
+                )
+                try:
+                    iface.sendText(
+                        text,
+                        channelIndex=channel_index,
+                        destinationId=dest_id if dest_id else '^all'
+                    )
+                    return True, 'Message sent'
+                except Exception as exc:
+                    return False, str(exc)
+                finally:
+                    try:
+                        iface.close()
+                    except Exception:
+                        pass
+
+            try:
+                success, msg = await asyncio.wait_for(
+                    loop.run_in_executor(None, _do_tcp_send),
+                    timeout=30
+                )
+            except asyncio.TimeoutError:
+                success, msg = False, 'Send timed out'
+
+            print(f"[SEND] TCP ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
+            await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
+            await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+
+            if success:
+                sent_message = {
+                    'from_id': mapper.local_node_id,
+                    'from_name': 'You',
+                    'to_id': dest_id if dest_id else '^all',
+                    'text': text,
+                    'timestamp': int(time.time()),
+                    'is_dm': bool(dest_id),
+                    'channel_index': channel_index
+                }
+                if channel_index not in mapper.messages:
+                    mapper.messages[channel_index] = []
+                mapper.messages[channel_index].insert(0, sent_message)
+                await mapper.broadcast_message(sent_message)
+
+            # No listener restart needed for TCP
+            return
+
+        # Serial/USB: stop listener subprocess, send via CLI, then restart
         if mapper.current_process:
             mapper.current_process.terminate()
             await asyncio.sleep(5)
 
-        if mapper.connection_type == 'tcp':
-            base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
-        else:
-            base_cmd = [mapper.meshtastic_cmd, '--port', mapper.port]
-
-        cmd = base_cmd + ['--sendtext', text, '--ch-index', str(channel_index)]
+        cmd = [mapper.meshtastic_cmd, '--port', mapper.port,
+               '--sendtext', text, '--ch-index', str(channel_index)]
         if dest_id:
             cmd += ['--dest', dest_id]
 
@@ -1016,7 +1452,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
     except asyncio.TimeoutError:
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
-        if mapper:
+        if mapper and mapper.connection_type != 'tcp':
             send_restart = True
             send_restart_no_nodes = True
             restart_event.set()
@@ -1024,7 +1460,7 @@ async def run_send_message(text, channel_index, dest_id, websocket):
         print(f"[SEND] Error: {e}")
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
-        if mapper:
+        if mapper and mapper.connection_type != 'tcp':
             send_restart = True
             send_restart_no_nodes = True
             restart_event.set()

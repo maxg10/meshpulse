@@ -151,6 +151,12 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.16 - Python Meshtastic API for TCP**
+- Native Python `meshtastic.tcp_interface.TCPInterface` used for TCP connections (no CLI subprocess)
+- TCP listener no longer stops when sending a message — send uses a dedicated short-lived connection
+- Real-time packet callbacks replace stdout parsing for TCP mode (nodeinfo, position, telemetry, text)
+- Cleaner TCP reconnect loop with same auto-restart behavior as serial mode
+
 **v1.13 - Traceroute & LOS Improvements**
 - 🔍 Traceroute feature - click any node popup to run traceroute
 - 🗺️ Traceroute route visualization with colored lines on map (SNR color-coded)
