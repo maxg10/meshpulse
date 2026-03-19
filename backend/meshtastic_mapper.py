@@ -278,12 +278,24 @@ class ListenBasedMapper:
             print(f"[CLEAN] Removed {len(removed)} old nodes (>{hours}h old)")
             for node_id in removed[:5]:  # Show first 5
                 print(f"  - {node_id}")
+            # Remove expired nodes from name cache if no longer in either node dict
+            for node_id in removed:
+                if node_id not in self.nodes and node_id not in self.nodes_no_position:
+                    self.known_names.pop(node_id, None)
     
     def clean_old_nodes(self):
         """Clean old nodes from self.nodes and self.nodes_no_position"""
         self.clean_old_nodes_from_dict(self.nodes)
         self.clean_old_nodes_from_dict(self.nodes_no_position)
-        
+
+    def _update_message_names(self, node_id, name):
+        """Update from_name in stored messages when a node's name becomes known"""
+        self.known_names[node_id] = name
+        for ch_msgs in self.messages.values():
+            for msg in ch_msgs:
+                if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
+                    msg['from_name'] = name
+
     def parse_node_info(self, line):
         """Parse nodeinfo from --listen output"""
         if 'Received nodeinfo:' in line:
@@ -300,9 +312,6 @@ class ListenBasedMapper:
                 
                 if not node_id:
                     return False
-
-                if name and node_id:
-                    self.known_names[node_id] = name
 
                 if 'latitudeI' in pos and 'longitudeI' in pos:
                     lat = pos['latitudeI'] / 1e7
@@ -338,12 +347,7 @@ class ListenBasedMapper:
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
-                    # Update from_name in messages retroactively
-                    self.known_names[node_id] = name
-                    for ch_msgs in self.messages.values():
-                        for msg in ch_msgs:
-                            if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
-                                msg['from_name'] = name
+                    self._update_message_names(node_id, name)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
@@ -377,12 +381,7 @@ class ListenBasedMapper:
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
 
-                    # Update from_name in messages retroactively
-                    self.known_names[node_id] = name
-                    for ch_msgs in self.messages.values():
-                        for msg in ch_msgs:
-                            if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
-                                msg['from_name'] = name
+                    self._update_message_names(node_id, name)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
