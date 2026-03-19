@@ -1106,6 +1106,15 @@ class ListenBasedMapper:
                 print("[EXIT] Goodbye!")
                 break
 
+            except OSError as e:
+                if restart_count == 0:
+                    print(f"[TCP] First attempt connection reset (Heltec V3 quirk), waiting 5s...")
+                else:
+                    print(f"[TCP] Connection error: {e}")
+                time.sleep(5)
+                restart_count += 1
+                continue
+
             except Exception as e:
                 if restart_count == 0:
                     print(f"[TCP] First attempt failed (normal for Heltec V3), retrying...")
