@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.16
+#ver 1.17
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -16,6 +16,7 @@ import os
 import asyncio
 import websockets
 import threading
+import sqlite3
 import meshtastic
 import meshtastic.tcp_interface
 from meshtastic import mesh_pb2, portnums_pb2
@@ -102,6 +103,144 @@ class TCPMeshtasticInterface:
         self.interface.sendText(text, channelIndex=channelIndex, destinationId=destinationId)
 
 
+class StatsDB:
+    """SQLite database for network statistics - keeps 3 days of data."""
+
+    DB_PATH = '/var/www/html/meshtastic/stats.db'
+    RETENTION_DAYS = 3
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self._init_db()
+
+    def _init_db(self):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            c = conn.cursor()
+            c.execute('''CREATE TABLE IF NOT EXISTS packets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                from_id TEXT NOT NULL,
+                from_name TEXT,
+                portnum TEXT NOT NULL,
+                hops INTEGER,
+                snr REAL,
+                rssi INTEGER,
+                via_mqtt INTEGER DEFAULT 0,
+                relay_node_id TEXT,
+                relayed_by_us INTEGER DEFAULT 0
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS node_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                node_name TEXT,
+                packet_count INTEGER DEFAULT 0,
+                portnum TEXT,
+                avg_snr REAL,
+                avg_rssi REAL,
+                min_hops INTEGER,
+                max_hops INTEGER
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS anomalies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                node_name TEXT,
+                anomaly_type TEXT NOT NULL,
+                details TEXT,
+                severity TEXT DEFAULT 'warning'
+            )''')
+            conn.commit()
+            conn.close()
+
+    def log_packet(self, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''INSERT INTO packets
+                (ts, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                (int(time.time()), from_id, from_name, portnum, hops, snr, rssi,
+                 1 if via_mqtt else 0, relay_node_id, 1 if relayed_by_us else 0))
+            conn.commit()
+            conn.close()
+
+    def log_anomaly(self, node_id, node_name, anomaly_type, details, severity='warning'):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''INSERT INTO anomalies (ts, node_id, node_name, anomaly_type, details, severity)
+                VALUES (?,?,?,?,?,?)''',
+                (int(time.time()), node_id, node_name, anomaly_type, details, severity))
+            conn.commit()
+            conn.close()
+
+    def cleanup_old_data(self):
+        """Remove data older than RETENTION_DAYS."""
+        cutoff = int(time.time()) - (self.RETENTION_DAYS * 86400)
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
+            conn.commit()
+            conn.close()
+
+    def get_stats_summary(self):
+        """Get stats summary for the last 24h."""
+        since = int(time.time()) - 86400
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since,)).fetchone()['cnt']
+            relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since,)).fetchone()['cnt']
+            top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
+                AVG(snr) as avg_snr, portnum
+                FROM packets WHERE ts > ? AND via_mqtt = 0
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since,)).fetchall()
+            hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY hour ORDER BY hour''', (since,)).fetchall()
+            relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND relayed_by_us = 1
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since,)).fetchall()
+            anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
+                FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since,)).fetchall()
+            by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY portnum ORDER BY cnt DESC''', (since,)).fetchall()
+            topology = c.execute('''SELECT from_id, from_name, COUNT(*) as relay_count
+                FROM packets WHERE ts > ? AND relayed_by_us = 1
+                GROUP BY from_id''', (since,)).fetchall()
+
+            conn.close()
+
+            return {
+                'total_packets': total,
+                'relayed_packets': relayed,
+                'relay_percentage': round(relayed / total * 100, 1) if total > 0 else 0,
+                'top_senders': [dict(r) for r in top_senders],
+                'hourly_activity': [{'hour': r['hour'], 'count': r['cnt']} for r in hourly],
+                'relayed_nodes': [dict(r) for r in relayed_nodes],
+                'anomalies': [dict(r) for r in anomalies],
+                'packet_types': [dict(r) for r in by_type],
+                'topology': [dict(r) for r in topology]
+            }
+
+    def get_topology_graph(self):
+        """Get node connections for D3.js graph."""
+        since = int(time.time()) - 86400
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            nodes_data = c.execute('''SELECT DISTINCT from_id, from_name, COUNT(*) as packet_count
+                FROM packets WHERE ts > ? GROUP BY from_id''', (since,)).fetchall()
+            conn.close()
+            return [dict(r) for r in nodes_data]
+
+
 def load_config():
     """Load connection config from JSON file"""
     try:
@@ -148,6 +287,10 @@ class ListenBasedMapper:
 
         # Cache of all known node names from nodeinfo packets
         self.known_names = getattr(self, '_loaded_known_names', {})
+
+        # Stats database
+        self.stats_db = StatsDB()
+        self._last_packet_times = {}  # for anomaly detection
 
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
@@ -367,6 +510,32 @@ class ListenBasedMapper:
                 if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
                     msg['from_name'] = name
 
+    def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
+        """Log packet to stats DB and detect anomalies."""
+        from_name = (self.nodes.get(from_id) or self.nodes_no_position.get(from_id) or {}).get('name', from_id)
+
+        relayed_by_us = False
+        relay_node_id = None
+        if relay_node_raw is not None and self.local_node_id:
+            our_num = int(self.local_node_id.replace('!', ''), 16)
+            our_last_byte = our_num & 0xFF
+            relayed_by_us = (relay_node_raw == our_last_byte)
+            relay_node_id = f"relay_{relay_node_raw}"
+
+        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+
+        now = int(time.time())
+        key = (from_id, portnum)
+        if key in self._last_packet_times:
+            interval = now - self._last_packet_times[key]
+            if portnum == 'POSITION_APP' and interval < 30 and not via_mqtt:
+                self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_POSITION',
+                    f'Position sent every {interval}s (< 30s)', 'warning')
+            elif portnum == 'TEXT_MESSAGE_APP' and interval < 5:
+                self.stats_db.log_anomaly(from_id, from_name, 'SPAM_MESSAGES',
+                    f'Messages sent every {interval}s', 'warning')
+        self._last_packet_times[key] = now
+
     def parse_node_info(self, line):
         """Parse nodeinfo from --listen output"""
         if 'Received nodeinfo:' in line:
@@ -419,6 +588,7 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
                     self._update_message_names(node_id, name)
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
@@ -453,13 +623,14 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
 
                     self._update_message_names(node_id, name)
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                     asyncio.run(self.broadcast_stats_update())
 
                     return True
-                    
+
             except Exception as e:
                 print(f"Parse error: {e}")
         
@@ -510,6 +681,9 @@ class ListenBasedMapper:
             # Extract transport mechanism (detect MQTT)
             transport_match = re.search(r"'transportMechanism':\s*'([^']+)'", line)
             via_mqtt = transport_match and transport_match.group(1) == 'TRANSPORT_MQTT'
+
+            relay_match = re.search(r"'relayNode':\s*(\d+)", line)
+            relay_node_raw = int(relay_match.group(1)) if relay_match else None
             
             # Update existing node or create minimal entry
             if node_id in self.nodes:
@@ -543,6 +717,8 @@ class ListenBasedMapper:
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
+            self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
+
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
@@ -594,12 +770,14 @@ class ListenBasedMapper:
 
             # Parse RSSI if present
             rssi_match = re.search(r"'rxRssi':\s*([-\d]+)", line)
-            if rssi_match:
-                rssi = int(rssi_match.group(1))
+            rssi = int(rssi_match.group(1)) if rssi_match else None
+            if rssi is not None:
                 if node_id in self.nodes:
                     self.nodes[node_id]['rssi'] = rssi
                 elif node_id in self.nodes_no_position:
                     self.nodes_no_position[node_id]['rssi'] = rssi
+
+            self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
 
             # Only update timestamp if node already exists
             if node_id in self.nodes:
@@ -696,6 +874,8 @@ class ListenBasedMapper:
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker}")
 
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, None)
+
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
 
@@ -766,6 +946,7 @@ class ListenBasedMapper:
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
                 self._update_message_names(node_id, name)
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
             else:
@@ -784,6 +965,7 @@ class ListenBasedMapper:
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} (no GPS) [TCP]")
                 self._update_message_names(node_id, name)
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
             return True
@@ -814,6 +996,7 @@ class ListenBasedMapper:
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
             hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            relay_node_raw = packet.get('relayNode')
 
             if node_id in self.nodes:
                 self.nodes[node_id].update({
@@ -846,6 +1029,7 @@ class ListenBasedMapper:
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
 
+            self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
             return True
@@ -892,6 +1076,8 @@ class ListenBasedMapper:
                     self.nodes[node_id]['rssi'] = rssi
                 elif node_id in self.nodes_no_position:
                     self.nodes_no_position[node_id]['rssi'] = rssi
+
+            self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
 
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
@@ -953,6 +1139,7 @@ class ListenBasedMapper:
 
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, None)
             asyncio.run(self.broadcast_message(message))
             return True
         except Exception as e:
@@ -1064,7 +1251,8 @@ class ListenBasedMapper:
             
             dist_info = f", max range: {max_dist} km to {farthest_id}" if max_dist else ""
             print(f"[SAVE] {len(self.nodes)} nodes + {len(self.nodes_no_position)} no-GPS → {self.json_path}{dist_info}")
-            
+            self.stats_db.cleanup_old_data()
+
         except Exception as e:
             print(f"Save error: {e}") 
 
@@ -1154,7 +1342,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.16")
+        print("Meshtastic Mapper - LISTEN MODE v1.17")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -1692,6 +1880,14 @@ async def websocket_handler(websocket):
                         asyncio.ensure_future(run_send_message(text, channel_index, dest_id, websocket))
                     else:
                         print(f"[WS] send_message missing text from {client_addr}")
+                elif data.get('type') == 'get_stats':
+                    if mapper:
+                        stats = mapper.stats_db.get_stats_summary()
+                        stats['local_node_id'] = mapper.local_node_id
+                        stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
+                    else:
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.16 (Python Meshtastic API for TCP)
+**Current Version:** v1.17 (Network Statistics Page)
 
 ## Running & Deployment
 
@@ -161,6 +161,7 @@ meshtastic-network-mapper/
 │   └── meshtastic_mapper.py      # Main Python backend (~1225 lines)
 ├── frontend/
 │   ├── index.html                # Main web interface with inline JS
+│   ├── stats.html                # Network Statistics page (standalone)
 │   ├── styles.css                # Separated CSS styles
 │   └── favicon.ico               # Browser icon
 ├── systemd/
@@ -175,7 +176,30 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.16)
+## Recent Changes (v1.17)
+
+**Added:**
+- `StatsDB` class — SQLite database (`stats.db`) storing packets, node_activity, anomalies tables; 3-day retention
+- `ListenBasedMapper.stats_db` — `StatsDB` instance created in `__init__`
+- `ListenBasedMapper._last_packet_times` — dict for anomaly detection timing
+- `ListenBasedMapper.log_packet_to_stats()` — logs every packet to SQLite; detects HIGH_FREQUENCY_POSITION (<30s) and SPAM_MESSAGES (<5s) anomalies; detects relay-through-us via `relayNode` last byte vs our node ID
+- All parsers call `log_packet_to_stats()`: `parse_node_info`, `parse_position_update`, `parse_telemetry_update`, `parse_text_message` (serial) and all four TCP equivalents
+- `save_nodes()` now calls `self.stats_db.cleanup_old_data()` on each save
+- WebSocket `get_stats` message type — returns 24h summary: total packets, relayed packets, top senders, hourly activity, relayed nodes, anomalies, packet types, topology
+- `frontend/stats.html` — standalone dark-theme stats page with: summary cards, hourly Chart.js bar chart, packet type doughnut chart, top senders table, relayed nodes table, D3.js force-directed topology graph, anomalies list; auto-refreshes every 30s via WebSocket
+- `install.sh` copies `stats.html` to web directory
+
+**Changed:**
+- Version bumped to v1.17 (`MAPPER_VERSION`, `styles.css?v=1.17`, backend comment)
+
+### StatsDB Architecture
+- **DB path**: `/var/www/html/meshtastic/stats.db`
+- **Tables**: `packets` (per-packet log), `node_activity` (per-node-per-hour summary), `anomalies` (detected events)
+- **Relay detection**: compares `relayNode` field (last byte of relaying node num) against our local node ID's last byte
+- **Retention**: cleanup runs on every `save_nodes()` call; removes rows older than 3 days
+- **Thread safety**: `threading.Lock()` guards all DB connections
+
+## Previous Changes (v1.16)
 
 **Added:**
 - `TCPMeshtasticInterface` class — wraps `meshtastic.tcp_interface.TCPInterface` with `connect(on_receive)`, `disconnect()`, `sendText()` methods

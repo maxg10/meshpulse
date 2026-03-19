@@ -151,6 +151,14 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.17 - Network Statistics Page**
+- 📊 New stats page at `/meshtastic/stats.html` — live network analytics via WebSocket
+- 📈 Hourly packet activity chart and packet type breakdown (Chart.js)
+- 🔁 Shows which nodes were relayed through your router and relay counts
+- 🕸️ D3.js force-directed network topology graph
+- ⚠️ Automatic anomaly detection: high-frequency position broadcasts, message spam
+- 🗄️ SQLite database (`stats.db`) with 3-day retention, threadsafe
+
 **v1.16 - Python Meshtastic API for TCP**
 - Native Python `meshtastic.tcp_interface.TCPInterface` used for TCP connections (no CLI subprocess)
 - TCP listener no longer stops when sending a message — send uses a dedicated short-lived connection

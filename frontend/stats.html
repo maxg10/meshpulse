@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Meshtastic Network Stats</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #111827;
+            color: #f9fafb;
+            margin: 0; padding: 20px;
+        }
+        h1 { color: #60a5fa; margin-bottom: 4px; }
+        .subtitle { color: #9ca3af; font-size: 13px; margin-bottom: 20px; }
+        .nav { margin-bottom: 20px; }
+        .nav a { color: #60a5fa; text-decoration: none; margin-right: 20px; }
+        .nav a:hover { text-decoration: underline; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .card { background: #1f2937; border-radius: 8px; padding: 16px; }
+        .card h3 { margin: 0 0 12px 0; color: #93c5fd; font-size: 14px; }
+        .stat-big { font-size: 32px; font-weight: bold; color: #34d399; }
+        .stat-label { font-size: 11px; color: #9ca3af; }
+        .table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .table th { text-align: left; padding: 6px 8px; background: #374151; color: #9ca3af; }
+        .table td { padding: 5px 8px; border-bottom: 1px solid #374151; }
+        .table tr:hover td { background: #374151; }
+        .badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; }
+        .badge-warning { background: #92400e; color: #fcd34d; }
+        .badge-error { background: #7f1d1d; color: #fca5a5; }
+        .badge-info { background: #1e3a5f; color: #93c5fd; }
+        .anomaly-item { padding: 8px; border-left: 3px solid #f59e0b; background: #1f2937; margin-bottom: 6px; border-radius: 0 4px 4px 0; }
+        .anomaly-item.error { border-left-color: #ef4444; }
+        #topology-svg { width: 100%; height: 400px; }
+        .ws-status { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .ws-connected { background: #34d399; }
+        .ws-disconnected { background: #ef4444; }
+        .refresh-info { color: #6b7280; font-size: 11px; margin-top: 4px; }
+        .tooltip-wrapper { position: relative; display: inline-block; }
+        .tooltip-wrapper .tooltip-text {
+            visibility: hidden;
+            background: #374151;
+            color: #f9fafb;
+            border: 1px solid #4b5563;
+            padding: 8px 10px;
+            border-radius: 4px;
+            font-size: 11px;
+            max-width: 250px;
+            position: absolute;
+            z-index: 1000;
+            bottom: 125%;
+            left: 50%;
+            transform: translateX(-50%);
+            white-space: normal;
+            line-height: 1.4;
+        }
+        .tooltip-wrapper:hover .tooltip-text { visibility: visible; }
+    </style>
+</head>
+<body>
+    <div class="nav">
+        <a href="/meshtastic/">← Map</a>
+        <span style="color:#6b7280">|</span>
+        <span style="color:#f9fafb">📊 Network Stats</span>
+    </div>
+
+    <h1>📊 Network Statistics</h1>
+    <p class="subtitle">
+        <span class="ws-status ws-disconnected" id="ws-dot"></span>
+        <span id="ws-label">Connecting...</span>
+        · Last update: <span id="last-update">-</span>
+        · <span id="tracker-id">-</span>
+    </p>
+
+    <!-- Summary cards -->
+    <div class="grid">
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>📦 Total Packets (24h)
+                    <span class="tooltip-text">Total number of LoRa packets received by your tracker in the last 24 hours. Includes all packet types: position, telemetry, messages, nodeinfo.</span>
+                </h3>
+            </div>
+            <div class="stat-big" id="stat-total">-</div>
+            <div class="stat-label">packets received</div>
+        </div>
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>🔁 Relayed by Router (24h)
+                    <span class="tooltip-text">Packets that were retransmitted through YOUR router. Higher number = your router is well-positioned in the mesh. Relay % shows what fraction of all packets went through you.</span>
+                </h3>
+            </div>
+            <div class="stat-big" id="stat-relayed">-</div>
+            <div class="stat-label"><span id="stat-relay-pct">-</span>% of all packets</div>
+        </div>
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>⚠️ Anomalies (24h)
+                    <span class="tooltip-text">Unusual behaviors detected: nodes sending position too frequently (&lt;30s), message spam, etc. These may indicate misconfigured devices in your network.</span>
+                </h3>
+            </div>
+            <div class="stat-big" id="stat-anomalies" style="color:#f59e0b">-</div>
+            <div class="stat-label">detected events</div>
+        </div>
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>📡 Active Nodes (24h)
+                    <span class="tooltip-text">Number of unique nodes that sent at least one packet heard by your tracker in the last 24 hours. Does not include MQTT-bridged nodes.</span>
+                </h3>
+            </div>
+            <div class="stat-big" id="stat-active-nodes">-</div>
+            <div class="stat-label">unique nodes heard</div>
+        </div>
+    </div>
+
+    <!-- Hourly activity chart -->
+    <div class="card" style="margin-bottom:16px">
+        <div class="tooltip-wrapper">
+            <h3>📈 Hourly Packet Activity (24h)
+                <span class="tooltip-text">Number of LoRa packets received per hour. Peaks indicate busy periods. Low activity at night is normal. Sustained high activity may indicate channel congestion.</span>
+            </h3>
+        </div>
+        <canvas id="hourly-chart" height="80"></canvas>
+    </div>
+
+    <div class="grid">
+        <!-- Packet type breakdown -->
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>📋 Packet Types
+                    <span class="tooltip-text">Breakdown by packet type. POSITION_APP = GPS updates. TELEMETRY_APP = battery/metrics. TEXT_MESSAGE_APP = chat messages. NODEINFO_APP = device info broadcasts.</span>
+                </h3>
+            </div>
+            <canvas id="type-chart" height="150"></canvas>
+        </div>
+
+        <!-- Top senders -->
+        <div class="card">
+            <div class="tooltip-wrapper">
+                <h3>🔊 Most Active Nodes (24h)
+                    <span class="tooltip-text">Nodes sending the most packets. High packet counts may indicate aggressive position broadcast settings. Normal is 1 packet per 15-30 minutes for stationary nodes.</span>
+                </h3>
+            </div>
+            <table class="table" id="top-senders-table">
+                <thead><tr><th>Node</th><th>Packets</th><th>Avg SNR</th><th>Type</th></tr></thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Relayed nodes -->
+    <div class="card" style="margin:16px 0">
+        <div class="tooltip-wrapper">
+            <h3>🔁 Nodes Relayed Through Your Router
+                <span class="tooltip-text">These nodes' packets were retransmitted by your router. This means your router is on the path between these nodes and the rest of the mesh. Higher count = your router is critical for that node's connectivity.</span>
+            </h3>
+        </div>
+        <table class="table" id="relayed-table">
+            <thead><tr><th>Node</th><th>Relay Count (24h)</th><th>% of relays</th></tr></thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <!-- Network topology -->
+    <div class="card" style="margin-bottom:16px">
+        <div class="tooltip-wrapper">
+            <h3>🕸️ Network Topology (24h)
+                <span class="tooltip-text">Visual graph of nodes heard by your tracker. Blue square = your router. Green circles = nodes that sent packets directly heard. Lines connect nodes that were relayed through your router. Node size = packet count.</span>
+            </h3>
+        </div>
+        <svg id="topology-svg"></svg>
+    </div>
+
+    <!-- Anomalies -->
+    <div class="card" style="margin-bottom:16px">
+        <div class="tooltip-wrapper">
+            <h3>⚠️ Recent Anomalies
+                <span class="tooltip-text">Unusual behaviors automatically detected. HIGH_FREQUENCY_POSITION: node sending GPS more often than every 30s. SPAM_MESSAGES: multiple messages within 5s. These may cause channel congestion.</span>
+            </h3>
+        </div>
+        <div id="anomalies-list"><p style="color:#6b7280">No anomalies detected.</p></div>
+    </div>
+
+    <p class="refresh-info">Auto-refreshes every 30 seconds via WebSocket · Data retained for 3 days</p>
+
+<script>
+    let ws = null;
+    let hourlyChart = null;
+    let typeChart = null;
+
+    function connectWS() {
+        const wsHost = window.location.hostname;
+        ws = new WebSocket(`ws://${wsHost}:8765`);
+
+        ws.onopen = () => {
+            document.getElementById('ws-dot').className = 'ws-status ws-connected';
+            document.getElementById('ws-label').textContent = 'Connected';
+            requestStats();
+        };
+
+        ws.onclose = () => {
+            document.getElementById('ws-dot').className = 'ws-status ws-disconnected';
+            document.getElementById('ws-label').textContent = 'Disconnected - reconnecting...';
+            setTimeout(connectWS, 3000);
+        };
+
+        ws.onmessage = (e) => {
+            const d = JSON.parse(e.data);
+            if (d.type === 'stats_data') {
+                renderStats(d.data);
+                document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+            }
+            if (d.type === 'connection_status' && d.tracker) {
+                document.getElementById('tracker-id').textContent =
+                    d.tracker.node_id ? `Tracker: ${d.tracker.node_id}` : '';
+            }
+        };
+
+        ws.onerror = () => ws.close();
+    }
+
+    function requestStats() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'get_stats'}));
+        }
+    }
+
+    setInterval(requestStats, 30000);
+
+    function renderStats(data) {
+        document.getElementById('stat-total').textContent = (data.total_packets || 0).toLocaleString();
+        document.getElementById('stat-relayed').textContent = (data.relayed_packets || 0).toLocaleString();
+        document.getElementById('stat-relay-pct').textContent = data.relay_percentage || 0;
+        document.getElementById('stat-anomalies').textContent = (data.anomalies || []).length;
+        document.getElementById('stat-active-nodes').textContent = (data.top_senders || []).length;
+        if (data.local_node_id) {
+            document.getElementById('tracker-id').textContent = `Tracker: ${data.local_node_id}`;
+        }
+
+        renderHourlyChart(data.hourly_activity || []);
+        renderTypeChart(data.packet_types || []);
+        renderTopSenders(data.top_senders || []);
+        renderRelayedNodes(data.relayed_nodes || [], data.relayed_packets || 0);
+        renderTopology(data.top_senders || [], data.topology || [], data.local_node_id);
+        renderAnomalies(data.anomalies || []);
+    }
+
+    function renderHourlyChart(hourly) {
+        const labels = hourly.map(h => {
+            const d = new Date(h.hour * 1000);
+            return d.getHours() + ':00';
+        });
+        const values = hourly.map(h => h.count);
+
+        if (hourlyChart) hourlyChart.destroy();
+        hourlyChart = new Chart(document.getElementById('hourly-chart'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Packets',
+                    data: values,
+                    backgroundColor: 'rgba(96, 165, 250, 0.6)',
+                    borderColor: '#60a5fa',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } },
+                    y: { ticks: { color: '#9ca3af' }, grid: { color: '#374151' } }
+                }
+            }
+        });
+    }
+
+    function renderTypeChart(types) {
+        const colors = ['#60a5fa', '#34d399', '#f59e0b', '#a78bfa', '#f87171'];
+        const labels = types.map(t => (t.portnum || '').replace('_APP', ''));
+        const values = types.map(t => t.cnt);
+
+        if (typeChart) typeChart.destroy();
+        typeChart = new Chart(document.getElementById('type-chart'), {
+            type: 'doughnut',
+            data: {
+                labels,
+                datasets: [{ data: values, backgroundColor: colors }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { position: 'right', labels: { color: '#9ca3af', font: { size: 11 } } }
+                }
+            }
+        });
+    }
+
+    function renderTopSenders(senders) {
+        const tbody = document.querySelector('#top-senders-table tbody');
+        tbody.innerHTML = senders.slice(0, 15).map(s => `
+            <tr>
+                <td>${s.from_name || s.from_id}</td>
+                <td>${s.cnt}</td>
+                <td>${s.avg_snr != null ? Number(s.avg_snr).toFixed(1) + ' dB' : '-'}</td>
+                <td><span class="badge badge-info">${(s.portnum || '').replace('_APP', '')}</span></td>
+            </tr>
+        `).join('');
+    }
+
+    function renderRelayedNodes(nodes, total) {
+        const tbody = document.querySelector('#relayed-table tbody');
+        if (!nodes || nodes.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="3" style="color:#6b7280">No relayed packets detected yet.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = nodes.map(n => `
+            <tr>
+                <td>${n.from_name || n.from_id}</td>
+                <td>${n.cnt}</td>
+                <td>${total > 0 ? (n.cnt / total * 100).toFixed(1) : '-'}%</td>
+            </tr>
+        `).join('');
+    }
+
+    function renderTopology(nodes, relayed, localNodeId) {
+        const svg = d3.select('#topology-svg');
+        svg.selectAll('*').remove();
+
+        const width = document.getElementById('topology-svg').clientWidth || 800;
+        const height = 400;
+
+        const nodeMap = {};
+        nodes.forEach(n => {
+            nodeMap[n.from_id] = {
+                id: n.from_id,
+                name: n.from_name || n.from_id,
+                count: n.cnt,
+                isRouter: n.from_id === localNodeId
+            };
+        });
+
+        if (localNodeId && !nodeMap[localNodeId]) {
+            nodeMap[localNodeId] = { id: localNodeId, name: 'Your Router', count: 0, isRouter: true };
+        }
+
+        const graphNodes = Object.values(nodeMap);
+        const links = (relayed || []).map(r => ({
+            source: r.from_id,
+            target: localNodeId,
+            count: r.relay_count || r.cnt || 1
+        })).filter(l => nodeMap[l.source] && nodeMap[l.target] && l.source !== l.target);
+
+        const simulation = d3.forceSimulation(graphNodes)
+            .force('link', d3.forceLink(links).id(d => d.id).distance(100))
+            .force('charge', d3.forceManyBody().strength(-200))
+            .force('center', d3.forceCenter(width / 2, height / 2))
+            .force('collision', d3.forceCollide(30));
+
+        const link = svg.append('g')
+            .selectAll('line')
+            .data(links)
+            .enter().append('line')
+            .attr('stroke', '#4b5563')
+            .attr('stroke-width', d => Math.min(Math.log(d.count + 1) + 1, 5))
+            .attr('stroke-opacity', 0.6);
+
+        const node = svg.append('g')
+            .selectAll('g')
+            .data(graphNodes)
+            .enter().append('g')
+            .call(d3.drag()
+                .on('start', (event, d) => { if (!event.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+                .on('drag', (event, d) => { d.fx = event.x; d.fy = event.y; })
+                .on('end', (event, d) => { if (!event.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
+            );
+
+        node.each(function(d) {
+            const el = d3.select(this);
+            const r = Math.min(Math.log(d.count + 1) * 4 + 8, 25);
+            if (d.isRouter) {
+                el.append('rect').attr('width', r * 2).attr('height', r * 2)
+                    .attr('x', -r).attr('y', -r)
+                    .attr('fill', '#3b82f6').attr('rx', 3);
+            } else {
+                el.append('circle').attr('r', r)
+                    .attr('fill', '#059669').attr('opacity', 0.8);
+            }
+            el.append('title').text(`${d.name}\n${d.count} packets`);
+        });
+
+        node.append('text')
+            .text(d => (d.name || d.id).substring(0, 12))
+            .attr('text-anchor', 'middle')
+            .attr('dy', 25)
+            .attr('font-size', '9px')
+            .attr('fill', '#9ca3af');
+
+        simulation.on('tick', () => {
+            link
+                .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+                .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+            node.attr('transform', d => `translate(${d.x},${d.y})`);
+        });
+    }
+
+    function renderAnomalies(anomalies) {
+        const el = document.getElementById('anomalies-list');
+        if (!anomalies || anomalies.length === 0) {
+            el.innerHTML = '<p style="color:#6b7280">✅ No anomalies detected in the last 24h.</p>';
+            return;
+        }
+        el.innerHTML = anomalies.slice(0, 20).map(a => `
+            <div class="anomaly-item ${a.severity === 'error' ? 'error' : ''}">
+                <span class="badge ${a.severity === 'error' ? 'badge-error' : 'badge-warning'}">${a.anomaly_type}</span>
+                <strong style="margin-left:8px">${a.node_name || a.node_id}</strong>
+                <span style="color:#9ca3af;margin-left:8px;font-size:11px">${a.details}</span>
+                <span style="float:right;color:#6b7280;font-size:10px">${new Date(a.ts * 1000).toLocaleTimeString()}</span>
+            </div>
+        `).join('');
+    }
+
+    connectWS();
+</script>
+</body>
+</html>
