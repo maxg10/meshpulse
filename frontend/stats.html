@@ -114,6 +114,11 @@
         .tip-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: 0.7; vertical-align: middle; }
         .tip-btn:hover { opacity: 1; }
         .count-badge { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold; margin-left: 5px; }
+        .grid-2.equal-height { align-items: stretch; }
+        .grid-2.equal-height .card { display: flex; flex-direction: column; justify-content: center; }
+        .grid-2.equal-height .card canvas { flex: 1; min-height: 0; }
+        .topo-refresh-btn { font-size: 11px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #374151; margin-left: auto; }
+        .topo-refresh-btn:hover { background: #e5e7eb; }
     </style>
 </head>
 <body>
@@ -241,14 +246,14 @@
 </div>
 
 <!-- Charts row 2: packet types + hop distribution -->
-<div class="grid-2">
+<div class="grid-2 equal-height">
     <div class="card">
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types"></div>
-        <canvas id="type-chart" height="100"></canvas>
+        <canvas id="type-chart" height="120"></canvas>
     </div>
     <div class="card">
         <div class="card-title">
@@ -308,6 +313,7 @@
     <div class="card-title">
         🕸️ Network Topology (24h)
         <span class="info-icon" data-tip="Force-directed graph. Blue square = your router. Green circles = heard nodes (size = packet volume). Lines = relayed through your router. Drag nodes. Scroll to zoom.">ⓘ</span>
+        <button class="topo-refresh-btn" onclick="refreshTopology()">🔄 Refresh layout</button>
     </div>
     <svg id="topology-svg"></svg>
     <div class="topo-legend">
@@ -658,37 +664,53 @@ function renderTopology(nodes, relayed, localId) {
         .map(r => ({ source:r.from_id, target:localId, count:r.relay_count||1 }))
         .filter(l => nodeMap[l.source] && nodeMap[l.target] && l.source !== l.target);
 
-    if (!topoState) {
-        // First render: create SVG structure and simulation
-        const svg = d3.select('#topology-svg');
-        svg.selectAll('*').remove();
-        const zoom = d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => topoState.g.attr('transform', e.transform));
-        svg.call(zoom);
-        const g = svg.append('g');
-        const linkG = g.append('g');
-        const nodeG = g.append('g');
+    // Always cache latest data so manual refresh can use it
+    if (!topoState) topoState = {};
+    topoState.lastNodes = newNodes;
+    topoState.lastLinks = newLinks;
+    topoState.lastW     = w;
 
-        const sim = d3.forceSimulation(newNodes)
-            .force('link',      d3.forceLink(newLinks).id(d=>d.id).distance(100))
-            .force('charge',    d3.forceManyBody().strength(-220))
-            .force('center',    d3.forceCenter(w/2, h/2))
-            .force('collision', d3.forceCollide(32));
-
-        topoState = { sim, g, linkG, nodeG };
-        _topoDrawLinks(newLinks);
-        _topoDrawNodes(newNodes, sim);
-        sim.on('tick', _topoTick);
+    if (!topoState.sim) {
+        // First load: build SVG and run simulation
+        _topoInit(newNodes, newLinks, w, h);
     } else {
-        // Subsequent update: preserve positions, gentle restart
-        const oldById = {};
-        topoState.sim.nodes().forEach(n => { oldById[n.id] = { x:n.x, y:n.y }; });
-        newNodes.forEach(n => { if (oldById[n.id]) { n.x = oldById[n.id].x; n.y = oldById[n.id].y; } });
-        topoState.sim.nodes(newNodes);
-        topoState.sim.force('link').links(newLinks);
-        topoState.sim.alpha(0.1).restart();
-        _topoDrawLinks(newLinks);
-        _topoDrawNodes(newNodes, topoState.sim);
+        // Auto-refresh: update tooltips/labels only — NO restart, NO movement, NO scroll jump
+        topoState.nodeG.selectAll('g.topo-node').each(function(d) {
+            const nd = nodeMap[d.id];
+            if (!nd) return;
+            d.count = nd.count;
+            d3.select(this).select('title').text(`${nd.name}\n${nd.count} packets`);
+            d3.select(this).select('text').text((nd.name||nd.id).substring(0,14));
+        });
     }
+}
+
+function _topoInit(newNodes, newLinks, w, h) {
+    const svg = d3.select('#topology-svg');
+    svg.selectAll('*').remove();
+    const zoom = d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => topoState.g.attr('transform', e.transform));
+    svg.call(zoom);
+    const g = svg.append('g');
+    const linkG = g.append('g');
+    const nodeG = g.append('g');
+
+    const sim = d3.forceSimulation(newNodes)
+        .force('link',      d3.forceLink(newLinks).id(d=>d.id).distance(100))
+        .force('charge',    d3.forceManyBody().strength(-220))
+        .force('center',    d3.forceCenter(w/2, h/2))
+        .force('collision', d3.forceCollide(32));
+
+    topoState = { ...topoState, sim, g, linkG, nodeG };
+    _topoDrawLinks(newLinks);
+    _topoDrawNodes(newNodes, sim);
+    sim.on('tick', _topoTick);
+}
+
+// Manual refresh: re-runs simulation from scratch with latest data
+function refreshTopology() {
+    if (!topoState || !topoState.lastNodes) return;
+    topoState.sim = null;
+    _topoInit(topoState.lastNodes, topoState.lastLinks, topoState.lastW || 800, 380);
 }
 
 function _topoDrawLinks(links) {
