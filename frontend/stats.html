@@ -540,7 +540,7 @@ function renderAll(data) {
             labels: types.map(t => (t.portnum||'').replace('_APP','')),
             datasets: [{ data: types.map(t=>t.cnt), backgroundColor: typeColors }]
         },
-        options: { responsive:true, maintainAspectRatio:false, plugins: { legend: { position:'right', labels:{ color:'#374151', font:{size:10} } } } }
+        options: { responsive:true, maintainAspectRatio:true, aspectRatio:2, plugins: { legend: { position:'right', labels:{ color:'#374151', font:{size:10} } } } }
     });
 
     // Hop distribution
@@ -549,7 +549,7 @@ function renderAll(data) {
         hops.map(h => h.hops + (h.hops===0?' (direct)':h.hops>=5?' (5+)':'')),
         hops.map(h => h.cnt),
         hops.map(h => h.hops===0 ? 'rgba(16,185,129,0.7)' : h.hops<=2 ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'),
-        { maintainAspectRatio: false });
+        {});
 
     // SNR distribution
     const snr = (data.snr_distribution||[]);
