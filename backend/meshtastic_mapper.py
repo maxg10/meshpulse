@@ -236,6 +236,10 @@ class StatsDB:
                 FROM packets WHERE ts > ?
                 GROUP BY day ORDER BY day''', (since_7d,)).fetchall()
 
+            # Data window: how long we've been recording
+            first_ts = c.execute('SELECT MIN(ts) FROM packets').fetchone()[0]
+            data_window_minutes = int((now - first_ts) // 60) if first_ts else 0
+
             conn.close()
 
             return {
@@ -251,7 +255,8 @@ class StatsDB:
                 'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
                 'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
                 'hop_distribution': [{'hops': r['hops'], 'cnt': r['cnt']} for r in hop_dist],
-                'daily_7d': [{'day': r['day'], 'count': r['cnt']} for r in daily_7d]
+                'daily_7d': [{'day': r['day'], 'count': r['cnt']} for r in daily_7d],
+                'data_window_minutes': data_window_minutes
             }
 
     def get_topology_graph(self):

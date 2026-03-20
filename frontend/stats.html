@@ -110,6 +110,10 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
         .refresh-info { color: #6b7280; font-size: 10px; margin-top: 8px; text-align: center; }
+        .data-win { color: #9ca3af; font-size: 10px; margin: -6px 0 8px 0; font-weight: normal; }
+        .tip-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: 0.7; vertical-align: middle; }
+        .tip-btn:hover { opacity: 1; }
+        .count-badge { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold; margin-left: 5px; }
     </style>
 </head>
 <body>
@@ -139,6 +143,7 @@
             📦 Packets (24h)
             <span class="info-icon" data-tip="Total LoRa packets received by your tracker in the last 24 hours. Includes all types: position, telemetry, messages, nodeinfo.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-summary"></div>
         <div class="stat-big" id="stat-total">-</div>
         <div class="stat-label">received</div>
     </div>
@@ -223,6 +228,7 @@
             📈 Hourly Activity (24h)
             <span class="info-icon" data-tip="Packets received per hour over the last 24 hours. Empty hours shown as 0.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-hourly"></div>
         <canvas id="hourly-chart" height="120"></canvas>
     </div>
     <div class="card">
@@ -241,14 +247,16 @@
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
-        <canvas id="type-chart" height="150"></canvas>
+        <div class="data-win" id="dw-types"></div>
+        <canvas id="type-chart" height="100"></canvas>
     </div>
     <div class="card">
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
             <span class="info-icon" data-tip="How many hops packets travelled before reaching your tracker. 0 hops = direct contact. Higher hops = relayed through mesh.">ⓘ</span>
         </div>
-        <canvas id="hop-chart" height="150"></canvas>
+        <div class="data-win" id="dw-hops"></div>
+        <canvas id="hop-chart" height="100"></canvas>
     </div>
 </div>
 
@@ -277,8 +285,9 @@
             🔊 Most Active Nodes (24h)
             <span class="info-icon" data-tip="Nodes sending the most packets. Normal stationary nodes: ~1 packet per 15–30 min. High counts may indicate aggressive broadcast settings.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>Pkts</th><th>Avg SNR</th><th>Type</th></tr></thead>
+            <thead><tr><th>Node</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th></th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -315,6 +324,7 @@
         ⚠️ Recent Anomalies (24h)
         <span class="info-icon" data-tip="HIGH_FREQUENCY_POSITION: GPS sent faster than every 30s. SPAM_MESSAGES: multiple messages within 5s. These waste airtime and may cause congestion.">ⓘ</span>
     </div>
+    <div class="data-win" id="dw-anomalies"></div>
     <div class="anomaly-scroll" id="anomalies-list">
         <div style="color:#6b7280;font-size:12px">No anomalies detected.</div>
     </div>
@@ -325,12 +335,13 @@
 <script>
 // ── Global tooltip ──────────────────────────────────────────────
 const gTip = document.getElementById('g-tooltip');
+function showTip(el, text, e) {
+    gTip.textContent = text;
+    gTip.style.display = 'block';
+    positionTip(e);
+}
 document.querySelectorAll('.info-icon[data-tip]').forEach(el => {
-    el.addEventListener('mouseenter', e => {
-        gTip.textContent = el.dataset.tip;
-        gTip.style.display = 'block';
-        positionTip(e);
-    });
+    el.addEventListener('mouseenter', e => showTip(el, el.dataset.tip, e));
     el.addEventListener('mousemove', positionTip);
     el.addEventListener('mouseleave', () => { gTip.style.display = 'none'; });
 });
@@ -347,6 +358,7 @@ function positionTip(e) {
 let ws = null;
 let radioStats = null;
 let charts = {};
+let topoState = null;
 
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
@@ -430,8 +442,43 @@ function fill7d(dailyData) {
     return { labels, values };
 }
 
+// ── Data window helper ───────────────────────────────────────────
+function fmtWindow(minutes) {
+    if (!minutes) return 'Data window: collecting…';
+    if (minutes < 60) return `Data window: last ${minutes} min`;
+    const h = Math.floor(minutes / 60), m = minutes % 60;
+    return m > 0 ? `Data window: last ${h}h ${m}min` : `Data window: last ${h}h`;
+}
+function setDataWindows(minutes) {
+    const label = fmtWindow(minutes);
+    ['dw-summary','dw-hourly','dw-types','dw-hops','dw-senders','dw-anomalies'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = label;
+    });
+}
+
+// ── Smart node suggestion ────────────────────────────────────────
+function getNodeSuggestion(s) {
+    const portnum = (s.portnum || '').toUpperCase();
+    const cnt = s.cnt || 0;
+    const avgSnr = s.avg_snr;
+    const tips = [];
+    if (portnum.includes('NODEINFO') && cnt > 20)
+        tips.push('⚠️ Sending NodeInfo too frequently. Consider increasing device.node_info_broadcast_secs (default 900s = 15min)');
+    if (portnum.includes('POSITION') && cnt > 10)
+        tips.push('⚠️ Sending position very frequently. For stationary nodes set position.position_broadcast_secs = 3600 (1 hour) or more');
+    if (portnum.includes('TELEMETRY') && cnt > 20)
+        tips.push('ℹ️ High telemetry rate. Normal is every 30min. Check telemetry.device_update_interval setting');
+    if (avgSnr != null && avgSnr < -10)
+        tips.push('📶 Weak signal (-10dB or below). Node may be at edge of range or obstructed. Consider adding a router between nodes.');
+    return tips.join('\n');
+}
+
 // ── Render all ───────────────────────────────────────────────────
 function renderAll(data) {
+    // Data window
+    setDataWindows(data.data_window_minutes || 0);
+
     // Summary cards
     document.getElementById('stat-total').textContent   = (data.total_packets||0).toLocaleString();
     document.getElementById('stat-relayed').textContent = (data.relayed_packets||0).toLocaleString();
@@ -499,13 +546,23 @@ function renderAll(data) {
 
     // Top senders table
     const tbody1 = document.querySelector('#top-senders-table tbody');
-    tbody1.innerHTML = (data.top_senders||[]).slice(0,15).map(s => `
-        <tr>
+    tbody1.innerHTML = (data.top_senders||[]).slice(0,15).map(s => {
+        const tip = getNodeSuggestion(s);
+        const tipBtn = tip ? `<button class="tip-btn" data-ntip="${tip.replace(/"/g,'&quot;')}">💡</button>` : '';
+        return `<tr>
             <td title="${s.from_id}">${s.from_name||s.from_id}</td>
             <td>${s.cnt}</td>
             <td>${s.avg_snr!=null ? Number(s.avg_snr).toFixed(1)+' dB' : '-'}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
-        </tr>`).join('');
+            <td>${tipBtn}</td>
+        </tr>`;
+    }).join('');
+    // Attach tip listeners
+    tbody1.querySelectorAll('[data-ntip]').forEach(btn => {
+        btn.addEventListener('mouseenter', e => showTip(btn, btn.dataset.ntip, e));
+        btn.addEventListener('mousemove', positionTip);
+        btn.addEventListener('mouseleave', () => { gTip.style.display = 'none'; });
+    });
 
     // Relayed table
     const tbody2 = document.querySelector('#relayed-table tbody');
@@ -585,17 +642,10 @@ function renderHealthScore(rs, data) {
 
 // ── Topology ─────────────────────────────────────────────────────
 function renderTopology(nodes, relayed, localId) {
-    const svg = d3.select('#topology-svg');
-    svg.selectAll('*').remove();
-
     const w = document.getElementById('topology-svg').clientWidth || 800;
     const h = 380;
 
-    const zoom = d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => g.attr('transform', e.transform));
-    svg.call(zoom);
-
-    const g = svg.append('g');
-
+    // Build data
     const nodeMap = {};
     nodes.forEach(n => {
         nodeMap[n.from_id] = { id:n.from_id, name:n.from_name||n.from_id, count:n.cnt, isRouter:n.from_id===localId };
@@ -603,28 +653,62 @@ function renderTopology(nodes, relayed, localId) {
     if (localId && !nodeMap[localId]) {
         nodeMap[localId] = { id:localId, name:'Your Router', count:0, isRouter:true };
     }
-    const gNodes = Object.values(nodeMap);
-    const links  = (relayed||[])
+    const newNodes = Object.values(nodeMap);
+    const newLinks = (relayed||[])
         .map(r => ({ source:r.from_id, target:localId, count:r.relay_count||1 }))
         .filter(l => nodeMap[l.source] && nodeMap[l.target] && l.source !== l.target);
 
-    const sim = d3.forceSimulation(gNodes)
-        .force('link',      d3.forceLink(links).id(d=>d.id).distance(100))
-        .force('charge',    d3.forceManyBody().strength(-220))
-        .force('center',    d3.forceCenter(w/2, h/2))
-        .force('collision', d3.forceCollide(32));
+    if (!topoState) {
+        // First render: create SVG structure and simulation
+        const svg = d3.select('#topology-svg');
+        svg.selectAll('*').remove();
+        const zoom = d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => topoState.g.attr('transform', e.transform));
+        svg.call(zoom);
+        const g = svg.append('g');
+        const linkG = g.append('g');
+        const nodeG = g.append('g');
 
-    g.append('g').selectAll('line').data(links).enter().append('line')
+        const sim = d3.forceSimulation(newNodes)
+            .force('link',      d3.forceLink(newLinks).id(d=>d.id).distance(100))
+            .force('charge',    d3.forceManyBody().strength(-220))
+            .force('center',    d3.forceCenter(w/2, h/2))
+            .force('collision', d3.forceCollide(32));
+
+        topoState = { sim, g, linkG, nodeG };
+        _topoDrawLinks(newLinks);
+        _topoDrawNodes(newNodes, sim);
+        sim.on('tick', _topoTick);
+    } else {
+        // Subsequent update: preserve positions, gentle restart
+        const oldById = {};
+        topoState.sim.nodes().forEach(n => { oldById[n.id] = { x:n.x, y:n.y }; });
+        newNodes.forEach(n => { if (oldById[n.id]) { n.x = oldById[n.id].x; n.y = oldById[n.id].y; } });
+        topoState.sim.nodes(newNodes);
+        topoState.sim.force('link').links(newLinks);
+        topoState.sim.alpha(0.1).restart();
+        _topoDrawLinks(newLinks);
+        _topoDrawNodes(newNodes, topoState.sim);
+    }
+}
+
+function _topoDrawLinks(links) {
+    const linkSel = topoState.linkG.selectAll('line').data(links);
+    linkSel.exit().remove();
+    const enter = linkSel.enter().append('line');
+    topoState.linkSel = enter.merge(linkSel)
         .attr('stroke', '#94a3b8').attr('stroke-opacity', 0.6)
         .attr('stroke-width', d => Math.min(Math.log(d.count+1)+1, 5));
+}
 
-    const node = g.append('g').selectAll('g').data(gNodes).enter().append('g')
+function _topoDrawNodes(gNodes, sim) {
+    const nodeSel = topoState.nodeG.selectAll('g.topo-node').data(gNodes, d => d.id);
+    nodeSel.exit().remove();
+    const enter = nodeSel.enter().append('g').attr('class','topo-node')
         .call(d3.drag()
             .on('start', (ev,d) => { if(!ev.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
             .on('drag',  (ev,d) => { d.fx=ev.x; d.fy=ev.y; })
             .on('end',   (ev,d) => { if(!ev.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
-
-    node.each(function(d) {
+    enter.each(function(d) {
         const el = d3.select(this);
         const r  = Math.min(Math.log(d.count+1)*4+8, 24);
         if (d.isRouter) {
@@ -634,17 +718,37 @@ function renderTopology(nodes, relayed, localId) {
             el.append('circle').attr('r',r).attr('fill','#059669').attr('opacity',0.85);
         }
         el.append('title').text(`${d.name}\n${d.count} packets`);
+        el.append('text').text((d.name||d.id).substring(0,14))
+            .attr('text-anchor','middle').attr('dy',28).attr('font-size','9px').attr('fill','#374151');
     });
+    topoState.nodeSel = enter.merge(nodeSel);
+}
 
-    node.append('text').text(d => (d.name||d.id).substring(0,14))
-        .attr('text-anchor','middle').attr('dy',28).attr('font-size','9px').attr('fill','#374151');
+function _topoTick() {
+    if (!topoState || !topoState.linkSel) return;
+    topoState.linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+                     .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+    topoState.nodeSel.attr('transform', d=>`translate(${d.x},${d.y})`);
+}
 
-    const linesEl = g.selectAll('line');
-    sim.on('tick', () => {
-        linesEl.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
-               .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
-        node.attr('transform', d=>`translate(${d.x},${d.y})`);
-    });
+// ── Anomaly helpers ───────────────────────────────────────────────
+function getAnomalyDescription(a) {
+    if (a.anomaly_type === 'HIGH_FREQUENCY_POSITION') {
+        const m = (a.details||'').match(/every\s+(\d+)s/);
+        const secs = m ? m[1] : '?';
+        return `⚡ Sending position every ${secs}s — recommended minimum is 30s for moving nodes, 15min+ for stationary. This causes channel congestion.`;
+    }
+    if (a.anomaly_type === 'SPAM_MESSAGES') {
+        return '💬 Sending messages very rapidly — multiple messages within 5s. This wastes airtime and may cause congestion.';
+    }
+    return a.details || '';
+}
+function getAnomalySuggestion(type) {
+    if (type === 'HIGH_FREQUENCY_POSITION')
+        return 'Suggested fix: set position_broadcast_secs ≥ 1800 for stationary nodes';
+    if (type === 'SPAM_MESSAGES')
+        return 'Suggested fix: check if node is running automated message scripts';
+    return '';
 }
 
 // ── Anomalies ────────────────────────────────────────────────────
@@ -654,13 +758,28 @@ function renderAnomalies(anomalies) {
         el.innerHTML = '<div style="color:#6b7280;font-size:12px">✅ No anomalies detected in the last 24h.</div>';
         return;
     }
-    el.innerHTML = anomalies.slice(0,30).map(a => `
+    // Group by node + type
+    const groups = {};
+    anomalies.forEach(a => {
+        const key = (a.node_id||'') + '|' + a.anomaly_type;
+        if (!groups[key]) groups[key] = { ...a, count: 1, latest_ts: a.ts };
+        else { groups[key].count++; if (a.ts > groups[key].latest_ts) groups[key].latest_ts = a.ts; }
+    });
+    const grouped = Object.values(groups).sort((a, b) => b.latest_ts - a.latest_ts);
+    el.innerHTML = grouped.slice(0,20).map(a => {
+        const desc = getAnomalyDescription(a);
+        const fix  = getAnomalySuggestion(a.anomaly_type);
+        const countBadge = a.count > 1 ? `<span class="count-badge">×${a.count}</span>` : '';
+        return `
         <div class="anomaly-item ${a.severity==='error'?'error':''}">
-            <span class="anomaly-time">${new Date(a.ts*1000).toLocaleTimeString()}</span>
+            <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()}</span>
             <span class="badge ${a.severity==='error'?'badge-red':'badge-warn'}">${a.anomaly_type}</span>
+            ${countBadge}
             <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
-            <span style="color:#6b7280;margin-left:6px">${a.details}</span>
-        </div>`).join('');
+            <div style="color:#374151;margin-top:4px">${desc}</div>
+            ${fix ? `<div style="color:#6b7280;font-size:10px;margin-top:2px">💡 ${fix}</div>` : ''}
+        </div>`;
+    }).join('');
 }
 
 connectWS();
