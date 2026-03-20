@@ -78,6 +78,7 @@
         .badge-green { background: #dcfce7; color: #166534; }
         .badge-warn { background: #fef3c7; color: #92400e; }
         .badge-red { background: #fee2e2; color: #991b1b; }
+        .badge-info-sev { background: #1e3a5f; color: #93c5fd; }
 
         /* Anomaly items */
         .anomaly-scroll { max-height: 280px; overflow-y: auto; }
@@ -86,7 +87,8 @@
             background: #fffbeb; margin-bottom: 5px; border-radius: 0 4px 4px 0;
             font-size: 11px;
         }
-        .anomaly-item.error { border-left-color: #ef4444; background: #fff5f5; }
+        .anomaly-item.error   { border-left-color: #ef4444; background: #fff5f5; }
+        .anomaly-item.info    { border-left-color: #3b82f6; background: #eff6ff; }
         .anomaly-item .anomaly-time { float: right; color: #9ca3af; font-size: 10px; }
 
         /* Topology */
@@ -761,22 +763,20 @@ function _topoTick() {
 
 // ── Anomaly helpers ───────────────────────────────────────────────
 function getAnomalyDescription(a) {
-    if (a.anomaly_type === 'HIGH_FREQUENCY_POSITION') {
-        const m = (a.details||'').match(/every\s+(\d+)s/);
-        const secs = m ? m[1] : '?';
-        return `⚡ Sending position every ${secs}s — recommended minimum is 30s for moving nodes, 15min+ for stationary. This causes channel congestion.`;
-    }
-    if (a.anomaly_type === 'SPAM_MESSAGES') {
-        return '💬 Sending messages very rapidly — multiple messages within 5s. This wastes airtime and may cause congestion.';
-    }
     return a.details || '';
 }
 function getAnomalySuggestion(type) {
-    if (type === 'HIGH_FREQUENCY_POSITION')
-        return 'Suggested fix: set position_broadcast_secs ≥ 1800 for stationary nodes';
-    if (type === 'SPAM_MESSAGES')
-        return 'Suggested fix: check if node is running automated message scripts';
-    return '';
+    const fixes = {
+        'HIGH_FREQUENCY_POSITION':  'Suggested fix: set position.position_broadcast_secs ≥ 1800 for stationary nodes',
+        'FREQUENT_POSITION':        'Suggested fix: set position.position_broadcast_secs ≥ 300',
+        'HIGH_FREQUENCY_NODEINFO':  'Suggested fix: set device.node_info_broadcast_secs ≥ 900',
+        'FREQUENT_NODEINFO':        'Suggested fix: set device.node_info_broadcast_secs ≥ 900',
+        'HIGH_FREQUENCY_TELEMETRY': 'Suggested fix: set telemetry.device_update_interval ≥ 1800',
+        'FREQUENT_TELEMETRY':       'Suggested fix: set telemetry.device_update_interval ≥ 1800',
+        'SPAM_MESSAGES':            'Suggested fix: check for automated scripts on this device',
+        'FREQUENT_MESSAGES':        'Suggested fix: reduce message send rate',
+    };
+    return fixes[type] || '';
 }
 
 // ── Anomalies ────────────────────────────────────────────────────
@@ -798,10 +798,12 @@ function renderAnomalies(anomalies) {
         const desc = getAnomalyDescription(a);
         const fix  = getAnomalySuggestion(a.anomaly_type);
         const countBadge = a.count > 1 ? `<span class="count-badge">×${a.count}</span>` : '';
+        const sevClass = a.severity==='error' ? 'error' : a.severity==='info' ? 'info' : '';
+        const badgeClass = a.severity==='error' ? 'badge-red' : a.severity==='info' ? 'badge-info-sev' : 'badge-warn';
         return `
-        <div class="anomaly-item ${a.severity==='error'?'error':''}">
+        <div class="anomaly-item ${sevClass}">
             <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()}</span>
-            <span class="badge ${a.severity==='error'?'badge-red':'badge-warn'}">${a.anomaly_type}</span>
+            <span class="badge ${badgeClass}">${a.anomaly_type}</span>
             ${countBadge}
             <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
             <div style="color:#374151;margin-top:4px">${desc}</div>

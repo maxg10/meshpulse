@@ -556,16 +556,60 @@ class ListenBasedMapper:
 
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
 
+        # Anomaly detection - check all packet types
         now = int(time.time())
         key = (from_id, portnum)
         if key in self._last_packet_times:
             interval = now - self._last_packet_times[key]
-            if portnum == 'POSITION_APP' and interval < 30 and not via_mqtt:
-                self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_POSITION',
-                    f'Position sent every {interval}s (< 30s)', 'warning')
-            elif portnum == 'TEXT_MESSAGE_APP' and interval < 5:
-                self.stats_db.log_anomaly(from_id, from_name, 'SPAM_MESSAGES',
-                    f'Messages sent every {interval}s', 'warning')
+
+            if portnum == 'POSITION_APP' and not via_mqtt:
+                if interval < 30:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_POSITION',
+                        f'Position sent every {interval}s (< 30s threshold). '
+                        f'Recommended: 1800s+ for stationary, 30s+ for moving.',
+                        'warning')
+                elif interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_POSITION',
+                        f'Position sent every {interval}s. '
+                        f'Consider 300s+ for moving nodes, 1800s+ for stationary.',
+                        'info')
+
+            elif portnum == 'NODEINFO_APP' and not via_mqtt:
+                if interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_NODEINFO',
+                        f'NodeInfo sent every {interval}s (< 60s threshold). '
+                        f'Default is 900s (15min). Causes channel congestion.',
+                        'warning')
+                elif interval < 300:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_NODEINFO',
+                        f'NodeInfo sent every {interval}s. '
+                        f'Recommended minimum: 900s (15 minutes).',
+                        'info')
+
+            elif portnum == 'TELEMETRY_APP' and not via_mqtt:
+                if interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_TELEMETRY',
+                        f'Telemetry sent every {interval}s (< 60s threshold). '
+                        f'Default is 1800s (30min). High battery drain.',
+                        'warning')
+                elif interval < 300:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_TELEMETRY',
+                        f'Telemetry sent every {interval}s. '
+                        f'Recommended minimum: 1800s (30 minutes).',
+                        'info')
+
+            elif portnum == 'TEXT_MESSAGE_APP':
+                if interval < 5:
+                    self.stats_db.log_anomaly(from_id, from_name, 'SPAM_MESSAGES',
+                        f'Messages sent every {interval}s (< 5s threshold). '
+                        f'Possible automated script or misconfigured device.',
+                        'error')
+                elif interval < 30:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_MESSAGES',
+                        f'Messages sent every {interval}s. '
+                        f'High message rate causes channel congestion.',
+                        'warning')
+
         self._last_packet_times[key] = now
 
     def parse_node_info(self, line):
