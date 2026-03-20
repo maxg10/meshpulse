@@ -246,16 +246,18 @@
 </div>
 
 <!-- Charts row 2: packet types + hop distribution -->
-<div class="grid-2 equal-height">
-    <div class="card">
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+    <div class="card" style="height:300px">
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types"></div>
-        <canvas id="type-chart" height="120"></canvas>
+        <div style="position:relative; height:200px; width:200px; margin:0 auto;">
+            <canvas id="type-chart"></canvas>
+        </div>
     </div>
-    <div class="card">
+    <div class="card" style="height:300px">
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
             <span class="info-icon" data-tip="How many hops packets travelled before reaching your tracker. 0 hops = direct contact. Higher hops = relayed through mesh.">ⓘ</span>
@@ -526,7 +528,7 @@ function renderAll(data) {
             labels: types.map(t => (t.portnum||'').replace('_APP','')),
             datasets: [{ data: types.map(t=>t.cnt), backgroundColor: typeColors }]
         },
-        options: { responsive:true, plugins: { legend: { position:'right', labels:{ color:'#374151', font:{size:10} } } } }
+        options: { responsive:true, maintainAspectRatio:false, plugins: { legend: { position:'right', labels:{ color:'#374151', font:{size:10} } } } }
     });
 
     // Hop distribution
