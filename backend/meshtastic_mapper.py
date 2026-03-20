@@ -185,7 +185,7 @@ class StatsDB:
             conn.commit()
             conn.close()
 
-    def get_stats_summary(self):
+    def get_stats_summary(self, local_node_id=None):
         """Get stats summary for the last 24h plus 7-day trend."""
         now = int(time.time())
         since_24h = now - 86400
@@ -205,8 +205,9 @@ class StatsDB:
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
             relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
-                FROM packets WHERE ts > ? AND relayed_by_us = 1
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since_24h,)).fetchall()
+                FROM packets WHERE ts > ? AND relayed_by_us = 1 AND from_id != ?
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
+                (since_24h, local_node_id or '')).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
                 FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
@@ -1913,7 +1914,7 @@ async def websocket_handler(websocket):
                         print(f"[WS] send_message missing text from {client_addr}")
                 elif data.get('type') == 'get_stats':
                     if mapper:
-                        stats = mapper.stats_db.get_stats_summary()
+                        stats = mapper.stats_db.get_stats_summary(mapper.local_node_id)
                         stats['local_node_id'] = mapper.local_node_id
                         stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
                         stats['tracker_info'] = getattr(mapper, 'tracker_info', {})

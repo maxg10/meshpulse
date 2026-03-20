@@ -155,7 +155,7 @@
     <div class="card">
         <div class="card-title">
             🔁 Relayed (24h)
-            <span class="info-icon" data-tip="Packets retransmitted through YOUR router. Higher = your router is well-positioned. Relay % = share of all traffic going through you.">ⓘ</span>
+            <span class="info-icon" data-tip="Packets retransmitted through YOUR node. Higher = your node is well-positioned. Relay % = share of all traffic going through you.">ⓘ</span>
         </div>
         <div class="stat-big" id="stat-relayed">-</div>
         <div class="stat-label"><span id="stat-relay-pct">-</span>% of all packets</div>
@@ -248,13 +248,13 @@
 
 <!-- Charts row 2: packet types + hop distribution -->
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-    <div class="card" style="height:300px; display:flex; flex-direction:column; align-items:center;">
+    <div class="card" style="height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
         <div class="card-title" style="width:100%">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types" style="width:100%"></div>
-        <div style="position:relative; height:330px; width:330px; margin:0 auto; display:flex; align-items:center; justify-content:center;">
+        <div style="position:relative; height:220px; width:220px; margin:0 auto; padding:10px 0;">
             <canvas id="type-chart"></canvas>
         </div>
     </div>
@@ -303,8 +303,8 @@
     </div>
     <div class="card">
         <div class="card-title">
-            🔁 Relayed Through Your Router (24h)
-            <span class="info-icon" data-tip="Packets retransmitted by your router. Higher count = your router is a critical link for that node's connectivity.">ⓘ</span>
+            🔁 Relayed Through Your Node (24h)
+            <span class="info-icon" data-tip="Packets retransmitted by your node. Higher count = your node is a critical link for that node's connectivity.">ⓘ</span>
         </div>
         <table class="tbl" id="relayed-table">
             <thead><tr><th>Node</th><th>Count</th><th>% of relays</th></tr></thead>
@@ -662,7 +662,7 @@ function renderTopology(nodes, relayed, localId) {
         nodeMap[n.from_id] = { id:n.from_id, name:n.from_name||n.from_id, count:n.cnt, isRouter:n.from_id===localId };
     });
     if (localId && !nodeMap[localId]) {
-        nodeMap[localId] = { id:localId, name:'Your Router', count:0, isRouter:true };
+        nodeMap[localId] = { id:localId, name:'Your Node', count:0, isRouter:true };
     }
     const newNodes = Object.values(nodeMap);
     const newLinks = (relayed||[])
