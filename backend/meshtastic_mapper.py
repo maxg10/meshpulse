@@ -581,37 +581,37 @@ class ListenBasedMapper:
             if portnum == 'POSITION_APP' and not via_mqtt:
                 if interval < 30:
                     self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_POSITION',
-                        f'Position sent every {interval}s (< 30s threshold). '
-                        f'Recommended: 1800s+ for stationary, 30s+ for moving.',
+                        f'⚠️ Very aggressive! Position every {interval}s (< 30s threshold). '
+                        f'For stationary nodes use ≥1800s, for moving ≥30s.',
                         'warning')
                 elif interval < 60:
                     self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_POSITION',
-                        f'Position sent every {interval}s. '
-                        f'Consider 300s+ for moving nodes, 1800s+ for stationary.',
+                        f'ℹ️ Slightly too frequent. Position every {interval}s. '
+                        f'Consider ≥300s for moving nodes, ≥1800s for stationary.',
                         'info')
 
             elif portnum == 'NODEINFO_APP' and not via_mqtt:
                 if interval < 60:
                     self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_NODEINFO',
-                        f'NodeInfo sent every {interval}s (< 60s threshold). '
-                        f'Default is 900s (15min). Causes channel congestion.',
+                        f'⚠️ Very aggressive! NodeInfo every {interval}s (< 60s threshold). '
+                        f'Default is 900s (15min). Causes serious channel congestion.',
                         'warning')
                 elif interval < 300:
                     self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_NODEINFO',
-                        f'NodeInfo sent every {interval}s. '
-                        f'Recommended minimum: 900s (15 minutes).',
+                        f'ℹ️ Slightly too frequent. NodeInfo every {interval}s (recommended ≥900s). '
+                        f'Not critical but contributes to channel load.',
                         'info')
 
             elif portnum == 'TELEMETRY_APP' and not via_mqtt:
                 if interval < 60:
                     self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_TELEMETRY',
-                        f'Telemetry sent every {interval}s (< 60s threshold). '
-                        f'Default is 1800s (30min). High battery drain.',
+                        f'⚠️ Very aggressive! Telemetry every {interval}s (should be ≥1800s). '
+                        f'Wastes airtime and drains battery fast.',
                         'warning')
                 elif interval < 300:
                     self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_TELEMETRY',
-                        f'Telemetry sent every {interval}s. '
-                        f'Recommended minimum: 1800s (30 minutes).',
+                        f'ℹ️ Slightly too frequent. Telemetry every {interval}s (recommended ≥1800s). '
+                        f'Not critical but consider increasing the interval.',
                         'info')
 
             elif portnum == 'TEXT_MESSAGE_APP':
