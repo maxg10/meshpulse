@@ -186,33 +186,55 @@ class StatsDB:
             conn.close()
 
     def get_stats_summary(self):
-        """Get stats summary for the last 24h."""
-        since = int(time.time()) - 86400
+        """Get stats summary for the last 24h plus 7-day trend."""
+        now = int(time.time())
+        since_24h = now - 86400
+        since_7d = now - 7 * 86400
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
-            total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since,)).fetchone()['cnt']
-            relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since,)).fetchone()['cnt']
+            total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
+            relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
             top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
-                AVG(snr) as avg_snr, portnum
+                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, portnum
                 FROM packets WHERE ts > ? AND via_mqtt = 0
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since,)).fetchall()
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since_24h,)).fetchall()
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
-                GROUP BY hour ORDER BY hour''', (since,)).fetchall()
+                GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
             relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since,)).fetchall()
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since_24h,)).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
-                FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since,)).fetchall()
+                FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
-                GROUP BY portnum ORDER BY cnt DESC''', (since,)).fetchall()
+                GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
             topology = c.execute('''SELECT from_id, from_name, COUNT(*) as relay_count
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
-                GROUP BY from_id''', (since,)).fetchall()
+                GROUP BY from_id''', (since_24h,)).fetchall()
+
+            # SNR distribution (5 dB buckets)
+            snr_dist = c.execute('''SELECT CAST(ROUND(snr/5.0)*5 AS INTEGER) as bucket, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND snr IS NOT NULL
+                GROUP BY bucket ORDER BY bucket''', (since_24h,)).fetchall()
+
+            # RSSI distribution (10 dB buckets)
+            rssi_dist = c.execute('''SELECT CAST(ROUND(rssi/10.0)*10 AS INTEGER) as bucket, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND rssi IS NOT NULL
+                GROUP BY bucket ORDER BY bucket''', (since_24h,)).fetchall()
+
+            # Hop count distribution
+            hop_dist = c.execute('''SELECT hops, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND hops IS NOT NULL AND hops >= 0
+                GROUP BY hops ORDER BY hops''', (since_24h,)).fetchall()
+
+            # 7-day daily trend
+            daily_7d = c.execute('''SELECT (ts/86400)*86400 as day, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY day ORDER BY day''', (since_7d,)).fetchall()
 
             conn.close()
 
@@ -225,7 +247,11 @@ class StatsDB:
                 'relayed_nodes': [dict(r) for r in relayed_nodes],
                 'anomalies': [dict(r) for r in anomalies],
                 'packet_types': [dict(r) for r in by_type],
-                'topology': [dict(r) for r in topology]
+                'topology': [dict(r) for r in topology],
+                'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
+                'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
+                'hop_distribution': [{'hops': r['hops'], 'cnt': r['cnt']} for r in hop_dist],
+                'daily_7d': [{'day': r['day'], 'count': r['cnt']} for r in daily_7d]
             }
 
     def get_topology_graph(self):
@@ -1885,6 +1911,27 @@ async def websocket_handler(websocket):
                         stats = mapper.stats_db.get_stats_summary()
                         stats['local_node_id'] = mapper.local_node_id
                         stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
+                        stats['tracker_info'] = getattr(mapper, 'tracker_info', {})
+                        # Geographic stats: farthest node, avg distance of direct nodes
+                        geo = {'farthest_node_id': None, 'farthest_node_name': None,
+                               'farthest_dist_km': None, 'avg_direct_dist_km': None}
+                        if mapper.local_node_id and mapper.local_node_id in mapper.nodes:
+                            local = mapper.nodes[mapper.local_node_id]
+                            if local.get('lat') and local.get('lon'):
+                                direct_dists = []
+                                for nid, n in mapper.nodes.items():
+                                    if nid == mapper.local_node_id: continue
+                                    if n.get('hops') != 0 or n.get('via_mqtt'): continue
+                                    if not n.get('lat') or not n.get('lon'): continue
+                                    d = mapper.calculate_distance(local['lat'], local['lon'], n['lat'], n['lon'])
+                                    direct_dists.append((d, nid, n.get('name', nid)))
+                                if direct_dists:
+                                    direct_dists.sort(reverse=True)
+                                    geo['farthest_dist_km'] = round(direct_dists[0][0], 2)
+                                    geo['farthest_node_id'] = direct_dists[0][1]
+                                    geo['farthest_node_name'] = direct_dists[0][2]
+                                    geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
+                        stats['geo'] = geo
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
