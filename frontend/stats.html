@@ -250,14 +250,14 @@
 
 <!-- Charts row 2: packet types + hop distribution -->
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-    <div class="card" style="display:flex; flex-direction:column;">
+    <div class="card" style="display:flex; flex-direction:column; min-height:480px;">
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types"></div>
-        <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:8px 0;">
-            <div style="position:relative; height:280px; width:280px;">
+        <div style="flex:1; display:flex; align-items:center; justify-content:center; padding-top:20px;">
+            <div style="position:relative; height:380px; width:380px;">
                 <canvas id="type-chart"></canvas>
             </div>
         </div>
@@ -301,7 +301,7 @@
         </div>
         <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th></th></tr></thead>
+            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Last Seen</th><th></th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -489,6 +489,15 @@ function getNodeSuggestion(s) {
     return tips.join('\n');
 }
 
+// ── Helpers ──────────────────────────────────────────────────────
+function formatLastSeen(ts) {
+    if (!ts) return '-';
+    const diff = Math.floor(Date.now()/1000) - ts;
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    return `${Math.floor(diff/3600)}h ${Math.floor((diff%3600)/60)}m ago`;
+}
+
 // ── Render all ───────────────────────────────────────────────────
 function renderAll(data) {
     // Data window
@@ -570,6 +579,7 @@ function renderAll(data) {
             <td>${s.cnt}</td>
             <td>${s.avg_snr!=null ? Number(s.avg_snr).toFixed(1)+' dB' : '-'}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
+            <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
             <td>${tipBtn}</td>
         </tr>`;
     }).join('');
