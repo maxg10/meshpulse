@@ -213,12 +213,16 @@ class StatsDB:
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
-            own_id_clean = (local_node_id or '').lstrip('!')
+            own_variants = [
+                local_node_id or '',
+                (local_node_id or '').lstrip('!'),
+                '!' + (local_node_id or '').lstrip('!')
+            ]
             relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
-                AND from_id != ? AND from_id != ? AND REPLACE(from_id, '!', '') != ?
+                AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
-                (since_24h, local_node_id or '', '!' + own_id_clean, own_id_clean)).fetchall()
+                (since_24h, *own_variants)).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
                 FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
@@ -567,7 +571,7 @@ class ListenBasedMapper:
         if relay_node_raw is not None and self.local_node_id:
             our_num = int(self.local_node_id.replace('!', ''), 16)
             our_last_byte = our_num & 0xFF
-            relayed_by_us = (relay_node_raw == our_last_byte)
+            relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
             relay_node_id = f"relay_{relay_node_raw}"
 
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
