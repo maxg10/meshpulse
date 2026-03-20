@@ -204,10 +204,12 @@ class StatsDB:
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
+            own_id_clean = (local_node_id or '').lstrip('!')
             relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
-                FROM packets WHERE ts > ? AND relayed_by_us = 1 AND from_id != ?
+                FROM packets WHERE ts > ? AND relayed_by_us = 1
+                AND from_id != ? AND from_id != ? AND REPLACE(from_id, '!', '') != ?
                 GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
-                (since_24h, local_node_id or '')).fetchall()
+                (since_24h, local_node_id or '', '!' + own_id_clean, own_id_clean)).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
                 FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
