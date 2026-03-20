@@ -262,13 +262,13 @@
             </div>
         </div>
     </div>
-    <div class="card" style="height:300px">
+    <div class="card" style="min-height:480px; display:flex; flex-direction:column;">
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
             <span class="info-icon" data-tip="How many hops each packet took to reach your node. 0 = direct connection. Higher hops = longer path through mesh. Many hops=5+ may indicate poor network coverage in some areas.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-hops"></div>
-        <canvas id="hop-chart" height="100"></canvas>
+        <canvas id="hop-chart" style="height:320px"></canvas>
     </div>
 </div>
 
@@ -552,7 +552,8 @@ function renderAll(data) {
     mkChart('hop-chart', 'bar',
         hops.map(h => h.hops + (h.hops===0?' (direct)':h.hops>=5?' (5+)':'')),
         hops.map(h => h.cnt),
-        hops.map(h => h.hops===0 ? 'rgba(16,185,129,0.7)' : h.hops<=2 ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'));
+        hops.map(h => h.hops===0 ? 'rgba(16,185,129,0.7)' : h.hops<=2 ? 'rgba(59,130,246,0.7)' : 'rgba(245,158,11,0.7)'),
+        { maintainAspectRatio: false });
 
     // SNR distribution
     const snr = (data.snr_distribution||[]);
