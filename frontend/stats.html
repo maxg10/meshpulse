@@ -379,6 +379,12 @@ function connectWS() {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
         ws.send(JSON.stringify({type: 'get_stats'}));
+        // Retry after 3s in case backend just restarted and hasn't loaded data yet
+        setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'get_stats'}));
+            }
+        }, 3000);
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
@@ -399,6 +405,16 @@ function connectWS() {
             return;
         }
         if (d.type === 'stats_data') {
+            // If data looks empty (no packets, no nodes), retry once after 5s
+            const isEmpty = !d.data || ((!d.data.total_packets || d.data.total_packets === 0) && (!d.data.top_senders || d.data.top_senders.length === 0));
+            if (isEmpty && !window._statsRetried) {
+                window._statsRetried = true;
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'get_stats'}));
+                }, 5000);
+            } else {
+                window._statsRetried = false;
+            }
             renderAll(d.data);
             document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
         }
