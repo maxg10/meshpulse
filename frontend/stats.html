@@ -783,12 +783,12 @@ function getAnomalyDescription(a) {
 }
 function getAnomalySuggestion(type) {
     const fixes = {
-        'HIGH_FREQUENCY_POSITION':  'Suggested fix: set position.position_broadcast_secs ≥ 1800 for stationary nodes',
-        'FREQUENT_POSITION':        'Suggested fix: set position.position_broadcast_secs ≥ 300',
-        'HIGH_FREQUENCY_NODEINFO':  'Suggested fix: set device.node_info_broadcast_secs ≥ 900',
-        'FREQUENT_NODEINFO':        'Suggested fix: set device.node_info_broadcast_secs ≥ 900',
-        'HIGH_FREQUENCY_TELEMETRY': 'Suggested fix: set telemetry.device_update_interval ≥ 1800',
-        'FREQUENT_TELEMETRY':       'Suggested fix: set telemetry.device_update_interval ≥ 1800',
+        'HIGH_FREQUENCY_POSITION':  'CLI: meshtastic --set position.position_broadcast_secs 1800',
+        'FREQUENT_POSITION':        'CLI: meshtastic --set position.position_broadcast_secs 300',
+        'HIGH_FREQUENCY_NODEINFO':  'CLI: meshtastic --set device.node_info_broadcast_secs 900',
+        'FREQUENT_NODEINFO':        'CLI: meshtastic --set device.node_info_broadcast_secs 900',
+        'HIGH_FREQUENCY_TELEMETRY': 'CLI: meshtastic --set telemetry.device_update_interval 1800',
+        'FREQUENT_TELEMETRY':       'CLI: meshtastic --set telemetry.device_update_interval 1800',
         'SPAM_MESSAGES':            'Suggested fix: check for automated scripts on this device',
         'FREQUENT_MESSAGES':        'Suggested fix: reduce message send rate',
     };
