@@ -110,7 +110,7 @@
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
         }
         .refresh-info { color: #6b7280; font-size: 10px; margin-top: 8px; text-align: center; }
-        .data-win { color: #9ca3af; font-size: 10px; margin: -6px 0 8px 0; font-weight: normal; }
+        .data-win { color: #9ca3af; font-size: 12px; margin: -6px 0 8px 0; font-weight: normal; }
         .tip-btn { background: none; border: none; cursor: pointer; font-size: 13px; padding: 0 2px; opacity: 0.7; vertical-align: middle; }
         .tip-btn:hover { opacity: 1; }
         .count-badge { display: inline-block; background: #fef3c7; color: #92400e; border-radius: 10px; padding: 1px 6px; font-size: 10px; font-weight: bold; margin-left: 5px; }
@@ -231,7 +231,7 @@
     <div class="card">
         <div class="card-title">
             📈 Hourly Activity (24h)
-            <span class="info-icon" data-tip="Packets received per hour over the last 24 hours. Empty hours shown as 0.">ⓘ</span>
+            <span class="info-icon" data-tip="Packets received per hour. Peaks = busy periods. Flat/zero = quiet time or connection issue.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-hourly"></div>
         <canvas id="hourly-chart" height="120"></canvas>
@@ -239,28 +239,29 @@
     <div class="card">
         <div class="card-title">
             📅 7-Day Daily Trend
-            <span class="info-icon" data-tip="Total packets per day over the last 7 days. Useful for spotting network activity changes.">ⓘ</span>
+            <span class="info-icon" data-tip="Daily packet totals for last 7 days. Growing trend = network expanding. Drops = possible issues.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-daily"></div>
         <canvas id="daily-chart" height="120"></canvas>
     </div>
 </div>
 
 <!-- Charts row 2: packet types + hop distribution -->
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-    <div class="card" style="height:300px">
-        <div class="card-title">
+    <div class="card" style="height:300px; display:flex; flex-direction:column; align-items:center;">
+        <div class="card-title" style="width:100%">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
-        <div class="data-win" id="dw-types"></div>
-        <div style="position:relative; height:280px; width:280px; margin:0 auto;">
+        <div class="data-win" id="dw-types" style="width:100%"></div>
+        <div style="position:relative; height:330px; width:330px; margin:0 auto; display:flex; align-items:center; justify-content:center;">
             <canvas id="type-chart"></canvas>
         </div>
     </div>
     <div class="card" style="height:300px">
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
-            <span class="info-icon" data-tip="How many hops packets travelled before reaching your tracker. 0 hops = direct contact. Higher hops = relayed through mesh.">ⓘ</span>
+            <span class="info-icon" data-tip="How many hops each packet took to reach your node. 0 = direct connection. Higher hops = longer path through mesh. Many hops=5+ may indicate poor network coverage in some areas.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-hops"></div>
         <canvas id="hop-chart" height="100"></canvas>
@@ -272,15 +273,17 @@
     <div class="card">
         <div class="card-title">
             📶 SNR Distribution (24h)
-            <span class="info-icon" data-tip="Signal-to-Noise Ratio distribution. Higher SNR = better signal. &gt;5 dB: good. -5 to 5 dB: fair. &lt;-5 dB: poor.">ⓘ</span>
+            <span class="info-icon" data-tip="Signal-to-Noise Ratio distribution of all received packets. Values above 0dB = good signal. Below -10dB = weak/edge of range. Most packets should be in the -5 to +10 dB range for healthy mesh.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-snr"></div>
         <canvas id="snr-chart" height="130"></canvas>
     </div>
     <div class="card">
         <div class="card-title">
             📡 RSSI Distribution (24h)
-            <span class="info-icon" data-tip="Received Signal Strength Indicator. Closer to 0 = stronger signal. Typical range: -140 dBm (very weak) to -50 dBm (very strong).">ⓘ</span>
+            <span class="info-icon" data-tip="Received Signal Strength Indicator. Closer to 0 = stronger signal. Values below -110dBm indicate very weak signal at edge of range. Typical good range: -80 to -100dBm.">ⓘ</span>
         </div>
+        <div class="data-win" id="dw-rssi"></div>
         <canvas id="rssi-chart" height="130"></canvas>
     </div>
 </div>
@@ -314,7 +317,7 @@
 <div class="full-width card">
     <div class="card-title">
         🕸️ Network Topology (24h)
-        <span class="info-icon" data-tip="Force-directed graph. Blue square = your router. Green circles = heard nodes (size = packet volume). Lines = relayed through your router. Drag nodes. Scroll to zoom.">ⓘ</span>
+        <span class="info-icon" data-tip="Visual map of nodes heard by your tracker. Blue square = your node. Green circles = other nodes. Larger circle = more packets sent. Lines = relayed through your router.">ⓘ</span>
         <button class="topo-refresh-btn" onclick="refreshTopology()">🔄 Refresh layout</button>
     </div>
     <svg id="topology-svg"></svg>
@@ -459,7 +462,7 @@ function fmtWindow(minutes) {
 }
 function setDataWindows(minutes) {
     const label = fmtWindow(minutes);
-    ['dw-summary','dw-hourly','dw-types','dw-hops','dw-senders','dw-anomalies'].forEach(id => {
+    ['dw-summary','dw-hourly','dw-daily','dw-types','dw-hops','dw-snr','dw-rssi','dw-senders','dw-anomalies'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = label;
     });
@@ -743,7 +746,8 @@ function _topoDrawNodes(gNodes, sim) {
         }
         el.append('title').text(`${d.name}\n${d.count} packets`);
         el.append('text').text((d.name||d.id).substring(0,14))
-            .attr('text-anchor','middle').attr('dy',28).attr('font-size','9px').attr('fill','#374151');
+            .attr('text-anchor','middle').attr('dy', d => Math.min(Math.log(d.count+1)*4+8, 25)+14)
+            .attr('font-size','9px').attr('fill','#374151');
     });
     topoState.nodeSel = enter.merge(nodeSel);
 }
