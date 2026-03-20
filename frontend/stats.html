@@ -404,6 +404,12 @@ function connectWS() {
 }
 setInterval(() => { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type:'get_stats'})); }, 30000);
 
+// Fix Chart.js resize in CSS grid layout
+const ro = new ResizeObserver(() => {
+    Object.values(charts).forEach(c => { if (c) c.resize(); });
+});
+document.querySelectorAll('.card').forEach(card => ro.observe(card));
+
 // ── Chart helpers ────────────────────────────────────────────────
 const CHART_OPTS = {
     responsive: true,
