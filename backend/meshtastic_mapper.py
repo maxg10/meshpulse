@@ -185,6 +185,15 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def clear_node_packets(self, node_id):
+        """Delete all packet history for a specific node from stats.db."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets WHERE from_id = ?', (node_id,))
+            conn.execute('DELETE FROM anomalies WHERE node_id = ?', (node_id,))
+            conn.commit()
+            conn.close()
+
     def get_stats_summary(self, local_node_id=None):
         """Get stats summary for the last 24h plus 7-day trend."""
         now = int(time.time())
@@ -1992,6 +2001,24 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'clear_node_stats':
+                    node_id = data.get('node_id', '').strip()
+                    if node_id and mapper:
+                        try:
+                            mapper.stats_db.clear_node_packets(node_id)
+                            await websocket.send(json.dumps({
+                                'type': 'clear_node_stats_result',
+                                'node_id': node_id,
+                                'success': True
+                            }))
+                            print(f"[STATS] Cleared packet history for {node_id}")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_node_stats_result',
+                                'node_id': node_id,
+                                'success': False,
+                                'error': str(e)
+                            }))
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:

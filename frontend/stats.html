@@ -297,7 +297,7 @@
         </div>
         <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Last Seen</th><th></th></tr></thead>
+            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Last Seen</th><th></th><th></th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -387,6 +387,16 @@ function connectWS() {
     ws.onerror = () => ws.close();
     ws.onmessage = e => {
         const d = JSON.parse(e.data);
+        if (d.type === 'clear_node_stats_result') {
+            if (d.success) {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'get_stats' }));
+                }
+            } else {
+                alert('Failed to clear stats: ' + (d.error || 'unknown error'));
+            }
+            return;
+        }
         if (d.type === 'stats_data') {
             renderAll(d.data);
             document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
@@ -584,6 +594,7 @@ function renderAll(data) {
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
             <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
             <td>${tipBtn}</td>
+            <td><button onclick="clearNodeStats('${s.from_id}', '${(s.from_name||s.from_id).replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
         </tr>`;
     }).join('');
     // Attach tip listeners
@@ -826,6 +837,13 @@ function renderAnomalies(anomalies) {
             ${fix ? `<div style="color:#6b7280;font-size:10px;margin-top:2px">💡 ${fix}</div>` : ''}
         </div>`;
     }).join('');
+}
+
+function clearNodeStats(nodeId, nodeName) {
+    if (!confirm(`Clear packet history for "${nodeName}"?\n\nThe node stays on the map but packet count resets to 0.`)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'clear_node_stats', node_id: nodeId }));
+    }
 }
 
 connectWS();
