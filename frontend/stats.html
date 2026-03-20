@@ -249,14 +249,14 @@
 </div>
 
 <!-- Charts row 2: packet types + hop distribution -->
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
+<div class="grid-2">
     <div class="card">
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types"></div>
-        <canvas id="type-chart" height="200"></canvas>
+        <canvas id="type-chart" height="120"></canvas>
     </div>
     <div class="card">
         <div class="card-title">
@@ -264,7 +264,7 @@
             <span class="info-icon" data-tip="How many hops each packet took to reach your node. 0 = direct connection. Higher hops = longer path through mesh. Many hops=5+ may indicate poor network coverage in some areas.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-hops"></div>
-        <canvas id="hop-chart" height="200"></canvas>
+        <canvas id="hop-chart" height="120"></canvas>
     </div>
 </div>
 
