@@ -544,7 +544,12 @@ class ListenBasedMapper:
 
     def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
         """Log packet to stats DB and detect anomalies."""
-        from_name = (self.nodes.get(from_id) or self.nodes_no_position.get(from_id) or {}).get('name', from_id)
+        from_name = (
+            self.nodes.get(from_id, {}).get('name') or
+            self.nodes_no_position.get(from_id, {}).get('name') or
+            self.known_names.get(from_id) or
+            from_id
+        )
 
         relayed_by_us = False
         relay_node_id = None

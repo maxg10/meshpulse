@@ -250,13 +250,13 @@
 
 <!-- Charts row 2: packet types + hop distribution -->
 <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px;">
-    <div class="card" style="height:300px; display:flex; flex-direction:column; align-items:center; justify-content:center;">
+    <div class="card" style="display:flex; flex-direction:column; justify-content:center; align-items:center; min-height:350px;">
         <div class="card-title" style="width:100%">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
         </div>
         <div class="data-win" id="dw-types" style="width:100%"></div>
-        <div style="position:relative; height:330px; width:330px; margin:0 auto;">
+        <div style="position:relative; height:330px; width:330px; margin:auto;">
             <canvas id="type-chart"></canvas>
         </div>
     </div>
@@ -563,7 +563,10 @@ function renderAll(data) {
         const tip = getNodeSuggestion(s);
         const tipBtn = tip ? `<button class="tip-btn" data-ntip="${tip.replace(/"/g,'&quot;')}">💡</button>` : '';
         return `<tr>
-            <td title="${s.from_id}">${s.from_name||s.from_id}</td>
+            <td>
+                <div style="font-weight:500">${s.from_name !== s.from_id ? s.from_name : '—'}</div>
+                <div style="font-size:10px;color:#6b7280">${s.from_id}</div>
+            </td>
             <td>${s.cnt}</td>
             <td>${s.avg_snr!=null ? Number(s.avg_snr).toFixed(1)+' dB' : '-'}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
