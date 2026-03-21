@@ -207,12 +207,9 @@ class StatsDB:
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
             top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
-                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen,
-                (SELECT portnum FROM packets p2
-                 WHERE p2.from_id = packets.from_id AND p2.ts > ? AND p2.via_mqtt = 0
-                 GROUP BY p2.portnum ORDER BY COUNT(*) DESC LIMIT 1) as portnum
+                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum
                 FROM packets WHERE ts > ? AND via_mqtt = 0
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''', (since_24h, since_24h)).fetchall()
+                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h,)).fetchall()
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
