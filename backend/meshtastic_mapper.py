@@ -684,7 +684,8 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
                     self._update_message_names(node_id, name)
-                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
+                    relay_node_raw = node_data.get('relayNode') or node_data.get('relay_node')
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
@@ -719,7 +720,8 @@ class ListenBasedMapper:
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
 
                     self._update_message_names(node_id, name)
-                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
+                    relay_node_raw = node_data.get('relayNode') or node_data.get('relay_node')
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
 
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
@@ -874,7 +876,9 @@ class ListenBasedMapper:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
             if node_id != self.local_node_id:
-                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
+                relay_match_t = re.search(r"'relayNode':\s*(\d+)", line)
+                relay_node_raw_t = int(relay_match_t.group(1)) if relay_match_t else None
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw_t)
 
             # Only update timestamp if node already exists
             if node_id in self.nodes:
@@ -971,7 +975,9 @@ class ListenBasedMapper:
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker}")
 
-            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, None)
+            relay_match_msg = re.search(r"'relayNode':\s*(\d+)", line)
+            relay_node_raw_msg = int(relay_match_msg.group(1)) if relay_match_msg else None
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw_msg)
 
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
@@ -1043,7 +1049,8 @@ class ListenBasedMapper:
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
                 self._update_message_names(node_id, name)
-                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
             else:
@@ -1062,7 +1069,8 @@ class ListenBasedMapper:
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} (no GPS) [TCP]")
                 self._update_message_names(node_id, name)
-                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, None)
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
             return True
@@ -1175,7 +1183,8 @@ class ListenBasedMapper:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
             if node_id != self.local_node_id:
-                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
 
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
@@ -1237,7 +1246,8 @@ class ListenBasedMapper:
 
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
-            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, None)
+            relay_node_raw = packet.get('relayNode')
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
             return True
         except Exception as e:
