@@ -2125,10 +2125,6 @@ if __name__ == '__main__':
         ws_thread.start()
         print("[WS] WebSocket server thread started")
 
-        # Start watchdog thread
-        watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
-        watchdog_thread.start()
-
         # Give WebSocket server time to start
         time.sleep(2)
 
@@ -2144,6 +2140,7 @@ if __name__ == '__main__':
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
         # Mapper loop with runtime restart support
+        _watchdog_started = False
         while True:
             mapper = ListenBasedMapper(
                 connection_type=connection_type,
@@ -2151,6 +2148,10 @@ if __name__ == '__main__':
                 host=host,
                 max_age=172800
             )
+            if not _watchdog_started:
+                watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
+                watchdog_thread.start()
+                _watchdog_started = True
             mapper.run()
 
             if restart_event.is_set():
