@@ -252,8 +252,8 @@ class StatsDB:
                 FROM packets WHERE ts > ?
                 GROUP BY day ORDER BY day''', (since_7d,)).fetchall()
 
-            # Data window: how long we've been recording
-            first_ts = c.execute('SELECT MIN(ts) FROM packets').fetchone()[0]
+            # Data window: how long we've been recording within the 24h window
+            first_ts = c.execute('SELECT MIN(ts) FROM packets WHERE ts > ?', (since_24h,)).fetchone()[0]
             data_window_minutes = int((now - first_ts) // 60) if first_ts else 0
 
             conn.close()
