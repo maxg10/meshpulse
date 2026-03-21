@@ -13,7 +13,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:10px;color:#9ca3af;font-weight:normal;margin-left:6px">v1.17</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:12px;color:#f9fafb;font-weight:normal;margin-left:6px;opacity:0.7">v1.17</span></div>
     <div class="topnav-links">
         <a href="/meshtastic/" class="topnav-link active">🗺️ Map <span id="ws-status" style="color:#eab308;" title="Loading...">●</span> <span id="ws-status-label" style="font-size:10px;color:#6b7280">connecting</span></a>
         <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
@@ -27,7 +27,7 @@
         <div id="search-results"></div>
     </div>
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
-        <h3>▼</h3>
+        <h3>📶 Mesh Info ▼</h3>
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -142,12 +142,6 @@
                 </div>
                 <div id="send-status"></div>
             </div>
-        </div>
-    </div>
-    <div id="radio-panel" onclick="this.classList.toggle('open')">
-        <h4>📻 Radio ▼</h4>
-        <div id="radio-content">
-            <div id="radio-stats-list"></div>
         </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -361,7 +355,6 @@
                                         data.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
                                         updateChannelTabs();
                                     }
-                                    updateRadioDisplay();
                                 }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
@@ -610,27 +603,6 @@
         function clearDM() {
             document.getElementById('dm-selector').style.display = 'none';
             document.getElementById('dm-node-id').value = '';
-        }
-
-        function updateRadioDisplay() {
-            const rs = trackerInfo.radio_stats;
-            const list = document.getElementById('radio-stats-list');
-            if (!rs || Object.keys(rs).length === 0) {
-                list.innerHTML = '<div class="radio-stat-item meta">No radio stats yet</div>';
-                return;
-            }
-            const totalRx = rs.numPacketsRx || 0;
-            const badRx = rs.numPacketsRxBad || 0;
-            const badPct = totalRx > 0 ? (badRx / totalRx * 100).toFixed(1) : '0.0';
-            list.innerHTML = `
-                <div class="radio-stat-item"><b>Channel util:</b> ${rs.channelUtilization != null ? rs.channelUtilization.toFixed(1) : '-'}%</div>
-                <div class="radio-stat-item"><b>Air TX:</b> ${rs.airUtilTx != null ? rs.airUtilTx.toFixed(1) : '-'}%</div>
-                <div class="radio-stat-item"><b>Packets RX:</b> ${rs.numPacketsRx != null ? rs.numPacketsRx : '-'} / TX: ${rs.numPacketsTx != null ? rs.numPacketsTx : '-'}</div>
-                <div class="radio-stat-item"><b>Bad packets:</b> ${badRx} (${badPct}%)</div>
-                <div class="radio-stat-item"><b>Duplicates:</b> ${rs.numRxDupe != null ? rs.numRxDupe : '-'}</div>
-                <div class="radio-stat-item"><b>TX Relay:</b> ${rs.numTxRelay != null ? rs.numTxRelay : '-'}</div>
-                <div class="radio-stat-item"><b>Online:</b> ${rs.numOnlineNodes != null ? rs.numOnlineNodes : '-'} / <b>Total:</b> ${rs.numTotalNodes != null ? rs.numTotalNodes : '-'}</div>
-            `;
         }
 
         function fetchNodesJSON(retryCount = 0) {
@@ -1568,7 +1540,6 @@
             // Update timestamp on every display refresh
             document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
 
-            updateRadioDisplay();
         }
 
         // Restore saved TCP host from localStorage
