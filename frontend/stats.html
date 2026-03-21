@@ -20,8 +20,7 @@
         .nav a { color: #3b82f6; text-decoration: none; }
         .nav a:hover { text-decoration: underline; }
         .page-header { margin-bottom: 16px; }
-        .page-header h1 { color: #f9fafb; margin: 0 0 4px 0; font-size: 22px; }
-        .subtitle { color: #9ca3af; font-size: 12px; }
+        .page-header h1 { color: #f9fafb; margin: 0; font-size: 22px; line-height: 1.4; }
         .ws-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
         .ws-connected { background: #22c55e; }
         .ws-disconnected { background: #ef4444; }
@@ -139,13 +138,7 @@
 <div id="g-tooltip"></div>
 
 <div class="page-header">
-    <h1>📊 Network Statistics</h1>
-    <div class="subtitle">
-        <span class="ws-dot ws-disconnected" id="ws-dot"></span>
-        <span id="ws-label">Connecting...</span>
-        &nbsp;·&nbsp; Last update: <span id="last-update">-</span>
-        &nbsp;·&nbsp; <span id="tracker-label">-</span>
-    </div>
+    <h1>📊 Network Statistics &nbsp;<span style="font-size:13px;font-weight:normal;color:#9ca3af"><span class="ws-dot ws-disconnected" id="ws-dot"></span><span id="ws-label">Connecting...</span> &nbsp;·&nbsp; Last update: <span id="last-update">-</span> &nbsp;·&nbsp; <span id="tracker-label">-</span></span></h1>
 </div>
 
 <!-- Summary cards -->
