@@ -4,6 +4,9 @@
 # https://github.com/maxg10/meshtastic-network-mapper
 #
 
+# Get version from backend
+VERSION=$(grep -m1 "^#ver" backend/meshtastic_mapper.py | awk '{print $2}')
+
 set -e
 
 # Colors
@@ -14,6 +17,7 @@ NC='\033[0m' # No Color
 
 echo "========================================"
 echo " Meshtastic Network Mapper - Installer"
+echo " Version: $VERSION"
 echo "========================================"
 echo ""
 
@@ -145,6 +149,8 @@ echo "🌐 Copying frontend files..."
 sudo cp frontend/index.html /var/www/html/meshtastic/
 sudo cp frontend/styles.css /var/www/html/meshtastic/
 sudo cp frontend/favicon.ico /var/www/html/meshtastic/
+sudo cp frontend/favicon_stats.ico /var/www/html/meshtastic/
+sudo cp frontend/stats.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
 # Create empty nodes.json if it doesn't exist

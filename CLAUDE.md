@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.13 (Traceroute & LOS Improvements)
+**Current Version:** v1.18 (Navigation & Stats Improvements)
 
 ## Running & Deployment
 
@@ -97,7 +97,7 @@ Vanilla JS single-page app with Leaflet.js v1.9.4:
   - **LOS panel** (top-left, fixed): RF line of sight chart, shown on hops=0 node click when checkbox enabled
   - **Traceroute panel** (top-left, 220px from left): Traceroute results with countdown timer
 - **Status indicator**: Green dot = WebSocket connected (real-time), Yellow blinking = connecting, Yellow = polling fallback, Red = disconnected
-- **Cache busting**: No-cache meta tags. CSS: `styles.css?v=1.13`. JS: `const MAPPER_VERSION = '1.13'`.
+- **Cache busting**: No-cache meta tags. CSS: `styles.css?v=1.16`. JS: `const MAPPER_VERSION = '1.16'`.
 
 ### LOS Analysis (`checkLOS()`)
 
@@ -161,6 +161,7 @@ meshtastic-network-mapper/
 │   └── meshtastic_mapper.py      # Main Python backend (~1225 lines)
 ├── frontend/
 │   ├── index.html                # Main web interface with inline JS
+│   ├── stats.html                # Network Statistics page (standalone)
 │   ├── styles.css                # Separated CSS styles
 │   └── favicon.ico               # Browser icon
 ├── systemd/
@@ -175,7 +176,67 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.13)
+## Recent Changes (v1.18)
+
+**Added:**
+- Top navigation bar on all pages — 3-column layout: title left, status center, nav right
+- `favicon_stats.ico` — separate favicon for stats page (orange bar chart on navy)
+- Watchdog thread — restarts serial listener after 10min of silence (fixes frozen `meshtastic --listen`)
+- WS status dot moved to navbar center with "live/connecting/offline" label and last update time
+- Clear node stats button (🗑️) in Most Active Nodes table — deletes packets + anomalies for that node
+- `active_node_count` field in stats summary — proper DISTINCT count instead of top_senders length
+- Time-ago display next to anomaly timestamps in Recent Anomalies
+
+**Fixed:**
+- LOS elevation API: replaced broken `open-elevation.com` (expired SSL cert) with `opentopodata.org` via WebSocket proxy (bypasses CORS)
+- `relayNode` now extracted from ALL packet types (nodeinfo, telemetry, text) not just position
+- Own node telemetry heartbeat no longer triggers false FREQUENT_TELEMETRY anomalies
+- Own node excluded from "Relayed Through Your Node" table
+- Node TTL reduced from 48h to 24h to match stats page 24h window
+- `data_window_minutes` now reflects actual 24h window, not entire DB history
+- Most Active Nodes now shows one row per node per packet type (position vs telemetry visible separately)
+- Most Active Nodes TYPE column shows most frequent packet type per node
+- Packet Types and Hop Count charts fixed to normal height (removed oversized flex containers)
+- Chart.js resize fixed via ResizeObserver on all cards
+- Anomaly CLI suggestions now use correct syntax (no `=` sign)
+- `clear_node_packets` now also deletes anomalies for that node
+- Panel positions adjusted for 44px navbar (search bar, LOS panel, traceroute, messages)
+- Radio panel removed from map (info available in Stats page)
+- Meshtastic CLI syntax fixed in anomaly suggestions
+
+**Changed:**
+- Version bumped to v1.18
+- `styles.css?v=1.18`
+- `top_senders` query groups by `from_id, portnum` (one row per node per type, LIMIT 30)
+- "Last Seen" column renamed to "Last Pkt" in Most Active Nodes
+- Network Statistics page header removed (info now in navbar)
+
+### StatsDB Architecture
+- **DB path**: `/var/www/html/meshtastic/stats.db`
+- **Tables**: `packets` (per-packet log), `node_activity` (per-node-per-hour summary), `anomalies` (detected events)
+- **Relay detection**: compares `relayNode` field (last byte of relaying node num) against our local node ID's last byte
+- **Retention**: cleanup runs on every `save_nodes()` call; removes rows older than 3 days
+- **Thread safety**: `threading.Lock()` guards all DB connections
+
+## Previous Changes (v1.16)
+
+**Added:**
+- `TCPMeshtasticInterface` class — wraps `meshtastic.tcp_interface.TCPInterface` with `connect(on_receive)`, `disconnect()`, `sendText()` methods
+- New imports: `meshtastic`, `meshtastic.tcp_interface`, `mesh_pb2`, `portnums_pb2`
+- `ListenBasedMapper._run_tcp()` — runs TCP listener using Python API (no CLI subprocess)
+- `ListenBasedMapper._on_tcp_packet(packet)` — routes incoming TCP packets by portnum
+- `ListenBasedMapper.parse_node_info_from_packet(packet)` — parses NODEINFO_APP dict from Python API
+- `ListenBasedMapper.parse_position_from_packet(packet)` — parses POSITION_APP dict from Python API
+- `ListenBasedMapper.parse_telemetry_from_packet(packet)` — parses TELEMETRY_APP dict from Python API
+- `ListenBasedMapper.parse_text_from_packet(packet)` — parses TEXT_MESSAGE_APP dict from Python API
+
+**Changed:**
+- `ListenBasedMapper.run()`: TCP mode now calls `_run_tcp()` instead of spawning CLI subprocess
+- `run_send_message()`: TCP mode creates a dedicated `TCPInterface` for sending only — listener is **not** stopped; no `send_restart` / `restart_event` triggered for TCP
+- `run_send_message()` serial error handlers no longer trigger restart for TCP connections
+- Version bumped to v1.16 (`MAPPER_VERSION`, `styles.css?v=1.16`, backend comment)
+
+## Previous Changes (v1.13)
 
 **Added:**
 - Traceroute feature: `run_traceroute()`, `parse_traceroute_output()` in backend

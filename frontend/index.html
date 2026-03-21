@@ -8,17 +8,34 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.13">
+    <link rel="stylesheet" href="styles.css?v=1.18">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.18 — Map</span></div>
+    <div class="topnav-status">
+        <span id="ws-status" style="color:#eab308;">●</span>
+        <span id="ws-status-label" style="color:#6b7280">connecting</span>
+        <span style="color:#4b5563">·</span>
+        <span style="color:#6b7280">Last update: <span id="upd" style="color:#9ca3af">-</span></span>
+    </div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link active">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="#" class="topnav-link topnav-soon">⚙️ Config <span class="soon-badge">soon</span></a>
+    </div>
+</nav>
     <div id="map"></div>
+    <div id="search-bar">
+        <input type="text" id="search-input" placeholder="🔍 Search node by name or ID..."
+               oninput="searchNodes(this.value)" autocomplete="off">
+        <div id="search-results"></div>
+    </div>
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
-        <h3>📶 Mesh Stats ▼</h3>
+        <h3>📶 Mesh Info ▼</h3>
         <div id="stats-content">
-        <small style="color:#888">v1.13 <span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small><br>
-        <b>Nodes:</b> <span id="cnt">0</span><br>
-        <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
+        <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
@@ -26,7 +43,7 @@
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
         <small><b>Firmware:</b> <span id="tracker-fw">-</span></small><br>
-        <small><b>ID:</b> <span id="tracker-id">-</span></small><br>
+        <small><b>ID:</b> <span id="tracker-id">-</span> | <span id="tracker-name" style="color:#888">-</span></small><br>
         <div id="connection-section" onclick="event.stopPropagation()">
         <small><b>Connection:</b>
         <select id="connection-type" onchange="handleConnectionTypeChange()">
@@ -62,7 +79,6 @@
         <label class="filter-label">
             <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
         </label><br>
-        <small>Update: <span id="upd">-</span></small><br>
         </div>
     </div>
     <div id="no-gps-panel" class="open" onclick="this.classList.toggle('open')">
@@ -113,16 +129,24 @@
         </div>
         <div id="traceroute-body"></div>
     </div>
-    <div id="messages-panel" onclick="this.classList.toggle('open')">
-        <h4>💬 Messages ▼ (<span id="messages-cnt">0</span>)</h4>
+    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4')this.classList.toggle('open')">
+        <h4>💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
         <div id="messages-content">
+            <div id="channel-tabs"></div>
             <div id="messages-list"></div>
-        </div>
-    </div>
-    <div id="radio-panel" onclick="this.classList.toggle('open')">
-        <h4>📻 Radio ▼</h4>
-        <div id="radio-content">
-            <div id="radio-stats-list"></div>
+            <div id="send-area">
+                <div id="dm-selector" style="display:none;">
+                    <span>To: </span>
+                    <input type="text" id="dm-node-id" placeholder="!nodeID or search..." size="15">
+                    <button onclick="clearDM()">✕</button>
+                </div>
+                <div id="send-row">
+                    <select id="send-channel-select"></select>
+                    <input type="text" id="send-text" placeholder="Type message..." maxlength="200" onkeydown="if(event.key==='Enter')sendMessage()">
+                    <button id="send-btn" onclick="sendMessage()">Send ➤</button>
+                </div>
+                <div id="send-status"></div>
+            </div>
         </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -138,7 +162,12 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
-        let allMessages = [];
+        let allMessages = {};
+        let activeChannel = 0;
+        let channelNames = {};
+        let unreadCounts = {};
+        let soundEnabled = true;
+        let blinkInterval = null;
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
@@ -147,13 +176,14 @@
         let directLines = [];
         let heatLayer = null;
         let losChart = null;
+        let highlightedNoGpsId = null;
         let losAbortController = null;
         let tracerouteLines = [];
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v1.13 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '1.13';
+        // Meshtastic Mapper v1.18 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '1.18';
 
         // Detect Safari (has WebSocket timing issues)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
@@ -169,24 +199,29 @@
         
         function updateWSStatus(status) {
             const statusEl = document.getElementById('ws-status');
+            const labelEl = document.getElementById('ws-status-label');
             statusEl.classList.remove('ws-connecting');
             if (status === 'connected') {
                 statusEl.style.color = '#22c55e';
                 statusEl.textContent = '●';
                 statusEl.title = 'WebSocket connected (real-time)';
+                if (labelEl) { labelEl.textContent = 'live'; labelEl.style.color = '#22c55e'; }
             } else if (status === 'connecting') {
                 statusEl.style.color = '#eab308';
                 statusEl.textContent = '●';
                 statusEl.title = 'Connecting...';
                 statusEl.classList.add('ws-connecting');
+                if (labelEl) { labelEl.textContent = 'connecting'; labelEl.style.color = '#eab308'; }
             } else if (status === 'polling') {
                 statusEl.style.color = '#eab308';
                 statusEl.textContent = '●';
                 statusEl.title = 'Using polling (fallback)';
+                if (labelEl) { labelEl.textContent = 'polling'; labelEl.style.color = '#eab308'; }
             } else {
                 statusEl.style.color = '#ef4444';
                 statusEl.textContent = '●';
                 statusEl.title = 'Disconnected';
+                if (labelEl) { labelEl.textContent = 'offline'; labelEl.style.color = '#ef4444'; }
             }
         }
         
@@ -286,6 +321,25 @@
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
+                        } else if (data.type === 'send_status') {
+                            const statusEl = document.getElementById('send-status');
+                            if (statusEl) {
+                                if (data.status === 'sending') {
+                                    statusEl.textContent = '⏳ Sending...';
+                                } else if (data.status === 'done') {
+                                    statusEl.textContent = data.success ? '✅ Sent!' : '❌ Failed';
+                                    if (data.success) setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+                                }
+                            }
+                        } else if (data.type === 'send_result') {
+                            const btn = document.getElementById('send-btn');
+                            if (btn) btn.disabled = false;
+                            if (data.success) {
+                                const inp = document.getElementById('send-text');
+                                if (inp) inp.value = '';
+                                clearDM();
+                            }
+                            window._pendingSend = null;
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             updateConnectionStatus(data.status);
@@ -302,7 +356,10 @@
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
-                                    updateRadioDisplay();
+                                    if (data.tracker.channels) {
+                                        data.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
+                                        updateChannelTabs();
+                                    }
                                 }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
@@ -399,13 +456,16 @@
         }
 
         function handleNewMessage(message) {
-            // Add to messages list (newest first, max 50)
-            allMessages.unshift(message);
-            if (allMessages.length > 50) {
-                allMessages = allMessages.slice(0, 50);
-            }
+            const ch = message.channel_index != null ? message.channel_index : 0;
+            if (!allMessages[ch]) allMessages[ch] = [];
+            allMessages[ch].unshift(message);
+            if (allMessages[ch].length > 50) allMessages[ch] = allMessages[ch].slice(0, 50);
 
-            // Update display
+            if (ch !== activeChannel) {
+                unreadCounts[ch] = (unreadCounts[ch] || 0) + 1;
+                startBlink();
+                playBeep();
+            }
             updateMessagesDisplay();
         }
 
@@ -417,19 +477,26 @@
         }
 
         function updateMessagesDisplay() {
-            document.getElementById('messages-cnt').textContent = allMessages.length;
+            const total = Object.values(allMessages).reduce((s, msgs) => s + msgs.length, 0);
+            document.getElementById('messages-total-cnt').textContent = total;
+            updateChannelTabs();
+            updateSendChannelSelect();
+            const msgs = allMessages[activeChannel] || [];
             const messagesList = document.getElementById('messages-list');
-
-            if (allMessages.length > 0) {
-                messagesList.innerHTML = allMessages.map(msg => {
+            if (msgs.length > 0) {
+                messagesList.innerHTML = msgs.map(msg => {
                     const isDM = msg.is_dm;
                     const itemClass = isDM ? 'message-item message-dm' : 'message-item';
-                    const msgType = msg.is_dm ? ' (DM)' : '';
+                    const senderNode = allNodes.find(n => n.id === msg.from_id) ||
+                                       allNodesNoGps.find(n => n.id === msg.from_id);
+                    const senderName = senderNode?.name || msg.from_name || msg.from_id;
+                    const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
+                    const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
                     return `
                     <div class="${itemClass}">
                         <div class="msg-header">
                             <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                            <span class="msg-sender">${msg.from_name}${msgType}</span>
+                            <span class="msg-sender">${senderName}${dmLabel}</span>
                         </div>
                         <div class="msg-text">${msg.text}</div>
                     </div>`;
@@ -438,26 +505,109 @@
                 messagesList.innerHTML = '<div class="message-item meta">No messages</div>';
             }
         }
-        
-        function updateRadioDisplay() {
-            const rs = trackerInfo.radio_stats;
-            const list = document.getElementById('radio-stats-list');
-            if (!rs || Object.keys(rs).length === 0) {
-                list.innerHTML = '<div class="radio-stat-item meta">No radio stats yet</div>';
+
+        function updateChannelTabs() {
+            const tabsEl = document.getElementById('channel-tabs');
+            if (!tabsEl) return;
+            const indices = new Set([
+                ...Object.keys(allMessages).map(Number),
+                ...Object.keys(channelNames).map(Number)
+            ]);
+            if (indices.size === 0) { tabsEl.innerHTML = ''; return; }
+            tabsEl.innerHTML = [...indices].sort((a, b) => a - b).map(idx => {
+                const name = channelNames[idx] || `Ch ${idx}`;
+                const unread = unreadCounts[idx] || 0;
+                const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+                const active = idx === activeChannel ? ' active' : '';
+                return `<div class="channel-tab${active}" onclick="event.stopPropagation();setActiveChannel(${idx})">${name}${badge}</div>`;
+            }).join('');
+        }
+
+        function setActiveChannel(index) {
+            activeChannel = index;
+            unreadCounts[index] = 0;
+            const hasUnread = Object.values(unreadCounts).some(c => c > 0);
+            if (!hasUnread) stopBlink();
+            updateMessagesDisplay();
+            const sel = document.getElementById('send-channel-select');
+            if (sel) sel.value = index;
+        }
+
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            document.getElementById('sound-toggle').textContent = soundEnabled ? '🔔' : '🔕';
+        }
+
+        function playBeep() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = new AudioContext();
+                const osc = ctx.createOscillator();
+                osc.connect(ctx.destination);
+                osc.frequency.value = 800;
+                osc.start();
+                setTimeout(() => { osc.stop(); ctx.close(); }, 100);
+            } catch(e) {}
+        }
+
+        function startBlink() {
+            const blinkEl = document.getElementById('messages-blink');
+            if (blinkInterval || !blinkEl) return;
+            blinkEl.style.display = 'inline';
+            blinkInterval = setInterval(() => {
+                blinkEl.style.opacity = blinkEl.style.opacity === '0' ? '1' : '0';
+            }, 500);
+        }
+
+        function stopBlink() {
+            const blinkEl = document.getElementById('messages-blink');
+            if (blinkInterval) { clearInterval(blinkInterval); blinkInterval = null; }
+            if (blinkEl) { blinkEl.style.display = 'none'; blinkEl.style.opacity = '1'; }
+        }
+
+        function updateSendChannelSelect() {
+            const sel = document.getElementById('send-channel-select');
+            if (!sel) return;
+            const indices = [...new Set([
+                ...Object.keys(allMessages).map(Number),
+                ...Object.keys(channelNames).map(Number),
+                0
+            ])].sort((a, b) => a - b);
+            sel.innerHTML = indices.map(idx => {
+                const name = channelNames[idx] || (idx === 0 ? 'Primary' : `Ch ${idx}`);
+                return `<option value="${idx}"${idx === activeChannel ? ' selected' : ''}>${name}</option>`;
+            }).join('');
+        }
+
+        function sendMessage() {
+            const text = (document.getElementById('send-text').value || '').trim();
+            if (!text) return;
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                document.getElementById('send-status').textContent = '❌ Not connected';
                 return;
             }
-            const totalRx = rs.numPacketsRx || 0;
-            const badRx = rs.numPacketsRxBad || 0;
-            const badPct = totalRx > 0 ? (badRx / totalRx * 100).toFixed(1) : '0.0';
-            list.innerHTML = `
-                <div class="radio-stat-item"><b>Channel util:</b> ${rs.channelUtilization != null ? rs.channelUtilization.toFixed(1) : '-'}%</div>
-                <div class="radio-stat-item"><b>Air TX:</b> ${rs.airUtilTx != null ? rs.airUtilTx.toFixed(1) : '-'}%</div>
-                <div class="radio-stat-item"><b>Packets RX:</b> ${rs.numPacketsRx != null ? rs.numPacketsRx : '-'} / TX: ${rs.numPacketsTx != null ? rs.numPacketsTx : '-'}</div>
-                <div class="radio-stat-item"><b>Bad packets:</b> ${badRx} (${badPct}%)</div>
-                <div class="radio-stat-item"><b>Duplicates:</b> ${rs.numRxDupe != null ? rs.numRxDupe : '-'}</div>
-                <div class="radio-stat-item"><b>TX Relay:</b> ${rs.numTxRelay != null ? rs.numTxRelay : '-'}</div>
-                <div class="radio-stat-item"><b>Online:</b> ${rs.numOnlineNodes != null ? rs.numOnlineNodes : '-'} / <b>Total:</b> ${rs.numTotalNodes != null ? rs.numTotalNodes : '-'}</div>
-            `;
+            const channelIndex = parseInt(document.getElementById('send-channel-select').value) || 0;
+            const destId = (document.getElementById('dm-node-id').value || '').trim() || null;
+            const connType = trackerInfo.connection_type || 'serial';
+            if (connType === 'serial') {
+                if (!confirm('⚠️ USB: listener will pause ~5s during send. Continue?')) return;
+            }
+            document.getElementById('send-btn').disabled = true;
+            window._pendingSend = {text, channelIndex, destId};
+            ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
+        }
+
+        function openDM(nodeId, nodeName) {
+            const panel = document.getElementById('messages-panel');
+            if (!panel.classList.contains('open')) panel.classList.add('open');
+            document.getElementById('dm-selector').style.display = 'flex';
+            document.getElementById('dm-node-id').value = nodeId;
+            setTimeout(() => { const inp = document.getElementById('send-text'); if (inp) inp.focus(); }, 100);
+        }
+
+        function clearDM() {
+            document.getElementById('dm-selector').style.display = 'none';
+            document.getElementById('dm-node-id').value = '';
         }
 
         function fetchNodesJSON(retryCount = 0) {
@@ -492,11 +642,22 @@
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
                     
-                    // Load messages from JSON
+                    // Load messages from JSON (handle both list format and dict format)
                     if (d.messages) {
-                        allMessages = d.messages;
-                        updateMessagesDisplay();
+                        if (Array.isArray(d.messages)) {
+                            allMessages = d.messages.length > 0 ? {0: d.messages} : {};
+                        } else {
+                            allMessages = {};
+                            Object.keys(d.messages).forEach(k => {
+                                allMessages[parseInt(k)] = d.messages[k];
+                            });
+                        }
                     }
+                    // Load channel names from tracker info
+                    if (d.tracker && d.tracker.channels) {
+                        d.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
+                    }
+                    updateMessagesDisplay();
 
                     // Update display (will wait for map if needed)
                     updateDisplay();
@@ -556,13 +717,35 @@
         }
 
         async function fetchElevationData(points) {
-            const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ locations: points })
+            // Use WebSocket proxy to avoid CORS issues with direct API calls
+            return new Promise((resolve, reject) => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    reject(new Error('WebSocket not connected'));
+                    return;
+                }
+                const chunkSize = 100;
+                const allElevations = [];
+                let chunksRemaining = Math.ceil(points.length / chunkSize);
+
+                const handler = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        if (data.type === 'elevation_data') {
+                            ws.removeEventListener('message', handler);
+                            if (data.error) { reject(new Error(data.error)); return; }
+                            data.elevations.forEach(e => allElevations.push(e));
+                            chunksRemaining--;
+                            if (chunksRemaining === 0) resolve(allElevations);
+                        }
+                    } catch(e) {}
+                };
+                ws.addEventListener('message', handler);
+
+                for (let i = 0; i < points.length; i += chunkSize) {
+                    const chunk = points.slice(i, i + chunkSize);
+                    ws.send(JSON.stringify({ type: 'get_elevation', locations: chunk }));
+                }
             });
-            const data = await response.json();
-            return data.results.map(r => r.elevation);
         }
 
         function fresnelRadius(d1, d2, frequency = 868) {
@@ -761,6 +944,76 @@
                 losChart = null;
             }
         }
+
+        function searchNodes(query) {
+            const resultsEl = document.getElementById('search-results');
+            if (query.length < 2) {
+                resultsEl.style.display = 'none';
+                return;
+            }
+            const q = query.toLowerCase();
+            const matches = [];
+            allNodes.forEach(n => {
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push({node: n, hasGps: true});
+                }
+            });
+            allNodesNoGps.forEach(n => {
+                if (n.via_mqtt) return;
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push({node: n, hasGps: false});
+                }
+            });
+            const top = matches.slice(0, 8);
+            if (top.length === 0) {
+                resultsEl.innerHTML = '<div class="search-no-results">No results found</div>';
+                resultsEl.style.display = 'block';
+                return;
+            }
+            resultsEl.innerHTML = top.map(({node: n, hasGps}) => {
+                const age = Math.floor(Date.now()/1000) - n.ts;
+                let dotColor = '#22c55e';
+                if (age > 21600) dotColor = '#ef4444';
+                else if (age > 3600) dotColor = '#eab308';
+                const hopsText = n.hops != null ? ` | hops: ${n.hops}` : '';
+                const gpsIcon = hasGps ? '' : ' 📍';
+                return `<div class="search-result-item" onclick="selectSearchResult('${n.id}', ${hasGps})">
+                    <div class="search-dot" style="background:${dotColor}"></div>
+                    <span>${n.name}${gpsIcon} <span style="color:#666;font-size:11px;">${n.id}${hopsText}</span></span>
+                </div>`;
+            }).join('');
+            resultsEl.style.display = 'block';
+        }
+
+        function selectSearchResult(nodeId, hasGps) {
+            if (hasGps) {
+                const node = allNodes.find(n => n.id === nodeId);
+                if (node && node.lat && node.lon) {
+                    map.setView([node.lat, node.lon], 14);
+                    if (markers[nodeId]) markers[nodeId].openPopup();
+                }
+            } else {
+                const noGpsPanel = document.getElementById('no-gps-panel');
+                if (!noGpsPanel.classList.contains('open')) noGpsPanel.classList.add('open');
+                highlightedNoGpsId = nodeId;
+                setTimeout(() => { highlightedNoGpsId = null; updateDisplay(); }, 4000);
+                updateDisplay();
+                const item = document.querySelector('#no-gps-list .search-result-highlight');
+                if (item) item.scrollIntoView({behavior: 'smooth', block: 'center'});
+            }
+            clearSearch();
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('search-results').style.display = 'none';
+        }
+
+        document.addEventListener('click', function(e) {
+            if (!document.getElementById('search-bar').contains(e.target)) {
+                document.getElementById('search-results').style.display = 'none';
+            }
+        });
 
         function startTraceroute(nodeId) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -1169,6 +1422,8 @@
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
+            const trackerNode = allNodes.find(n => isOwnTracker(n.id));
+            document.getElementById('tracker-name').textContent = trackerNode?.name || '-';
             // Update connection section from tracker info (but not if user is changing it)
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';
@@ -1200,8 +1455,9 @@
                     let dotColor = '#22c55e';
                     if (age > 21600) dotColor = '#ef4444';
                     else if (age > 3600) dotColor = '#eab308';
+                    const isHighlighted = n.id === highlightedNoGpsId;
                     return `
-                    <div class="no-gps-item">
+                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
@@ -1241,6 +1497,7 @@
                     }
                     const tracerouteBtn = !n.via_mqtt
                         ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
+                          + `<button onclick="openDM('${n.id}','${n.name.replace(/'/g,"\\'")}')">✉️ Message</button>`
                         : '';
                     pop = `<div class="node-popup">
                         <b>${n.name}</b><br>
@@ -1310,7 +1567,6 @@
             // Update timestamp on every display refresh
             document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
 
-            updateRadioDisplay();
         }
 
         // Restore saved TCP host from localStorage

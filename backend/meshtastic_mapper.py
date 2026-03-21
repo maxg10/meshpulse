@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.13
+#ver 1.17
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -16,6 +16,10 @@ import os
 import asyncio
 import websockets
 import threading
+import sqlite3
+import meshtastic
+import meshtastic.tcp_interface
+from meshtastic import mesh_pb2, portnums_pb2
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -27,7 +31,264 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 mapper = None
 restart_event = threading.Event()
 restart_config = {}
-traceroute_restart = False  # True when restart is triggered by traceroute (serial mode)
+traceroute_restart = False      # True when restart is triggered by traceroute (serial mode)
+send_restart = False            # True when restart is triggered by message send (serial mode)
+send_restart_no_nodes = False   # True when listener restart after send should use --no-nodes
+
+
+class TCPMeshtasticInterface:
+    """Wraps meshtastic.tcp_interface.TCPInterface for use as a TCP listener/sender."""
+
+    def __init__(self, host, port=4403):
+        self.host = host
+        self.port = port
+        self.interface = None
+        self._on_receive_ref = None
+
+    def connect(self, on_receive=None):
+        """Create TCPInterface and subscribe to incoming packets."""
+        import concurrent.futures
+        from pubsub import pub
+
+        iface_ref = [None]  # mutable cell so inner func captures final value
+
+        def _on_receive(packet, interface):
+            if interface is iface_ref[0] and on_receive is not None:
+                try:
+                    on_receive(packet)
+                except Exception as e:
+                    print(f"[TCP] Packet callback error: {e}")
+
+        self._on_receive_ref = _on_receive
+        pub.subscribe(_on_receive, "meshtastic.receive")
+
+        def _create_interface():
+            self.interface = meshtastic.tcp_interface.TCPInterface(
+                self.host,
+                portNumber=self.port,
+                noNodes=True,
+                debugOut=None,
+                timeout=15
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(_create_interface)
+            try:
+                future.result(timeout=5)
+            except concurrent.futures.TimeoutError:
+                raise Exception("Connection timeout")
+
+        iface_ref[0] = self.interface
+
+    def disconnect(self):
+        """Unsubscribe and close the interface."""
+        from pubsub import pub
+        if self._on_receive_ref is not None:
+            try:
+                pub.unsubscribe(self._on_receive_ref, "meshtastic.receive")
+            except Exception:
+                pass
+            self._on_receive_ref = None
+        if self.interface is not None:
+            try:
+                self.interface.close()
+            except Exception as e:
+                print(f"[TCP] Close error: {e}")
+            self.interface = None
+
+    def sendText(self, text, channelIndex=0, destinationId='^all'):
+        """Send a text message via the TCP interface."""
+        if self.interface is None:
+            raise RuntimeError("TCPMeshtasticInterface not connected")
+        self.interface.sendText(text, channelIndex=channelIndex, destinationId=destinationId)
+
+
+class StatsDB:
+    """SQLite database for network statistics - keeps 3 days of data."""
+
+    DB_PATH = '/var/www/html/meshtastic/stats.db'
+    RETENTION_DAYS = 3
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self._init_db()
+
+    def _init_db(self):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            c = conn.cursor()
+            c.execute('''CREATE TABLE IF NOT EXISTS packets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                from_id TEXT NOT NULL,
+                from_name TEXT,
+                portnum TEXT NOT NULL,
+                hops INTEGER,
+                snr REAL,
+                rssi INTEGER,
+                via_mqtt INTEGER DEFAULT 0,
+                relay_node_id TEXT,
+                relayed_by_us INTEGER DEFAULT 0
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS node_activity (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                node_name TEXT,
+                packet_count INTEGER DEFAULT 0,
+                portnum TEXT,
+                avg_snr REAL,
+                avg_rssi REAL,
+                min_hops INTEGER,
+                max_hops INTEGER
+            )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS anomalies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                node_id TEXT NOT NULL,
+                node_name TEXT,
+                anomaly_type TEXT NOT NULL,
+                details TEXT,
+                severity TEXT DEFAULT 'warning'
+            )''')
+            conn.commit()
+            conn.close()
+
+    def log_packet(self, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''INSERT INTO packets
+                (ts, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''',
+                (int(time.time()), from_id, from_name, portnum, hops, snr, rssi,
+                 1 if via_mqtt else 0, relay_node_id, 1 if relayed_by_us else 0))
+            conn.commit()
+            conn.close()
+
+    def log_anomaly(self, node_id, node_name, anomaly_type, details, severity='warning'):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''INSERT INTO anomalies (ts, node_id, node_name, anomaly_type, details, severity)
+                VALUES (?,?,?,?,?,?)''',
+                (int(time.time()), node_id, node_name, anomaly_type, details, severity))
+            conn.commit()
+            conn.close()
+
+    def cleanup_old_data(self):
+        """Remove data older than RETENTION_DAYS."""
+        cutoff = int(time.time()) - (self.RETENTION_DAYS * 86400)
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
+            conn.commit()
+            conn.close()
+
+    def clear_node_packets(self, node_id):
+        """Delete all packet history for a specific node from stats.db."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets WHERE from_id = ?', (node_id,))
+            conn.execute('DELETE FROM anomalies WHERE node_id = ?', (node_id,))
+            conn.commit()
+            conn.close()
+
+    def get_stats_summary(self, local_node_id=None):
+        """Get stats summary for the last 24h plus 7-day trend."""
+        now = int(time.time())
+        since_24h = now - 86400
+        since_7d = now - 7 * 86400
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+
+            total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
+            relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
+            top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
+                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum
+                FROM packets WHERE ts > ? AND via_mqtt = 0
+                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h,)).fetchall()
+            active_node_count = c.execute('''SELECT COUNT(DISTINCT from_id) as cnt
+                FROM packets WHERE ts > ? AND via_mqtt = 0''', (since_24h,)).fetchone()['cnt']
+            hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
+            own_variants = [
+                local_node_id or '',
+                (local_node_id or '').lstrip('!'),
+                '!' + (local_node_id or '').lstrip('!')
+            ]
+            relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND relayed_by_us = 1
+                AND from_id NOT IN (?, ?, ?)
+                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
+                (since_24h, *own_variants)).fetchall()
+            anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
+                FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
+            by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
+            topology = c.execute('''SELECT from_id, from_name, COUNT(*) as relay_count
+                FROM packets WHERE ts > ? AND relayed_by_us = 1
+                GROUP BY from_id''', (since_24h,)).fetchall()
+
+            # SNR distribution (5 dB buckets)
+            snr_dist = c.execute('''SELECT CAST(ROUND(snr/5.0)*5 AS INTEGER) as bucket, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND snr IS NOT NULL
+                GROUP BY bucket ORDER BY bucket''', (since_24h,)).fetchall()
+
+            # RSSI distribution (10 dB buckets)
+            rssi_dist = c.execute('''SELECT CAST(ROUND(rssi/10.0)*10 AS INTEGER) as bucket, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND rssi IS NOT NULL
+                GROUP BY bucket ORDER BY bucket''', (since_24h,)).fetchall()
+
+            # Hop count distribution
+            hop_dist = c.execute('''SELECT hops, COUNT(*) as cnt
+                FROM packets WHERE ts > ? AND hops IS NOT NULL AND hops >= 0
+                GROUP BY hops ORDER BY hops''', (since_24h,)).fetchall()
+
+            # 7-day daily trend
+            daily_7d = c.execute('''SELECT (ts/86400)*86400 as day, COUNT(*) as cnt
+                FROM packets WHERE ts > ?
+                GROUP BY day ORDER BY day''', (since_7d,)).fetchall()
+
+            # Data window: how long we've been recording within the 24h window
+            first_ts = c.execute('SELECT MIN(ts) FROM packets WHERE ts > ?', (since_24h,)).fetchone()[0]
+            data_window_minutes = int((now - first_ts) // 60) if first_ts else 0
+
+            conn.close()
+
+            return {
+                'total_packets': total,
+                'relayed_packets': relayed,
+                'relay_percentage': round(relayed / total * 100, 1) if total > 0 else 0,
+                'top_senders': [dict(r) for r in top_senders],
+                'active_node_count': active_node_count,
+                'hourly_activity': [{'hour': r['hour'], 'count': r['cnt']} for r in hourly],
+                'relayed_nodes': [dict(r) for r in relayed_nodes],
+                'anomalies': [dict(r) for r in anomalies],
+                'packet_types': [dict(r) for r in by_type],
+                'topology': [dict(r) for r in topology],
+                'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
+                'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
+                'hop_distribution': [{'hops': r['hops'], 'cnt': r['cnt']} for r in hop_dist],
+                'daily_7d': [{'day': r['day'], 'count': r['cnt']} for r in daily_7d],
+                'data_window_minutes': data_window_minutes
+            }
+
+    def get_topology_graph(self):
+        """Get node connections for D3.js graph."""
+        since = int(time.time()) - 86400
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            nodes_data = c.execute('''SELECT DISTINCT from_id, from_name, COUNT(*) as packet_count
+                FROM packets WHERE ts > ? GROUP BY from_id''', (since,)).fetchall()
+            conn.close()
+            return [dict(r) for r in nodes_data]
 
 
 def load_config():
@@ -51,7 +312,7 @@ def save_config(connection_type, host=None, port=None):
         print(f"[CONFIG] Save error: {e}")
 
 class ListenBasedMapper:
-    def __init__(self, connection_type='serial', port=None, host=None, max_age=604800):
+    def __init__(self, connection_type='serial', port=None, host=None, max_age=86400):
         self.connection_type = connection_type
         self.port = port
         self.host = host
@@ -71,8 +332,16 @@ class ListenBasedMapper:
             self.tracker_info['radio_stats'] = self._loaded_radio_stats
             print(f"[LOAD] Restored radio_stats from previous run")
 
-        # Store text messages (max 50, newest first)
-        self.messages = []
+        # Store text messages per channel (dict: {channel_index: [messages]})
+        self.messages = getattr(self, '_loaded_messages', {})
+
+        # Cache of all known node names from nodeinfo packets
+        self.known_names = getattr(self, '_loaded_known_names', {})
+
+        # Stats database
+        self.stats_db = StatsDB()
+        self._last_packet_times = {}  # for anomaly detection
+        self._last_radio_packet_time = time.time()  # watchdog: last time we got any packet from radio
 
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
@@ -115,6 +384,19 @@ class ListenBasedMapper:
             fw_match = re.search(r'"firmwareVersion":\s*"([^"]+)"', output)
             firmware = fw_match.group(1) if fw_match else "Unknown"
             
+            # Parse channel names
+            # Join wrapped lines (meshtastic CLI wraps long lines)
+            output_joined = re.sub(r'\n\s*"', '"', output)
+            channels = []
+            for line in output_joined.split('\n'):
+                idx_match = re.match(r'\s*Index (\d+): \w+ psk=\w+', line)
+                if idx_match:
+                    index = int(idx_match.group(1))
+                    name_match = re.search(r'"name":\s*"([^"]*)"', line)
+                    name = name_match.group(1).strip() if name_match else ''
+                    name = 'Primary' if (index == 0 and not name) else (name if name else f'Channel {index}')
+                    channels.append({'index': index, 'name': name})
+
             # Store tracker info
             self.tracker_info = {
                 'node_id': node_id,
@@ -122,12 +404,14 @@ class ListenBasedMapper:
                 'port': self.port,
                 'host': self.host,
                 'hw_model': hw_model,
-                'firmware': firmware
+                'firmware': firmware,
+                'channels': channels
             }
-            
+
             print(f"[INFO] Local node ID: {node_id}")
             print(f"[INFO] Hardware: {hw_model}, Firmware: {firmware}")
-            
+            print(f"[INFO] Channels: {[(c['index'], c['name']) for c in channels]}")
+
             return node_id
             
         except subprocess.TimeoutExpired:
@@ -218,8 +502,17 @@ class ListenBasedMapper:
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
                     
-                        self.messages = data.get('messages', [])
-                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {len(self.messages)} messages")
+                        loaded_msgs = data.get('messages', {})
+                        if isinstance(loaded_msgs, list):
+                            self._loaded_messages = {0: loaded_msgs} if loaded_msgs else {}
+                        elif isinstance(loaded_msgs, dict):
+                            self._loaded_messages = {int(k): v for k, v in loaded_msgs.items()}
+                        else:
+                            self._loaded_messages = {}
+                        total_msgs = sum(len(v) for v in self._loaded_messages.values())
+                        print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {total_msgs} messages")
+
+                    self._loaded_known_names = data.get('known_names', {})
 
                     # Always restore radio_stats regardless of node count
                     saved_radio_stats = data.get('tracker', {}).get('radio_stats')
@@ -250,12 +543,122 @@ class ListenBasedMapper:
             print(f"[CLEAN] Removed {len(removed)} old nodes (>{hours}h old)")
             for node_id in removed[:5]:  # Show first 5
                 print(f"  - {node_id}")
+            # Remove expired nodes from name cache if no longer in either node dict
+            for node_id in removed:
+                if node_id not in self.nodes and node_id not in self.nodes_no_position:
+                    self.known_names.pop(node_id, None)
     
+    def _watchdog_loop(self):
+        """Restart meshtastic --listen subprocess if no packets received for WATCHDOG_TIMEOUT seconds."""
+        WATCHDOG_TIMEOUT = 600  # 10 minutes of silence = restart subprocess
+        CHECK_INTERVAL = 60     # check every minute
+        # Give extra time on startup before watchdog activates
+        time.sleep(120)
+        while True:
+            time.sleep(CHECK_INTERVAL)
+            if self.connection_type != 'serial':
+                continue  # watchdog only for serial mode
+            silence = time.time() - self._last_radio_packet_time
+            if silence > WATCHDOG_TIMEOUT:
+                print(f"[WATCHDOG] No packets for {int(silence)}s — restarting meshtastic listener...")
+                self._last_radio_packet_time = time.time()  # reset before restart
+                try:
+                    if self.current_process and self.current_process.poll() is None:
+                        self.current_process.terminate()
+                        time.sleep(2)
+                        self.current_process.kill()
+                except Exception as e:
+                    print(f"[WATCHDOG] Error killing process: {e}")
+
     def clean_old_nodes(self):
         """Clean old nodes from self.nodes and self.nodes_no_position"""
         self.clean_old_nodes_from_dict(self.nodes)
         self.clean_old_nodes_from_dict(self.nodes_no_position)
-        
+
+    def _update_message_names(self, node_id, name):
+        """Update from_name in stored messages when a node's name becomes known"""
+        self.known_names[node_id] = name
+        for ch_msgs in self.messages.values():
+            for msg in ch_msgs:
+                if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
+                    msg['from_name'] = name
+
+    def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
+        """Log packet to stats DB and detect anomalies."""
+        from_name = (
+            self.nodes.get(from_id, {}).get('name') or
+            self.nodes_no_position.get(from_id, {}).get('name') or
+            self.known_names.get(from_id) or
+            from_id
+        )
+
+        relayed_by_us = False
+        relay_node_id = None
+        if relay_node_raw is not None and self.local_node_id:
+            our_num = int(self.local_node_id.replace('!', ''), 16)
+            our_last_byte = our_num & 0xFF
+            relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
+            relay_node_id = f"relay_{relay_node_raw}"
+
+        self._last_radio_packet_time = time.time()  # watchdog reset
+        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+
+        # Anomaly detection - check all packet types
+        now = int(time.time())
+        key = (from_id, portnum)
+        if key in self._last_packet_times:
+            interval = now - self._last_packet_times[key]
+
+            if portnum == 'POSITION_APP' and not via_mqtt:
+                if interval < 30:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_POSITION',
+                        f'⚠️ Very aggressive! Position every {interval}s (< 30s threshold). '
+                        f'For stationary nodes use ≥1800s, for moving ≥30s.',
+                        'warning')
+                elif interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_POSITION',
+                        f'ℹ️ Slightly too frequent. Position every {interval}s. '
+                        f'Consider ≥300s for moving nodes, ≥1800s for stationary.',
+                        'info')
+
+            elif portnum == 'NODEINFO_APP' and not via_mqtt:
+                if interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_NODEINFO',
+                        f'⚠️ Very aggressive! NodeInfo every {interval}s (< 60s threshold). '
+                        f'Default is 900s (15min). Causes serious channel congestion.',
+                        'warning')
+                elif interval < 300:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_NODEINFO',
+                        f'ℹ️ Slightly too frequent. NodeInfo every {interval}s (recommended ≥900s). '
+                        f'Not critical but contributes to channel load.',
+                        'info')
+
+            elif portnum == 'TELEMETRY_APP' and not via_mqtt:
+                if interval < 60:
+                    self.stats_db.log_anomaly(from_id, from_name, 'HIGH_FREQUENCY_TELEMETRY',
+                        f'⚠️ Very aggressive! Telemetry every {interval}s (should be ≥1800s). '
+                        f'Wastes airtime and drains battery fast.',
+                        'warning')
+                elif interval < 300:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_TELEMETRY',
+                        f'ℹ️ Slightly too frequent. Telemetry every {interval}s (recommended ≥1800s). '
+                        f'Not critical but consider increasing the interval.',
+                        'info')
+
+            elif portnum == 'TEXT_MESSAGE_APP':
+                if interval < 5:
+                    self.stats_db.log_anomaly(from_id, from_name, 'SPAM_MESSAGES',
+                        f'Messages sent every {interval}s (< 5s threshold). '
+                        f'Possible automated script or misconfigured device.',
+                        'error')
+                elif interval < 30:
+                    self.stats_db.log_anomaly(from_id, from_name, 'FREQUENT_MESSAGES',
+                        f'Messages sent every {interval}s. '
+                        f'High message rate causes channel congestion.',
+                        'warning')
+
+        self._last_packet_times[key] = now
+
     def parse_node_info(self, line):
         """Parse nodeinfo from --listen output"""
         if 'Received nodeinfo:' in line:
@@ -272,7 +675,7 @@ class ListenBasedMapper:
                 
                 if not node_id:
                     return False
-                
+
                 if 'latitudeI' in pos and 'longitudeI' in pos:
                     lat = pos['latitudeI'] / 1e7
                     lon = pos['longitudeI'] / 1e7
@@ -307,6 +710,10 @@ class ListenBasedMapper:
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
+                    self._update_message_names(node_id, name)
+                    relay_node_raw = node_data.get('relayNode') or node_data.get('relay_node')
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
+
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                     asyncio.run(self.broadcast_stats_update())
@@ -339,12 +746,16 @@ class ListenBasedMapper:
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} (no GPS)")
 
+                    self._update_message_names(node_id, name)
+                    relay_node_raw = node_data.get('relayNode') or node_data.get('relay_node')
+                    self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
+
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                     asyncio.run(self.broadcast_stats_update())
 
                     return True
-                    
+
             except Exception as e:
                 print(f"Parse error: {e}")
         
@@ -395,6 +806,9 @@ class ListenBasedMapper:
             # Extract transport mechanism (detect MQTT)
             transport_match = re.search(r"'transportMechanism':\s*'([^']+)'", line)
             via_mqtt = transport_match and transport_match.group(1) == 'TRANSPORT_MQTT'
+
+            relay_match = re.search(r"'relayNode':\s*(\d+)", line)
+            relay_node_raw = int(relay_match.group(1)) if relay_match else None
             
             # Update existing node or create minimal entry
             if node_id in self.nodes:
@@ -428,6 +842,8 @@ class ListenBasedMapper:
                 }
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
+            self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
+
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
@@ -479,12 +895,17 @@ class ListenBasedMapper:
 
             # Parse RSSI if present
             rssi_match = re.search(r"'rxRssi':\s*([-\d]+)", line)
-            if rssi_match:
-                rssi = int(rssi_match.group(1))
+            rssi = int(rssi_match.group(1)) if rssi_match else None
+            if rssi is not None:
                 if node_id in self.nodes:
                     self.nodes[node_id]['rssi'] = rssi
                 elif node_id in self.nodes_no_position:
                     self.nodes_no_position[node_id]['rssi'] = rssi
+
+            if node_id != self.local_node_id:
+                relay_match_t = re.search(r"'relayNode':\s*(\d+)", line)
+                relay_node_raw_t = int(relay_match_t.group(1)) if relay_match_t else None
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw_t)
 
             # Only update timestamp if node already exists
             if node_id in self.nodes:
@@ -546,12 +967,18 @@ class ListenBasedMapper:
             if not text:
                 return False
 
+            # Extract channel index
+            ch_match = re.search(r"'channel':\s*(\d+)", line)
+            channel_index = int(ch_match.group(1)) if ch_match else 0
+
             # Get sender name from nodes
             sender_name = from_id
             if from_id in self.nodes:
                 sender_name = self.nodes[from_id].get('name', from_id)
             elif from_id in self.nodes_no_position:
                 sender_name = self.nodes_no_position[from_id].get('name', from_id)
+            elif from_id in self.known_names:
+                sender_name = self.known_names[from_id]
 
             # Create message object
             message = {
@@ -560,17 +987,24 @@ class ListenBasedMapper:
                 'to_id': to_id,
                 'text': text,
                 'timestamp': int(time.time()),
-                'is_dm': to_id != '^all'
+                'is_dm': to_id != '^all',
+                'channel_index': channel_index
             }
 
-            # Add to messages list (newest first, max 50)
-            self.messages.insert(0, message)
-            if len(self.messages) > 50:
-                self.messages = self.messages[:50]
+            # Add to channel dict (newest first, max 50 per channel)
+            if channel_index not in self.messages:
+                self.messages[channel_index] = []
+            self.messages[channel_index].insert(0, message)
+            if len(self.messages[channel_index]) > 50:
+                self.messages[channel_index] = self.messages[channel_index][:50]
 
             # Log
             dm_marker = " [DM]" if message['is_dm'] else ""
-            print(f"💬 {sender_name}: {text}{dm_marker}")
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker}")
+
+            relay_match_msg = re.search(r"'relayNode':\s*(\d+)", line)
+            relay_node_raw_msg = int(relay_match_msg.group(1)) if relay_match_msg else None
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw_msg)
 
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
@@ -580,6 +1014,271 @@ class ListenBasedMapper:
         except Exception as e:
             print(f"Text message parse error: {e}")
 
+        return False
+
+    # ------------------------------------------------------------------
+    # Python API packet parsers (TCP mode — receive already-decoded dicts)
+    # ------------------------------------------------------------------
+
+    def _on_tcp_packet(self, packet):
+        """Route an incoming TCP API packet to the appropriate parser."""
+        portnum = packet.get('decoded', {}).get('portnum', '')
+        if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
+            self.parse_node_info_from_packet(packet)
+        elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
+            self.parse_position_from_packet(packet)
+        elif portnum in ('TELEMETRY_APP', portnums_pb2.PortNum.Value('TELEMETRY_APP')):
+            self.parse_telemetry_from_packet(packet)
+        elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
+            self.parse_text_from_packet(packet)
+
+    def parse_node_info_from_packet(self, packet):
+        """Parse a NODEINFO_APP packet received via the Python API."""
+        try:
+            decoded = packet.get('decoded', {})
+            user = decoded.get('user', {})
+            node_id = user.get('id') or packet.get('fromId')
+            if not node_id:
+                return False
+
+            name = user.get('longName') or node_id
+            role = user.get('role', 'CLIENT')
+            snr = packet.get('rxSnr', 0)
+            via_mqtt = packet.get('viaMqtt', False)
+
+            hop_start = packet.get('hopStart')
+            hop_limit = packet.get('hopLimit')
+            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+
+            pos = decoded.get('position', {})
+            lat_i = pos.get('latitudeI')
+            lon_i = pos.get('longitudeI')
+            lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
+            lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
+
+            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+                alt = pos.get('altitude', 0)
+                is_new = node_id not in self.nodes
+                self.nodes[node_id] = {
+                    'id': node_id,
+                    'name': name,
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'alt': alt,
+                    'snr': round(snr, 1),
+                    'role': role,
+                    'hops': hops,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'via_mqtt': via_mqtt,
+                    'source': 'live'
+                }
+                marker = "✚" if is_new else "↻"
+                print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
+                self._update_message_names(node_id, name)
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
+                asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            else:
+                is_new = node_id not in self.nodes_no_position
+                self.nodes_no_position[node_id] = {
+                    'id': node_id,
+                    'name': name,
+                    'snr': round(snr, 1),
+                    'role': role,
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                }
+                marker = "✚" if is_new else "↻"
+                print(f"{marker} {node_id} {name[:20]} (no GPS) [TCP]")
+                self._update_message_names(node_id, name)
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
+                asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] nodeinfo parse error: {e}")
+        return False
+
+    def parse_position_from_packet(self, packet):
+        """Parse a POSITION_APP packet received via the Python API."""
+        try:
+            node_id = packet.get('fromId')
+            if not node_id:
+                return False
+
+            decoded = packet.get('decoded', {})
+            pos = decoded.get('position', {})
+            lat_i = pos.get('latitudeI')
+            lon_i = pos.get('longitudeI')
+            lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
+            lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
+
+            if lat is None or lon is None or (lat == 0 and lon == 0):
+                return False
+
+            snr = packet.get('rxSnr', 0)
+            rssi = packet.get('rxRssi') or None
+            via_mqtt = packet.get('viaMqtt', False)
+            hop_start = packet.get('hopStart')
+            hop_limit = packet.get('hopLimit')
+            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            relay_node_raw = packet.get('relayNode')
+
+            if node_id in self.nodes:
+                self.nodes[node_id].update({
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'snr': round(snr, 1),
+                    'rssi': rssi,
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                })
+                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+            else:
+                self.nodes[node_id] = {
+                    'id': node_id,
+                    'name': node_id,
+                    'lat': round(lat, 6),
+                    'lon': round(lon, 6),
+                    'alt': pos.get('altitude', 0),
+                    'snr': round(snr, 1),
+                    'rssi': rssi,
+                    'role': 'CLIENT',
+                    'hops': hops,
+                    'via_mqtt': via_mqtt,
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live'
+                }
+                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+
+            self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
+            asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+            asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] position parse error: {e}")
+        return False
+
+    def parse_telemetry_from_packet(self, packet):
+        """Parse a TELEMETRY_APP packet received via the Python API."""
+        try:
+            node_id = packet.get('fromId')
+            if not node_id:
+                return False
+
+            decoded = packet.get('decoded', {})
+            telemetry = decoded.get('telemetry', {})
+
+            if node_id == self.local_node_id:
+                tracker_updated = False
+
+                device_metrics = telemetry.get('deviceMetrics', {})
+                uptime = device_metrics.get('uptimeSeconds')
+                if uptime is not None:
+                    self.tracker_info['uptime_seconds'] = uptime
+                    tracker_updated = True
+
+                local_stats = telemetry.get('localStats', {})
+                radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                radio_stats = {f: local_stats[f] for f in radio_fields if f in local_stats}
+                if not radio_stats:
+                    # Fallback: some firmware reports these in deviceMetrics
+                    radio_stats = {f: device_metrics[f] for f in radio_fields if f in device_metrics}
+                if radio_stats:
+                    self.tracker_info['radio_stats'] = radio_stats
+                    tracker_updated = True
+
+                if tracker_updated:
+                    asyncio.run(self.broadcast_connection_status('connected'))
+
+            rssi = packet.get('rxRssi') or None
+            if rssi is not None:
+                if node_id in self.nodes:
+                    self.nodes[node_id]['rssi'] = rssi
+                elif node_id in self.nodes_no_position:
+                    self.nodes_no_position[node_id]['rssi'] = rssi
+
+            if node_id != self.local_node_id:
+                relay_node_raw = packet.get('relayNode')
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
+
+            if node_id in self.nodes:
+                self.nodes[node_id]['ts'] = int(time.time())
+                self.nodes[node_id]['seen_at'] = int(time.time())
+                self.nodes[node_id]['source'] = 'live'
+                print(f"♡ {node_id} telemetry heartbeat [TCP]")
+                asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+                return True
+            elif node_id in self.nodes_no_position:
+                self.nodes_no_position[node_id]['ts'] = int(time.time())
+                self.nodes_no_position[node_id]['seen_at'] = int(time.time())
+                self.nodes_no_position[node_id]['source'] = 'live'
+                print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
+                asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
+                asyncio.run(self.broadcast_stats_update())
+            return True
+        except Exception as e:
+            print(f"[TCP] telemetry parse error: {e}")
+        return False
+
+    def parse_text_from_packet(self, packet):
+        """Parse a TEXT_MESSAGE_APP packet received via the Python API."""
+        try:
+            from_id = packet.get('fromId')
+            if not from_id:
+                return False
+
+            to_id = packet.get('toId', '^all')
+            text = packet.get('decoded', {}).get('text', '')
+            if not text:
+                return False
+
+            channel_index = packet.get('channel', 0)
+
+            sender_name = from_id
+            if from_id in self.nodes:
+                sender_name = self.nodes[from_id].get('name', from_id)
+            elif from_id in self.nodes_no_position:
+                sender_name = self.nodes_no_position[from_id].get('name', from_id)
+            elif from_id in self.known_names:
+                sender_name = self.known_names[from_id]
+
+            message = {
+                'from_id': from_id,
+                'from_name': sender_name,
+                'to_id': to_id,
+                'text': text,
+                'timestamp': int(time.time()),
+                'is_dm': to_id != '^all',
+                'channel_index': channel_index
+            }
+
+            if channel_index not in self.messages:
+                self.messages[channel_index] = []
+            self.messages[channel_index].insert(0, message)
+            if len(self.messages[channel_index]) > 50:
+                self.messages[channel_index] = self.messages[channel_index][:50]
+
+            dm_marker = " [DM]" if message['is_dm'] else ""
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
+            relay_node_raw = packet.get('relayNode')
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
+            asyncio.run(self.broadcast_message(message))
+            return True
+        except Exception as e:
+            print(f"[TCP] text parse error: {e}")
         return False
 
     async def broadcast_node_update(self, node_data):
@@ -675,7 +1374,8 @@ class ListenBasedMapper:
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': list(self.nodes.values()),
                 'nodes_no_pos': list(self.nodes_no_position.values()),
-                'messages': self.messages
+                'messages': self.messages,
+                'known_names': self.known_names
             }
             
             temp_path = self.json_path + '.tmp'
@@ -686,14 +1386,98 @@ class ListenBasedMapper:
             
             dist_info = f", max range: {max_dist} km to {farthest_id}" if max_dist else ""
             print(f"[SAVE] {len(self.nodes)} nodes + {len(self.nodes_no_position)} no-GPS → {self.json_path}{dist_info}")
-            
+            self.stats_db.cleanup_old_data()
+
         except Exception as e:
             print(f"Save error: {e}") 
+
+    def _run_tcp(self):
+        """Run TCP listener using the Python Meshtastic API (no subprocess)."""
+        last_save = time.time()
+        last_clean = time.time()
+        save_interval = 60
+        first_save_done = False
+        first_save_delay = 10
+        clean_interval = 3600
+        restart_count = 0
+
+        while True:
+            tcp_iface = None
+            try:
+                print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
+                tcp_iface = TCPMeshtasticInterface(self.host)
+                tcp_iface.connect(self._on_tcp_packet)
+                print(f"[TCP] Connected to {self.host}")
+
+                last_save = time.time()
+                first_save_done = False
+
+                while True:
+                    if restart_event.is_set():
+                        print("[RESTART] Connection change requested, stopping TCP listener...")
+                        self.save_nodes()
+                        return
+
+                    current_interval = first_save_delay if not first_save_done else save_interval
+                    if time.time() - last_save > current_interval:
+                        self.save_nodes()
+                        last_save = time.time()
+                        first_save_done = True
+
+                    if time.time() - last_clean > clean_interval:
+                        self.clean_old_nodes()
+                        self.save_nodes()
+                        last_clean = time.time()
+
+                    time.sleep(1)
+
+            except KeyboardInterrupt:
+                print("\n\n[STOP] Stopping by user request...")
+                if self.nodes:
+                    print("[SAVE] Final save before exit...")
+                    self.save_nodes()
+                print("[EXIT] Goodbye!")
+                break
+
+            except OSError as e:
+                if restart_count == 0:
+                    print(f"[TCP] First attempt connection reset (Heltec V3 quirk), waiting 5s...")
+                else:
+                    print(f"[TCP] Connection error: {e}")
+                time.sleep(5)
+                restart_count += 1
+                continue
+
+            except Exception as e:
+                if restart_count == 0:
+                    print(f"[TCP] First attempt failed (normal for Heltec V3), retrying...")
+                else:
+                    print(f"[TCP] Error: {e}")
+                    import traceback
+                    traceback.print_exc()
+
+                if restart_event.is_set():
+                    self.save_nodes()
+                    return
+
+                if self.nodes:
+                    self.save_nodes()
+
+                print("[WAIT] Retrying in 10 seconds...")
+                time.sleep(10)
+                restart_count += 1
+
+            finally:
+                if tcp_iface is not None:
+                    try:
+                        tcp_iface.disconnect()
+                    except Exception:
+                        pass
 
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.13")
+        print("Meshtastic Mapper - LISTEN MODE v1.18")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -701,10 +1485,19 @@ class ListenBasedMapper:
         print(f"WebSocket server: ws://0.0.0.0:8765")
         print("=" * 60)
 
+        global send_restart_no_nodes
+
         if self.connection_type == 'tcp':
-            cmd = [self.meshtastic_cmd, '--host', self.host, '--listen']
-        else:
-            cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+            # TCP: use Python API listener, not CLI subprocess
+            send_restart_no_nodes = False  # --no-nodes flag not applicable for TCP API
+            self._run_tcp()
+            return
+
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+
+        if send_restart_no_nodes:
+            cmd.append('--no-nodes')
+            send_restart_no_nodes = False
 
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
@@ -888,6 +1681,137 @@ def parse_traceroute_output(output):
                 route = hops
 
     return route, route_back
+
+
+async def run_send_message(text, channel_index, dest_id, websocket):
+    """Send a text message.
+    TCP mode: uses a dedicated TCPInterface (no listener stop needed).
+    Serial mode: stops listener subprocess first, then restarts.
+    """
+    global send_restart, send_restart_no_nodes
+    try:
+        if not mapper:
+            await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}))
+            return
+
+        await websocket.send(json.dumps({
+            'type': 'send_status', 'status': 'sending', 'connection_type': mapper.connection_type
+        }))
+
+        if mapper.connection_type == 'tcp':
+            # TCP: create a separate TCPInterface just for sending; do NOT stop listener
+            loop = asyncio.get_event_loop()
+
+            def _do_tcp_send():
+                iface = meshtastic.tcp_interface.TCPInterface(
+                    hostname=mapper.host, noProto=False
+                )
+                try:
+                    iface.sendText(
+                        text,
+                        channelIndex=channel_index,
+                        destinationId=dest_id if dest_id else '^all'
+                    )
+                    return True, 'Message sent'
+                except Exception as exc:
+                    return False, str(exc)
+                finally:
+                    try:
+                        iface.close()
+                    except Exception:
+                        pass
+
+            try:
+                success, msg = await asyncio.wait_for(
+                    loop.run_in_executor(None, _do_tcp_send),
+                    timeout=30
+                )
+            except asyncio.TimeoutError:
+                success, msg = False, 'Send timed out'
+
+            print(f"[SEND] TCP ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
+            await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
+            await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+
+            if success:
+                sent_message = {
+                    'from_id': mapper.local_node_id,
+                    'from_name': 'You',
+                    'to_id': dest_id if dest_id else '^all',
+                    'text': text,
+                    'timestamp': int(time.time()),
+                    'is_dm': bool(dest_id),
+                    'channel_index': channel_index
+                }
+                if channel_index not in mapper.messages:
+                    mapper.messages[channel_index] = []
+                mapper.messages[channel_index].insert(0, sent_message)
+                await mapper.broadcast_message(sent_message)
+
+            # No listener restart needed for TCP
+            return
+
+        # Serial/USB: stop listener subprocess, send via CLI, then restart
+        if mapper.current_process:
+            mapper.current_process.terminate()
+            await asyncio.sleep(5)
+
+        cmd = [mapper.meshtastic_cmd, '--port', mapper.port,
+               '--sendtext', text, '--ch-index', str(channel_index)]
+        if dest_id:
+            cmd += ['--dest', dest_id]
+
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(None, lambda: subprocess.run(
+                cmd, capture_output=True, text=True, timeout=28
+            )),
+            timeout=30
+        )
+
+        success = result.returncode == 0
+        msg = 'Message sent' if success else (result.stderr.strip() or 'Send failed')
+        print(f"[SEND] ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
+
+        await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+
+        if success:
+            sent_message = {
+                'from_id': mapper.local_node_id,
+                'from_name': 'You',
+                'to_id': dest_id if dest_id else '^all',
+                'text': text,
+                'timestamp': int(time.time()),
+                'is_dm': bool(dest_id),
+                'channel_index': channel_index
+            }
+            if channel_index not in mapper.messages:
+                mapper.messages[channel_index] = []
+            mapper.messages[channel_index].insert(0, sent_message)
+            await mapper.broadcast_message(sent_message)
+
+        if mapper.connection_type != 'tcp':
+            await asyncio.sleep(2)
+            send_restart = True
+            send_restart_no_nodes = True
+            restart_event.set()
+
+    except asyncio.TimeoutError:
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+        if mapper and mapper.connection_type != 'tcp':
+            send_restart = True
+            send_restart_no_nodes = True
+            restart_event.set()
+    except Exception as e:
+        print(f"[SEND] Error: {e}")
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+        if mapper and mapper.connection_type != 'tcp':
+            send_restart = True
+            send_restart_no_nodes = True
+            restart_event.set()
 
 
 async def run_traceroute(node_id, websocket):
@@ -1083,6 +2007,80 @@ async def websocket_handler(websocket):
                         asyncio.ensure_future(run_traceroute(node_id, websocket))
                     else:
                         print(f"[WS] Traceroute request missing node_id from {client_addr}")
+                elif data.get('type') == 'send_message':
+                    text = data.get('text', '').strip()
+                    channel_index = int(data.get('channel_index', 0))
+                    dest_id = data.get('dest_id') or None
+                    if text:
+                        asyncio.ensure_future(run_send_message(text, channel_index, dest_id, websocket))
+                    else:
+                        print(f"[WS] send_message missing text from {client_addr}")
+                elif data.get('type') == 'get_stats':
+                    if mapper:
+                        stats = mapper.stats_db.get_stats_summary(mapper.local_node_id)
+                        stats['local_node_id'] = mapper.local_node_id
+                        stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
+                        stats['tracker_info'] = getattr(mapper, 'tracker_info', {})
+                        # Geographic stats: farthest node, avg distance of direct nodes
+                        geo = {'farthest_node_id': None, 'farthest_node_name': None,
+                               'farthest_dist_km': None, 'avg_direct_dist_km': None}
+                        if mapper.local_node_id and mapper.local_node_id in mapper.nodes:
+                            local = mapper.nodes[mapper.local_node_id]
+                            if local.get('lat') and local.get('lon'):
+                                direct_dists = []
+                                for nid, n in mapper.nodes.items():
+                                    if nid == mapper.local_node_id: continue
+                                    if n.get('hops') != 0 or n.get('via_mqtt'): continue
+                                    if not n.get('lat') or not n.get('lon'): continue
+                                    d = mapper.calculate_distance(local['lat'], local['lon'], n['lat'], n['lon'])
+                                    direct_dists.append((d, nid, n.get('name', nid)))
+                                if direct_dists:
+                                    direct_dists.sort(reverse=True)
+                                    geo['farthest_dist_km'] = round(direct_dists[0][0], 2)
+                                    geo['farthest_node_id'] = direct_dists[0][1]
+                                    geo['farthest_node_name'] = direct_dists[0][2]
+                                    geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
+                        stats['geo'] = geo
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
+                    else:
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'clear_node_stats':
+                    node_id = data.get('node_id', '').strip()
+                    if node_id and mapper:
+                        try:
+                            mapper.stats_db.clear_node_packets(node_id)
+                            await websocket.send(json.dumps({
+                                'type': 'clear_node_stats_result',
+                                'node_id': node_id,
+                                'success': True
+                            }))
+                            print(f"[STATS] Cleared packet history for {node_id}")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_node_stats_result',
+                                'node_id': node_id,
+                                'success': False,
+                                'error': str(e)
+                            }))
+                elif data.get('type') == 'get_elevation':
+                    locations = data.get('locations', [])
+                    if locations and len(locations) <= 100:
+                        try:
+                            import urllib.request
+                            loc_str = '|'.join([f"{p['latitude']},{p['longitude']}" for p in locations])
+                            url = f"https://api.opentopodata.org/v1/srtm90m?locations={loc_str}"
+                            req = urllib.request.Request(url, headers={'User-Agent': 'MeshtasticMapper/1.17'})
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                result = json.loads(resp.read().decode())
+                            await websocket.send(json.dumps({
+                                'type': 'elevation_data',
+                                'elevations': [r['elevation'] for r in result.get('results', [])]
+                            }))
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'elevation_data',
+                                'error': str(e)
+                            }))
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
@@ -1164,13 +2162,18 @@ if __name__ == '__main__':
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
         # Mapper loop with runtime restart support
+        _watchdog_started = False
         while True:
             mapper = ListenBasedMapper(
                 connection_type=connection_type,
                 port=port,
                 host=host,
-                max_age=172800
+                max_age=86400
             )
+            if not _watchdog_started:
+                watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
+                watchdog_thread.start()
+                _watchdog_started = True
             mapper.run()
 
             if restart_event.is_set():
@@ -1180,6 +2183,10 @@ if __name__ == '__main__':
                     traceroute_restart = False
                     # Traceroute-triggered restart: keep same connection, don't clear nodes.json
                     print("[RESTART] Traceroute restart - resuming listener, keeping data")
+                elif send_restart:
+                    send_restart = False
+                    # Send-triggered restart: keep same connection, don't clear nodes.json
+                    print("[RESTART] Send restart - resuming listener, keeping data")
                 else:
                     # Normal connection change
                     connection_type = restart_config.get('connection_type', 'serial')
@@ -1195,7 +2202,7 @@ if __name__ == '__main__':
                                 'updated': datetime.now().isoformat(),
                                 'cnt': 0, 'cnt_no_pos': 0,
                                 'max_distance_km': None, 'farthest_node': None,
-                                'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': []
+                                'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': {}
                             }
                             with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
                                 json.dump(empty_data, f, indent=2)
