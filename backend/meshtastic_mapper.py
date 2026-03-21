@@ -2062,6 +2062,25 @@ async def websocket_handler(websocket):
                                 'success': False,
                                 'error': str(e)
                             }))
+                elif data.get('type') == 'get_elevation':
+                    locations = data.get('locations', [])
+                    if locations and len(locations) <= 100:
+                        try:
+                            import urllib.request
+                            loc_str = '|'.join([f"{p['latitude']},{p['longitude']}" for p in locations])
+                            url = f"https://api.opentopodata.org/v1/srtm90m?locations={loc_str}"
+                            req = urllib.request.Request(url, headers={'User-Agent': 'MeshtasticMapper/1.17'})
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                result = json.loads(resp.read().decode())
+                            await websocket.send(json.dumps({
+                                'type': 'elevation_data',
+                                'elevations': [r['elevation'] for r in result.get('results', [])]
+                            }))
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'elevation_data',
+                                'error': str(e)
+                            }))
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
