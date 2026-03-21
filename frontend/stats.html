@@ -536,7 +536,7 @@ function renderAll(data) {
     document.getElementById('stat-total').textContent   = (data.total_packets||0).toLocaleString();
     document.getElementById('stat-relayed').textContent = (data.relayed_packets||0).toLocaleString();
     document.getElementById('stat-relay-pct').textContent = data.relay_percentage||0;
-    document.getElementById('stat-nodes').textContent   = (data.top_senders||[]).length;
+    document.getElementById('stat-nodes').textContent   = data.active_node_count || 0;
     document.getElementById('stat-anomalies').textContent = (data.anomalies||[]).length;
 
     // 7-day total

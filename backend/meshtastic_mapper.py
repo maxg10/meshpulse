@@ -210,6 +210,8 @@ class StatsDB:
                 AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum
                 FROM packets WHERE ts > ? AND via_mqtt = 0
                 GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h,)).fetchall()
+            active_node_count = c.execute('''SELECT COUNT(DISTINCT from_id) as cnt
+                FROM packets WHERE ts > ? AND via_mqtt = 0''', (since_24h,)).fetchone()['cnt']
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
@@ -263,6 +265,7 @@ class StatsDB:
                 'relayed_packets': relayed,
                 'relay_percentage': round(relayed / total * 100, 1) if total > 0 else 0,
                 'top_senders': [dict(r) for r in top_senders],
+                'active_node_count': active_node_count,
                 'hourly_activity': [{'hour': r['hour'], 'count': r['cnt']} for r in hourly],
                 'relayed_nodes': [dict(r) for r in relayed_nodes],
                 'anomalies': [dict(r) for r in anomalies],
