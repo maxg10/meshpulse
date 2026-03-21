@@ -151,13 +151,17 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-**v1.17 - Network Statistics Page**
-- 📊 New stats page at `/meshtastic/stats.html` — live network analytics via WebSocket
-- 📈 Hourly packet activity chart and packet type breakdown (Chart.js)
-- 🔁 Shows which nodes were relayed through your router and relay counts
-- 🕸️ D3.js force-directed network topology graph
-- ⚠️ Automatic anomaly detection: high-frequency position broadcasts, message spam
-- 🗄️ SQLite database (`stats.db`) with 3-day retention, threadsafe
+**v1.18 - Navigation & Stats Improvements**
+- 🧭 Top navigation bar on all pages with 3-column layout (title | status | nav links)
+- 🔴 WebSocket status moved to navbar center with live/connecting/offline label
+- 🔧 Watchdog: auto-restarts serial listener after 10min silence (fixes frozen meshtastic --listen)
+- 📊 Most Active Nodes: one row per node per packet type — see exactly who spams position vs telemetry
+- 🗑️ Clear node stats button — reset packet history for any node instantly
+- 🏔️ LOS fixed: switched to opentopodata.org via WebSocket proxy (CORS bypass)
+- ⚠️ Anomaly improvements: correct CLI syntax, time-ago display, no false positives for own node
+- 🎯 Node TTL reduced to 24h — map and stats now consistent
+- 🔁 Relay detection improved: now tracks all packet types, not just position
+- 🐛 Many bug fixes: chart sizing, resize, active node count, data window display
 
 **v1.16 - Python Meshtastic API for TCP**
 - Native Python `meshtastic.tcp_interface.TCPInterface` used for TCP connections (no CLI subprocess)

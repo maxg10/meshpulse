@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.17 (Network Statistics Page)
+**Current Version:** v1.18 (Navigation & Stats Improvements)
 
 ## Running & Deployment
 
@@ -176,21 +176,40 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.17)
+## Recent Changes (v1.18)
 
 **Added:**
-- `StatsDB` class — SQLite database (`stats.db`) storing packets, node_activity, anomalies tables; 3-day retention
-- `ListenBasedMapper.stats_db` — `StatsDB` instance created in `__init__`
-- `ListenBasedMapper._last_packet_times` — dict for anomaly detection timing
-- `ListenBasedMapper.log_packet_to_stats()` — logs every packet to SQLite; detects HIGH_FREQUENCY_POSITION (<30s) and SPAM_MESSAGES (<5s) anomalies; detects relay-through-us via `relayNode` last byte vs our node ID
-- All parsers call `log_packet_to_stats()`: `parse_node_info`, `parse_position_update`, `parse_telemetry_update`, `parse_text_message` (serial) and all four TCP equivalents
-- `save_nodes()` now calls `self.stats_db.cleanup_old_data()` on each save
-- WebSocket `get_stats` message type — returns 24h summary: total packets, relayed packets, top senders, hourly activity, relayed nodes, anomalies, packet types, topology
-- `frontend/stats.html` — standalone dark-theme stats page with: summary cards, hourly Chart.js bar chart, packet type doughnut chart, top senders table, relayed nodes table, D3.js force-directed topology graph, anomalies list; auto-refreshes every 30s via WebSocket
-- `install.sh` copies `stats.html` to web directory
+- Top navigation bar on all pages — 3-column layout: title left, status center, nav right
+- `favicon_stats.ico` — separate favicon for stats page (orange bar chart on navy)
+- Watchdog thread — restarts serial listener after 10min of silence (fixes frozen `meshtastic --listen`)
+- WS status dot moved to navbar center with "live/connecting/offline" label and last update time
+- Clear node stats button (🗑️) in Most Active Nodes table — deletes packets + anomalies for that node
+- `active_node_count` field in stats summary — proper DISTINCT count instead of top_senders length
+- Time-ago display next to anomaly timestamps in Recent Anomalies
+
+**Fixed:**
+- LOS elevation API: replaced broken `open-elevation.com` (expired SSL cert) with `opentopodata.org` via WebSocket proxy (bypasses CORS)
+- `relayNode` now extracted from ALL packet types (nodeinfo, telemetry, text) not just position
+- Own node telemetry heartbeat no longer triggers false FREQUENT_TELEMETRY anomalies
+- Own node excluded from "Relayed Through Your Node" table
+- Node TTL reduced from 48h to 24h to match stats page 24h window
+- `data_window_minutes` now reflects actual 24h window, not entire DB history
+- Most Active Nodes now shows one row per node per packet type (position vs telemetry visible separately)
+- Most Active Nodes TYPE column shows most frequent packet type per node
+- Packet Types and Hop Count charts fixed to normal height (removed oversized flex containers)
+- Chart.js resize fixed via ResizeObserver on all cards
+- Anomaly CLI suggestions now use correct syntax (no `=` sign)
+- `clear_node_packets` now also deletes anomalies for that node
+- Panel positions adjusted for 44px navbar (search bar, LOS panel, traceroute, messages)
+- Radio panel removed from map (info available in Stats page)
+- Meshtastic CLI syntax fixed in anomaly suggestions
 
 **Changed:**
-- Version bumped to v1.17 (`MAPPER_VERSION`, `styles.css?v=1.17`, backend comment)
+- Version bumped to v1.18
+- `styles.css?v=1.18`
+- `top_senders` query groups by `from_id, portnum` (one row per node per type, LIMIT 30)
+- "Last Seen" column renamed to "Last Pkt" in Most Active Nodes
+- Network Statistics page header removed (info now in navbar)
 
 ### StatsDB Architecture
 - **DB path**: `/var/www/html/meshtastic/stats.db`
