@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
+    <link rel="stylesheet" href="styles.css?v=1.18">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -13,6 +14,7 @@
             background: #111827;
             color: #1f2937;
             margin: 0; padding: 16px;
+            padding-top: 60px;
         }
         .nav { margin-bottom: 12px; font-size: 13px; }
         .nav a { color: #3b82f6; text-decoration: none; }
@@ -125,14 +127,16 @@
     </style>
 </head>
 <body>
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper</div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link active">📊 Stats</a>
+        <a href="#" class="topnav-link topnav-soon">⚙️ Config <span class="soon-badge">soon</span></a>
+    </div>
+</nav>
 
 <div id="g-tooltip"></div>
-
-<div class="nav">
-    <a href="/meshtastic/">← Map</a>
-    <span style="color:#4b5563"> | </span>
-    <span style="color:#9ca3af">📊 Network Stats</span>
-</div>
 
 <div class="page-header">
     <h1>📊 Network Statistics</h1>
@@ -342,7 +346,7 @@
     </div>
 </div>
 
-<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained 3 days &nbsp;·&nbsp; <a href="/meshtastic/" style="color:#3b82f6">← Back to map</a></div>
+<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained 3 days</div>
 
 <script>
 // ── Global tooltip ──────────────────────────────────────────────

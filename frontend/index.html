@@ -8,10 +8,18 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.17">
+    <link rel="stylesheet" href="styles.css?v=1.18">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper</div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link active">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="#" class="topnav-link topnav-soon">⚙️ Config <span class="soon-badge">soon</span></a>
+    </div>
+</nav>
     <div id="map"></div>
     <div id="search-bar">
         <input type="text" id="search-input" placeholder="🔍 Search node by name or ID..."

@@ -1,7 +1,28 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
 *{margin:0;padding:0}
 body{font-family:Arial,sans-serif}
-#map{height:100vh;width:100%}
+#topnav{
+    position:fixed;top:0;left:0;right:0;height:44px;
+    background:#1f2937;z-index:2000;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+}
+.topnav-logo{color:#f9fafb;font-weight:600;font-size:14px;font-family:Arial,sans-serif}
+.topnav-links{display:flex;gap:4px;align-items:center}
+.topnav-link{
+    color:#9ca3af;text-decoration:none;font-size:13px;
+    padding:6px 12px;border-radius:6px;transition:all 0.15s;
+    font-family:Arial,sans-serif;
+}
+.topnav-link:hover{color:#f9fafb;background:rgba(255,255,255,0.1)}
+.topnav-link.active{color:#f9fafb;background:#3b82f6}
+.topnav-soon{opacity:0.5;cursor:default;pointer-events:none}
+.soon-badge{
+    background:#374151;color:#9ca3af;font-size:9px;
+    padding:1px 5px;border-radius:10px;margin-left:4px;
+    vertical-align:middle;font-weight:normal;
+}
+#map{height:100vh;width:100%;margin-top:44px}
 #stats{position:absolute;top:10px;right:10px;background:rgba(255,255,255,.95);
        padding:12px;border-radius:6px;z-index:1000;font-size:13px;
        box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px}
@@ -179,7 +200,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:200px;max-height:250px;overflow-y:
 .hop-arrow{color:#6b7280;margin:0 3px}
 .node-popup button{margin-top:6px;font-size:11px;padding:2px 7px;cursor:pointer}
 
-#search-bar{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:1100;width:350px}
+#search-bar{position:fixed;top:54px;left:50%;transform:translateX(-50%);z-index:1100;width:350px}
 #search-input{width:100%;padding:8px 12px;border-radius:6px;border:none;box-shadow:0 2px 8px rgba(0,0,0,.3);font-size:13px;font-family:Arial,sans-serif;background:rgba(255,255,255,.97);box-sizing:border-box}
 #search-results{background:rgba(255,255,255,.97);border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,.3);margin-top:4px;max-height:300px;overflow-y:auto;display:none}
 .search-result-item{padding:8px 12px;cursor:pointer;font-size:12px;font-family:Arial,sans-serif;border-bottom:1px solid #eee;display:flex;align-items:center;gap:8px}
