@@ -312,7 +312,7 @@ def save_config(connection_type, host=None, port=None):
         print(f"[CONFIG] Save error: {e}")
 
 class ListenBasedMapper:
-    def __init__(self, connection_type='serial', port=None, host=None, max_age=604800):
+    def __init__(self, connection_type='serial', port=None, host=None, max_age=86400):
         self.connection_type = connection_type
         self.port = port
         self.host = host
@@ -2149,7 +2149,7 @@ if __name__ == '__main__':
                 connection_type=connection_type,
                 port=port,
                 host=host,
-                max_age=172800
+                max_age=86400
             )
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
