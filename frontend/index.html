@@ -712,13 +712,20 @@
         }
 
         async function fetchElevationData(points) {
-            const response = await fetch('https://api.open-elevation.com/api/v1/lookup', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ locations: points })
-            });
-            const data = await response.json();
-            return data.results.map(r => r.elevation);
+            // Split into chunks of 100 (opentopodata limit per request)
+            const chunkSize = 100;
+            const elevations = [];
+            for (let i = 0; i < points.length; i += chunkSize) {
+                const chunk = points.slice(i, i + chunkSize);
+                const locations = chunk.map(p => `${p.latitude},${p.longitude}`).join('|');
+                const response = await fetch(`https://api.opentopodata.org/v1/srtm90m?locations=${locations}`, {
+                    signal: losAbortController ? losAbortController.signal : undefined
+                });
+                const data = await response.json();
+                if (data.status !== 'OK') throw new Error('Elevation API error: ' + data.status);
+                data.results.forEach(r => elevations.push(r.elevation));
+            }
+            return elevations;
         }
 
         function fresnelRadius(d1, d2, frequency = 868) {
