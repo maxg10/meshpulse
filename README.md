@@ -3,7 +3,7 @@ cat README.md
 
 Real-time web-based visualization of Meshtastic mesh network nodes. Optimized for low-power devices like Raspberry Pi Model B+.
 
-![Meshtastic Network Map](docs/screenshoot.png)
+![Meshtastic Network Map](docs/screenshot.png)
 
 
 ## Features
