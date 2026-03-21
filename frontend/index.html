@@ -13,9 +13,9 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:10px;color:#6b7280;font-weight:normal;margin-left:6px">v1.17</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:10px;color:#9ca3af;font-weight:normal;margin-left:6px">v1.17</span></div>
     <div class="topnav-links">
-        <a href="/meshtastic/" class="topnav-link active">🗺️ Map</a>
+        <a href="/meshtastic/" class="topnav-link active">🗺️ Map <span id="ws-status" style="color:#eab308;" title="Loading...">●</span> <span id="ws-status-label" style="font-size:10px;color:#6b7280">connecting</span></a>
         <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
         <a href="#" class="topnav-link topnav-soon">⚙️ Config <span class="soon-badge">soon</span></a>
     </div>
@@ -29,9 +29,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
         <h3>▼</h3>
         <div id="stats-content">
-        <small><span id="ws-status" style="color:#eab308;" title="Loading...">●</span></small>
-        <b>Nodes:</b> <span id="cnt">0</span><br>
-        <b>Routers:</b> <span id="routers">0</span> | <b>Clients:</b> <span id="clients">0</span><br>
+        <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
@@ -202,24 +200,29 @@
         
         function updateWSStatus(status) {
             const statusEl = document.getElementById('ws-status');
+            const labelEl = document.getElementById('ws-status-label');
             statusEl.classList.remove('ws-connecting');
             if (status === 'connected') {
                 statusEl.style.color = '#22c55e';
                 statusEl.textContent = '●';
                 statusEl.title = 'WebSocket connected (real-time)';
+                if (labelEl) { labelEl.textContent = 'live'; labelEl.style.color = '#22c55e'; }
             } else if (status === 'connecting') {
                 statusEl.style.color = '#eab308';
                 statusEl.textContent = '●';
                 statusEl.title = 'Connecting...';
                 statusEl.classList.add('ws-connecting');
+                if (labelEl) { labelEl.textContent = 'connecting'; labelEl.style.color = '#eab308'; }
             } else if (status === 'polling') {
                 statusEl.style.color = '#eab308';
                 statusEl.textContent = '●';
                 statusEl.title = 'Using polling (fallback)';
+                if (labelEl) { labelEl.textContent = 'polling'; labelEl.style.color = '#eab308'; }
             } else {
                 statusEl.style.color = '#ef4444';
                 statusEl.textContent = '●';
                 statusEl.title = 'Disconnected';
+                if (labelEl) { labelEl.textContent = 'offline'; labelEl.style.color = '#ef4444'; }
             }
         }
         
