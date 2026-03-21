@@ -127,7 +127,13 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper</div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.17 — Stats</span></div>
+    <div class="topnav-status">
+        <span class="ws-dot ws-disconnected" id="ws-dot"></span>
+        <span id="ws-label">Connecting...</span>
+        <span style="color:#4b5563">·</span>
+        <span style="color:#6b7280">Last update: <span id="last-update" style="color:#9ca3af">-</span></span>
+    </div>
     <div class="topnav-links">
         <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
         <a href="/meshtastic/stats.html" class="topnav-link active">📊 Stats</a>
@@ -138,7 +144,7 @@
 <div id="g-tooltip"></div>
 
 <div class="page-header">
-    <h1>📊 Network Statistics &nbsp;<span style="font-size:13px;font-weight:normal;color:#9ca3af"><span class="ws-dot ws-disconnected" id="ws-dot"></span><span id="ws-label">Connecting...</span> &nbsp;·&nbsp; Last update: <span id="last-update">-</span> &nbsp;·&nbsp; <span id="tracker-label">-</span></span></h1>
+    <h1>📊 Network Statistics <span id="tracker-label" style="font-size:12px;color:#6b7280;font-weight:normal;margin-left:8px"></span></h1>
 </div>
 
 <!-- Summary cards -->

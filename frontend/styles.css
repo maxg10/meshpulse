@@ -4,11 +4,17 @@ body{font-family:Arial,sans-serif}
 #topnav{
     position:fixed;top:0;left:0;right:0;height:44px;
     background:#1f2937;z-index:2000;
-    display:flex;align-items:center;justify-content:space-between;
+    display:grid;grid-template-columns:1fr auto 1fr;
+    align-items:center;
     padding:0 16px;box-shadow:0 2px 8px rgba(0,0,0,0.4);
 }
-.topnav-logo{color:#f9fafb;font-weight:600;font-size:14px;font-family:Arial,sans-serif}
-.topnav-links{display:flex;gap:4px;align-items:center}
+.topnav-logo{color:#f9fafb;font-weight:600;font-size:14px;font-family:Arial,sans-serif;white-space:nowrap}
+.topnav-status{
+    display:flex;align-items:center;gap:6px;
+    font-size:12px;color:#9ca3af;font-family:Arial,sans-serif;
+    white-space:nowrap;justify-content:center;
+}
+.topnav-links{display:flex;gap:4px;align-items:center;justify-content:flex-end}
 .topnav-link{
     color:#d1d5db;text-decoration:none;font-size:13px;
     padding:6px 12px;border-radius:6px;transition:all 0.15s;
