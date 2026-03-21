@@ -338,6 +338,7 @@ class ListenBasedMapper:
         # Stats database
         self.stats_db = StatsDB()
         self._last_packet_times = {}  # for anomaly detection
+        self._last_radio_packet_time = time.time()  # watchdog: last time we got any packet from radio
 
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
@@ -544,6 +545,28 @@ class ListenBasedMapper:
                 if node_id not in self.nodes and node_id not in self.nodes_no_position:
                     self.known_names.pop(node_id, None)
     
+    def _watchdog_loop(self):
+        """Restart meshtastic --listen subprocess if no packets received for WATCHDOG_TIMEOUT seconds."""
+        WATCHDOG_TIMEOUT = 600  # 10 minutes of silence = restart subprocess
+        CHECK_INTERVAL = 60     # check every minute
+        # Give extra time on startup before watchdog activates
+        time.sleep(120)
+        while True:
+            time.sleep(CHECK_INTERVAL)
+            if self.connection_type != 'serial':
+                continue  # watchdog only for serial mode
+            silence = time.time() - self._last_radio_packet_time
+            if silence > WATCHDOG_TIMEOUT:
+                print(f"[WATCHDOG] No packets for {int(silence)}s — restarting meshtastic listener...")
+                self._last_radio_packet_time = time.time()  # reset before restart
+                try:
+                    if self.current_process and self.current_process.poll() is None:
+                        self.current_process.terminate()
+                        time.sleep(2)
+                        self.current_process.kill()
+                except Exception as e:
+                    print(f"[WATCHDOG] Error killing process: {e}")
+
     def clean_old_nodes(self):
         """Clean old nodes from self.nodes and self.nodes_no_position"""
         self.clean_old_nodes_from_dict(self.nodes)
@@ -574,6 +597,7 @@ class ListenBasedMapper:
             relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
             relay_node_id = f"relay_{relay_node_raw}"
 
+        self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
 
         # Anomaly detection - check all packet types
@@ -2100,6 +2124,10 @@ if __name__ == '__main__':
         ws_thread = threading.Thread(target=run_websocket_server_thread, daemon=True)
         ws_thread.start()
         print("[WS] WebSocket server thread started")
+
+        # Start watchdog thread
+        watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
+        watchdog_thread.start()
 
         # Give WebSocket server time to start
         time.sleep(2)
