@@ -844,9 +844,11 @@ function renderAnomalies(anomalies) {
         const countBadge = a.count > 1 ? `<span class="count-badge">×${a.count}</span>` : '';
         const sevClass = a.severity==='error' ? 'error' : a.severity==='info' ? 'info' : '';
         const badgeClass = a.severity==='error' ? 'badge-red' : a.severity==='info' ? 'badge-info-sev' : 'badge-warn';
+        const secAgo = Math.floor(Date.now()/1000) - a.latest_ts;
+        const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
         return `
         <div class="anomaly-item ${sevClass}">
-            <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()}</span>
+            <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()} · ${agoStr}</span>
             <span class="badge ${badgeClass}">${a.anomaly_type}</span>
             ${countBadge}
             <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
