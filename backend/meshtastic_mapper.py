@@ -873,7 +873,8 @@ class ListenBasedMapper:
                 elif node_id in self.nodes_no_position:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
-            self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
+            if node_id != self.local_node_id:
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
 
             # Only update timestamp if node already exists
             if node_id in self.nodes:
@@ -1173,7 +1174,8 @@ class ListenBasedMapper:
                 elif node_id in self.nodes_no_position:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
-            self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
+            if node_id != self.local_node_id:
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, None)
 
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
