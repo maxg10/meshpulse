@@ -82,8 +82,8 @@ padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,san
 box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
 #messages-panel.open{display:flex;flex-direction:column;max-height:calc(100vh - 386px);overflow:hidden}
 #messages-panel h4{margin:0;font-size:13px;user-select:none;flex-shrink:0}
-#messages-content{display:none;margin-top:8px;overflow-y:auto;min-height:0}
-#messages-panel.open #messages-content{display:block;flex:1;min-height:0}
+#messages-content{display:none;margin-top:8px;overflow-y:auto;min-height:0;flex:1}
+#messages-panel.open #messages-content{display:flex;flex-direction:column;flex:1;min-height:0;overflow-y:auto}
 #messages-list{flex:1;overflow-y:auto;min-height:0;}
 .message-item{padding:6px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .message-item:last-child{border-bottom:none}
