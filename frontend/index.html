@@ -1099,7 +1099,7 @@
                     tracerouteTimeout = null;
                     if (window._tracerouteNodeId) {
                         document.getElementById('traceroute-body').innerHTML =
-                            '<div style="color:#374151;padding:10px;">⏱️ Traceroute did not return a result. Listener should be restarting.</div>' +
+                            '<div style="color:#374151;padding:10px;">⏱️ No response received. The node may be too far (3+ hops) or temporarily unreachable.</div>' +
                             '<button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>';
                     }
                 }, 90000);
