@@ -139,6 +139,8 @@
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
         <span style="color:#4b5563">·</span>
+        <span id="device-status" style="color:#eab308">⏳ Waiting for device...</span>
+        <span style="color:#4b5563">·</span>
         <span style="color:#6b7280">Tracker: <span id="tracker-label" style="color:#9ca3af">-</span></span>
     </div>
     <div class="topnav-links">
@@ -946,17 +948,32 @@ document.addEventListener('mousemove', e => {
 });
 
 // ── WebSocket ────────────────────────────────────────────────────
+function updateDeviceStatus(ready) {
+    const el = document.getElementById('device-status');
+    if (!el) return;
+    if (ready) {
+        el.textContent = '✅ Device ready';
+        el.style.color = '#22c55e';
+    } else {
+        el.textContent = '⏳ Waiting for device...';
+        el.style.color = '#eab308';
+    }
+}
+
 function connectWS() {
     ws = new WebSocket(`ws://${location.hostname}:8765`);
     ws.onopen = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
+        updateDeviceStatus(false);
         ws.send(JSON.stringify({type: 'get_config'}));
         // retry handled by global startConfigRetry()
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
         document.getElementById('ws-label').textContent = 'Disconnected – reconnecting…';
+        updateDeviceStatus(false);
+        originalConfig = {};
         setTimeout(connectWS, 3000);
     };
     ws.onerror = () => ws.close();
@@ -1022,7 +1039,7 @@ function connectWS() {
         } else if (d.type === 'config_error') {
             if (d.error && (d.error.includes('not yet established') || d.error.includes('No active connection'))) {
                 // TCP not ready yet — retry is handled by the interval in onopen
-                document.getElementById('changes-info').textContent = '⏳ Waiting for device connection...';
+                document.getElementById('changes-info').textContent = '⏳ Waiting for device TCP connection...';
             } else {
                 showAlert('❌ Error loading config: ' + d.error, 'error');
                 document.getElementById('changes-info').textContent = 'Error loading config';
@@ -1038,6 +1055,7 @@ function populateForm(config) {
         clearInterval(_configRetryInterval);
         _configRetryInterval = null;
     }
+    updateDeviceStatus(true);
     // User
     setField('user.long_name', config.user?.long_name || '');
     setField('user.short_name', config.user?.short_name || '');
