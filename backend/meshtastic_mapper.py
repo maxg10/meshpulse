@@ -2742,6 +2742,15 @@ async def websocket_handler(websocket):
                                 channel.settings.psk = meshtastic.util.genPSK256()
                             elif ch_psk.startswith('base64:'):
                                 channel.settings.psk = base64.b64decode(ch_psk[7:])
+                            elif ch_psk.startswith('custom:'):
+                                raw = ch_psk[7:].strip()
+                                if raw.startswith('0x') or raw.startswith('0X'):
+                                    hex_str = raw[2:]
+                                    if len(hex_str) % 2 != 0:
+                                        raise Exception(f'Invalid hex PSK length: {len(hex_str)} chars (must be even)')
+                                    channel.settings.psk = bytes.fromhex(hex_str)
+                                else:
+                                    channel.settings.psk = base64.b64decode(raw)
 
                         node.writeChannel(ch_index)
                         print(f"[CONFIG] Channel {ch_index} saved: name={ch_name!r} role={ch_role} psk={'changed' if ch_psk else 'unchanged'}")

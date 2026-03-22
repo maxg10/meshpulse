@@ -671,12 +671,24 @@ function renderChannels(channels) {
                 <label>PSK (encryption key) <span class="tip" onmouseenter="showTip('Current PSK shown as Base64. Select an option to change it, or leave as-is to keep current key. Changing PSK will disconnect all other users!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
                     <code style="font-size:10px;background:#f3f4f6;padding:2px 6px;border-radius:3px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ch.psk}">${pskDisplay}</code>
-                    <select id="ch-psk-action-${ch.index}" onchange="chMarkChanged(${ch.index})">
+                    <select id="ch-psk-action-${ch.index}" onchange="chPskActionChange(${ch.index}); chMarkChanged(${ch.index})">
                         <option value="">Keep current PSK</option>
                         <option value="default">Set to default (AQ==)</option>
                         <option value="random">Generate random AES256</option>
                         <option value="none">Remove encryption</option>
+                        <option value="custom">Enter custom PSK...</option>
                     </select>
+                </div>
+                <div id="ch-psk-custom-${ch.index}" style="display:none;margin-top:6px">
+                    <input type="text" id="ch-psk-custom-input-${ch.index}"
+                        placeholder="Hex: 0x1a2b... or Base64: AQ==..."
+                        style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-family:monospace;font-size:12px"
+                        oninput="chMarkChanged(${ch.index})">
+                    <div style="margin-top:3px;font-size:10px;color:#6b7280">
+                        8-bit: 1 byte hex/base64 &nbsp;|&nbsp; 128-bit: 16 bytes &nbsp;|&nbsp; 256-bit: 32 bytes<br>
+                        Hex example: <code>0x1a2b3c4d...</code> &nbsp;|&nbsp; Base64 example: <code>AQIDBA==</code>
+                    </div>
+                    <div id="ch-psk-custom-error-${ch.index}" style="color:#dc2626;font-size:11px;margin-top:2px;display:none"></div>
                 </div>
             </div>
             <div style="display:flex;gap:8px;margin-top:10px">
@@ -693,20 +705,67 @@ function chMarkChanged(index) {
     document.getElementById(`ch-status-${index}`).style.color = '#f59e0b';
 }
 
+function chPskActionChange(index) {
+    const action = document.getElementById(`ch-psk-action-${index}`).value;
+    const customDiv = document.getElementById(`ch-psk-custom-${index}`);
+    if (customDiv) customDiv.style.display = action === 'custom' ? 'block' : 'none';
+    const errEl = document.getElementById(`ch-psk-custom-error-${index}`);
+    if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+}
+
 function saveChannel(index) {
     const name = document.getElementById(`ch-name-${index}`).value.trim();
     const roleEl = document.getElementById(`ch-role-${index}`);
     const role = roleEl ? parseInt(roleEl.value) : 1;
     const pskAction = document.getElementById(`ch-psk-action-${index}`).value;
 
-    if (!confirm(`Save changes to Channel ${index}?${pskAction && pskAction !== '' ? '\n⚠️ PSK will be changed — other users will be disconnected!' : ''}`)) return;
+    let pskValue = pskAction || null;
+
+    if (pskAction === 'custom') {
+        const customInput = document.getElementById(`ch-psk-custom-input-${index}`).value.trim();
+        const errEl = document.getElementById(`ch-psk-custom-error-${index}`);
+
+        if (!customInput) {
+            errEl.textContent = '❌ Please enter a PSK value';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        const validHex = /^0x[0-9a-fA-F]+$/.test(customInput);
+        const validBase64 = /^[A-Za-z0-9+/]+=*$/.test(customInput);
+
+        if (!validHex && !validBase64) {
+            errEl.textContent = '❌ Invalid format. Use hex (0x...) or base64';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        let byteLength = 0;
+        if (validHex) {
+            byteLength = (customInput.length - 2) / 2;
+        } else {
+            byteLength = Math.floor(atob(customInput).length);
+        }
+
+        if (![1, 16, 32].includes(byteLength)) {
+            errEl.textContent = `❌ Invalid key length: ${byteLength} bytes. Must be 1 (8-bit), 16 (128-bit), or 32 (256-bit)`;
+            errEl.style.display = 'block';
+            return;
+        }
+
+        errEl.style.display = 'none';
+        pskValue = 'custom:' + customInput;
+    }
+
+    const pskWarning = pskValue && pskValue !== null ? '\n⚠️ PSK will be changed — other users will be disconnected!' : '';
+    if (!confirm(`Save changes to Channel ${index}?${pskWarning}`)) return;
 
     ws.send(JSON.stringify({
         type: 'save_channel',
         index: index,
         name: name,
         role: role,
-        psk: pskAction || null
+        psk: pskValue
     }));
     document.getElementById(`ch-save-btn-${index}`).disabled = true;
     document.getElementById(`ch-status-${index}`).textContent = 'Saving...';
