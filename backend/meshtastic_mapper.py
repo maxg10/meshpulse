@@ -1564,12 +1564,15 @@ class ListenBasedMapper:
     def _handle_traceroute_packet(self, packet):
         """Handle incoming traceroute response packet from Python API."""
         try:
-            import json as _json
-            print(f"[TRACEROUTE DEBUG] Full packet: {_json.dumps(packet, default=str)[:500]}")
             decoded = packet.get('decoded', {})
-            route_discovery = decoded.get('routeDiscovery', {})
-            route_nums = route_discovery.get('route', [])
-            route_back_nums = route_discovery.get('routeBack', [])
+            # Python API puts data in 'traceroute' field, not 'routeDiscovery'
+            tr = decoded.get('traceroute', decoded.get('routeDiscovery', {}))
+
+            route_nums = tr.get('route', [])
+            snr_towards = tr.get('snrTowards', [])
+            route_back_nums = tr.get('routeBack', [])
+            snr_back = tr.get('snrBack', [])
+
             all_known = {**self.nodes, **self.nodes_no_position}
 
             def num_to_hop(num, snr=None):
@@ -1580,29 +1583,32 @@ class ListenBasedMapper:
                     'name': node.get('name', hex_id),
                     'lat': node.get('lat'),
                     'lon': node.get('lon'),
-                    'snr': snr
+                    'snr': round(snr / 4.0, 2) if snr is not None else None
                 }
 
-            # Build full route: our node + intermediate hops + destination
             from_num = packet.get('from', 0)
             to_num = packet.get('to', 0)
 
+            # Full route: our node -> intermediate hops -> destination
             full_route = [num_to_hop(from_num)]
-            for num in route_nums:
-                full_route.append(num_to_hop(num))
-            full_route.append(num_to_hop(to_num))
+            for i, num in enumerate(route_nums):
+                snr = snr_towards[i] if i < len(snr_towards) else None
+                full_route.append(num_to_hop(num, snr))
+            full_route.append(num_to_hop(to_num, snr_towards[-1] if snr_towards else None))
 
+            # Full route back: destination -> intermediate hops -> our node
             full_route_back = [num_to_hop(to_num)]
-            for num in route_back_nums:
-                full_route_back.append(num_to_hop(num))
-            full_route_back.append(num_to_hop(from_num))
+            for i, num in enumerate(route_back_nums):
+                snr = snr_back[i] if i < len(snr_back) else None
+                full_route_back.append(num_to_hop(num, snr))
+            full_route_back.append(num_to_hop(from_num, snr_back[-1] if snr_back else None))
 
             self._pending_traceroute_result = {
                 'route': full_route,
                 'route_back': full_route_back,
                 'node_id': f"!{to_num:08x}"
             }
-            print(f"[TRACEROUTE] Result received: {len(route_nums)} intermediate hops forward, {len(route_back_nums)} back")
+            print(f"[TRACEROUTE] Result parsed: {len(full_route)} hops forward, {len(full_route_back)} hops back")
         except Exception as e:
             print(f"[TRACEROUTE] Error parsing packet: {e}")
 
@@ -2045,14 +2051,13 @@ async def run_traceroute(node_id, websocket):
 
                 mapper._pending_traceroute_result = None
                 print(f"[TRACEROUTE] Sending traceroute via serial Python API...")
-                # Run in executor - callback may fire during this call
                 await loop.run_in_executor(
                     None,
                     lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
                 )
-                print(f"[TRACEROUTE] Sent, waiting for response (result may already be ready)...")
-                # Check immediately before waiting loop
-                await asyncio.sleep(0.1)
+                print(f"[TRACEROUTE] Sent, checking for result...")
+                # Small yield to let any pending callbacks complete
+                await asyncio.sleep(0.5)
                 for _ in range(60):
                     await asyncio.sleep(1)
                     if mapper._pending_traceroute_result:
