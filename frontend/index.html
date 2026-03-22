@@ -1509,8 +1509,10 @@
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
-                        <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;">✉️ DM</button>
-                        <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;background:#dcfce7;border-color:#86efac;color:#166534;">TR</button>
+                        <div style="display:flex;gap:4px;margin-top:3px;">
+                            <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn">✉️ DM</button>
+                            <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;">🔍 TR</button>
+                        </div>
                     </div>`;
                 }).join('');
             } else {
