@@ -151,6 +151,16 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+**v1.19 - Serial Python API & Traceroute Improvements**
+- 🔌 Serial (USB) connection now uses Python Meshtastic API — same as TCP, no more subprocess parsing
+- 🔍 Traceroute fixed: shows full route with node names, SNR values, and map lines
+- 🔍 Traceroute works without pausing listener — no more 30-60s interruptions
+- 🔁 Most Active Nodes: new "Via" column showing which node relayed each packet
+- 💬 DM improvements: search box in Messages panel, DM button next to each message
+- 🗺️ TR button in No GPS panel for quick traceroute to any node
+- 🔽 Collapsible panels now show ▼/▶ to indicate open/closed state
+- 🐛 Many fixes: panel positioning, navbar z-index, traceroute SNR scaling, race conditions
+
 **v1.18 - Navigation & Stats Improvements**
 - 🧭 Top navigation bar on all pages with 3-column layout (title | status | nav links)
 - 🔴 WebSocket status moved to navbar center with live/connecting/offline label

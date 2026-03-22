@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.18
+#ver 1.19
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -19,6 +19,7 @@ import threading
 import sqlite3
 import meshtastic
 import meshtastic.tcp_interface
+import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 
 # Global set of connected WebSocket clients
@@ -31,9 +32,9 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 mapper = None
 restart_event = threading.Event()
 restart_config = {}
-traceroute_restart = False      # True when restart is triggered by traceroute (serial mode)
-send_restart = False            # True when restart is triggered by message send (serial mode)
-send_restart_no_nodes = False   # True when listener restart after send should use --no-nodes
+traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
+send_restart = False            # Legacy flag - kept for compatibility, no longer used with Python API
+send_restart_no_nodes = False   # Legacy flag - kept for compatibility, no longer used with Python API
 
 
 class TCPMeshtasticInterface:
@@ -101,6 +102,67 @@ class TCPMeshtasticInterface:
         if self.interface is None:
             raise RuntimeError("TCPMeshtasticInterface not connected")
         self.interface.sendText(text, channelIndex=channelIndex, destinationId=destinationId)
+
+
+class SerialMeshtasticInterface:
+    """Wraps meshtastic SerialInterface for USB/serial connections."""
+
+    def __init__(self, port=None):
+        self.port = port  # None = auto-detect
+        self.iface = None
+        self._on_receive_ref = None
+
+    def connect(self, on_receive, on_connection_established=None):
+        """Connect to serial device and start listening."""
+        from pubsub import pub
+
+        iface_ref = [None]  # mutable cell so inner func captures final value
+
+        def _on_receive(packet, interface):
+            if interface is iface_ref[0] and on_receive is not None:
+                try:
+                    on_receive(packet)
+                except Exception as e:
+                    print(f"[SERIAL] Packet callback error: {e}")
+
+        self._on_receive_ref = _on_receive
+        pub.subscribe(_on_receive, "meshtastic.receive")
+
+        self.iface = meshtastic.serial_interface.SerialInterface(devPath=self.port)
+        iface_ref[0] = self.iface
+
+        if on_connection_established:
+            on_connection_established(self.iface)
+
+        return self.iface
+
+    def disconnect(self):
+        """Disconnect from serial device."""
+        from pubsub import pub
+        if self._on_receive_ref is not None:
+            try:
+                pub.unsubscribe(self._on_receive_ref, "meshtastic.receive")
+            except Exception:
+                pass
+            self._on_receive_ref = None
+        if self.iface is not None:
+            try:
+                self.iface.close()
+            except Exception as e:
+                print(f"[SERIAL] Close error: {e}")
+            self.iface = None
+
+    def sendText(self, text, channelIndex=0, destinationId='^all'):
+        """Send a text message."""
+        if not self.iface:
+            raise Exception("Not connected")
+        self.iface.sendText(text, channelIndex=channelIndex, destinationId=destinationId)
+
+    def getNode(self):
+        """Get local node for config access."""
+        if not self.iface:
+            raise Exception("Not connected")
+        return self.iface.localNode
 
 
 class StatsDB:
@@ -207,9 +269,14 @@ class StatsDB:
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
             top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
-                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum
+                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum,
+                (SELECT relay_node_id FROM packets p2
+                 WHERE p2.from_id = packets.from_id AND p2.portnum = packets.portnum
+                 AND p2.ts > ? AND p2.relay_node_id IS NOT NULL
+                 AND p2.relay_node_id NOT LIKE 'relay_%'
+                 ORDER BY p2.ts DESC LIMIT 1) as last_relay
                 FROM packets WHERE ts > ? AND via_mqtt = 0
-                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h,)).fetchall()
+                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h, since_24h)).fetchall()
             active_node_count = c.execute('''SELECT COUNT(DISTINCT from_id) as cnt
                 FROM packets WHERE ts > ? AND via_mqtt = 0''', (since_24h,)).fetchone()['cnt']
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
@@ -317,6 +384,8 @@ class ListenBasedMapper:
         self.port = port
         self.host = host
         self.current_process = None
+        self._serial_iface = None
+        self._pending_traceroute_result = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age
@@ -563,12 +632,11 @@ class ListenBasedMapper:
                 print(f"[WATCHDOG] No packets for {int(silence)}s — restarting meshtastic listener...")
                 self._last_radio_packet_time = time.time()  # reset before restart
                 try:
-                    if self.current_process and self.current_process.poll() is None:
-                        self.current_process.terminate()
+                    if self._serial_iface:
+                        self._serial_iface.disconnect()
                         time.sleep(2)
-                        self.current_process.kill()
                 except Exception as e:
-                    print(f"[WATCHDOG] Error killing process: {e}")
+                    print(f"[WATCHDOG] Error disconnecting: {e}")
 
     def clean_old_nodes(self):
         """Clean old nodes from self.nodes and self.nodes_no_position"""
@@ -598,7 +666,15 @@ class ListenBasedMapper:
             our_num = int(self.local_node_id.replace('!', ''), 16)
             our_last_byte = our_num & 0xFF
             relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
-            relay_node_id = f"relay_{relay_node_raw}"
+            # Try to find full node ID by matching last byte
+            relay_node_id = f"relay_{relay_node_raw:02x}"
+            for nid in {**self.nodes, **self.nodes_no_position}:
+                try:
+                    if int(nid.replace('!',''), 16) & 0xFF == relay_node_raw:
+                        relay_node_id = nid
+                        break
+                except:
+                    pass
 
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
@@ -1031,6 +1107,8 @@ class ListenBasedMapper:
             self.parse_telemetry_from_packet(packet)
         elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
             self.parse_text_from_packet(packet)
+        elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
+            self._handle_traceroute_packet(packet)
 
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
@@ -1391,6 +1469,162 @@ class ListenBasedMapper:
         except Exception as e:
             print(f"Save error: {e}") 
 
+    def _run_serial(self):
+        """Run serial listener using Python Meshtastic API (mirrors _run_tcp)."""
+        last_save = time.time()
+        last_clean = time.time()
+        save_interval = 60
+        first_save_done = False
+        first_save_delay = 10
+        clean_interval = 3600
+        restart_count = 0
+
+        while True:
+            serial_iface = None
+            try:
+                print(f"[SERIAL] Connecting to {self.port or 'auto-detect'} (attempt #{restart_count})...")
+                serial_iface = SerialMeshtasticInterface(port=self.port)
+                self._serial_iface = serial_iface
+
+                def on_connection_established(iface):
+                    node_info = iface.getMyNodeInfo()
+                    if node_info:
+                        node_id = node_info.get('user', {}).get('id')
+                        if node_id:
+                            self.local_node_id = node_id
+                            print(f"[INFO] Local node ID: {node_id}")
+                    asyncio.run(self.broadcast_connection_status('connected', 'serial'))
+                    self._last_radio_packet_time = time.time()
+
+                serial_iface.connect(
+                    on_receive=self._on_serial_packet,
+                    on_connection_established=on_connection_established
+                )
+                print(f"[SERIAL] Connected successfully")
+
+                last_save = time.time()
+                first_save_done = False
+
+                while True:
+                    if restart_event.is_set():
+                        print("[RESTART] Connection change requested, stopping serial listener...")
+                        self.save_nodes()
+                        return
+
+                    current_interval = first_save_delay if not first_save_done else save_interval
+                    if time.time() - last_save > current_interval:
+                        self.save_nodes()
+                        last_save = time.time()
+                        first_save_done = True
+
+                    if time.time() - last_clean > clean_interval:
+                        self.clean_old_nodes()
+                        self.save_nodes()
+                        last_clean = time.time()
+
+                    time.sleep(1)
+
+            except KeyboardInterrupt:
+                print("\n\n[STOP] Stopping by user request...")
+                if self.nodes:
+                    print("[SAVE] Final save before exit...")
+                    self.save_nodes()
+                print("[EXIT] Goodbye!")
+                break
+
+            except Exception as e:
+                print(f"[SERIAL] Error: {e}, reconnecting in 10s...")
+                import traceback
+                traceback.print_exc()
+
+                if restart_event.is_set():
+                    self.save_nodes()
+                    return
+
+                if self.nodes:
+                    self.save_nodes()
+
+                print("[WAIT] Retrying in 10 seconds...")
+                time.sleep(10)
+                restart_count += 1
+
+            finally:
+                if serial_iface is not None:
+                    try:
+                        serial_iface.disconnect()
+                    except Exception:
+                        pass
+                self._serial_iface = None
+
+    def _on_serial_packet(self, packet):
+        """Route incoming serial packets to appropriate parsers (mirrors _on_tcp_packet)."""
+        try:
+            portnum = packet.get('decoded', {}).get('portnum', '')
+            if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
+                self.parse_node_info_from_packet(packet)
+            elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
+                self.parse_position_from_packet(packet)
+            elif portnum in ('TELEMETRY_APP', portnums_pb2.PortNum.Value('TELEMETRY_APP')):
+                self.parse_telemetry_from_packet(packet)
+            elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
+                self.parse_text_from_packet(packet)
+            elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
+                self._handle_traceroute_packet(packet)
+            self._last_radio_packet_time = time.time()
+        except Exception as e:
+            print(f"[SERIAL] Packet routing error: {e}")
+
+    def _handle_traceroute_packet(self, packet):
+        """Handle incoming traceroute response packet from Python API."""
+        try:
+            decoded = packet.get('decoded', {})
+            # Python API puts data in 'traceroute' field, not 'routeDiscovery'
+            tr = decoded.get('traceroute', decoded.get('routeDiscovery', {}))
+
+            route_nums = tr.get('route', [])
+            snr_towards = tr.get('snrTowards', [])
+            route_back_nums = tr.get('routeBack', [])
+            snr_back = tr.get('snrBack', [])
+
+            all_known = {**self.nodes, **self.nodes_no_position}
+
+            def num_to_hop(num, snr=None):
+                hex_id = f"!{num:08x}"
+                node = all_known.get(hex_id, {})
+                return {
+                    'id': hex_id,
+                    'name': node.get('name', hex_id),
+                    'lat': node.get('lat'),
+                    'lon': node.get('lon'),
+                    'snr': round(snr / 4.0, 2) if snr is not None else None
+                }
+
+            from_num = packet.get('from', 0)
+            to_num = packet.get('to', 0)
+
+            # Full route: our node -> intermediate hops -> destination
+            full_route = [num_to_hop(from_num)]
+            for i, num in enumerate(route_nums):
+                snr = snr_towards[i] if i < len(snr_towards) else None
+                full_route.append(num_to_hop(num, snr))
+            full_route.append(num_to_hop(to_num, snr_towards[-1] if snr_towards else None))
+
+            # Full route back: destination -> intermediate hops -> our node
+            full_route_back = [num_to_hop(to_num)]
+            for i, num in enumerate(route_back_nums):
+                snr = snr_back[i] if i < len(snr_back) else None
+                full_route_back.append(num_to_hop(num, snr))
+            full_route_back.append(num_to_hop(from_num, snr_back[-1] if snr_back else None))
+
+            self._pending_traceroute_result = {
+                'route': full_route,
+                'route_back': full_route_back,
+                'node_id': f"!{to_num:08x}"
+            }
+            print(f"[TRACEROUTE] Result parsed: {len(full_route)} hops forward, {len(full_route_back)} hops back")
+        except Exception as e:
+            print(f"[TRACEROUTE] Error parsing packet: {e}")
+
     def _run_tcp(self):
         """Run TCP listener using the Python Meshtastic API (no subprocess)."""
         last_save = time.time()
@@ -1477,7 +1711,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.18")
+        print("Meshtastic Mapper - LISTEN MODE v1.19")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -1485,19 +1719,15 @@ class ListenBasedMapper:
         print(f"WebSocket server: ws://0.0.0.0:8765")
         print("=" * 60)
 
-        global send_restart_no_nodes
-
         if self.connection_type == 'tcp':
-            # TCP: use Python API listener, not CLI subprocess
-            send_restart_no_nodes = False  # --no-nodes flag not applicable for TCP API
             self._run_tcp()
             return
 
-        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
+        if self.connection_type == 'serial':
+            self._run_serial()
+            return
 
-        if send_restart_no_nodes:
-            cmd.append('--no-nodes')
-            send_restart_no_nodes = False
+        cmd = [self.meshtastic_cmd, '--port', self.port, '--listen']
 
         print(f"Command: {' '.join(cmd)}")
         print("Press Ctrl+C to stop\n")
@@ -1686,9 +1916,8 @@ def parse_traceroute_output(output):
 async def run_send_message(text, channel_index, dest_id, websocket):
     """Send a text message.
     TCP mode: uses a dedicated TCPInterface (no listener stop needed).
-    Serial mode: stops listener subprocess first, then restarts.
+    Serial mode: sends via Python API (no listener stop needed).
     """
-    global send_restart, send_restart_no_nodes
     try:
         if not mapper:
             await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}))
@@ -1751,28 +1980,28 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             # No listener restart needed for TCP
             return
 
-        # Serial/USB: stop listener subprocess, send via CLI, then restart
-        if mapper.current_process:
-            mapper.current_process.terminate()
-            await asyncio.sleep(5)
-
-        cmd = [mapper.meshtastic_cmd, '--port', mapper.port,
-               '--sendtext', text, '--ch-index', str(channel_index)]
-        if dest_id:
-            cmd += ['--dest', dest_id]
-
+        # Serial/USB: send via Python API (no listener stop needed)
         loop = asyncio.get_event_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(None, lambda: subprocess.run(
-                cmd, capture_output=True, text=True, timeout=28
-            )),
-            timeout=30
-        )
 
-        success = result.returncode == 0
-        msg = 'Message sent' if success else (result.stderr.strip() or 'Send failed')
-        print(f"[SEND] ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
+        def _do_serial_send():
+            if not mapper._serial_iface:
+                raise Exception("Not connected")
+            mapper._serial_iface.sendText(
+                text,
+                channelIndex=channel_index,
+                destinationId=dest_id if dest_id else '^all'
+            )
+            return True, 'Message sent'
 
+        try:
+            success, msg = await asyncio.wait_for(
+                loop.run_in_executor(None, _do_serial_send),
+                timeout=30
+            )
+        except asyncio.TimeoutError:
+            success, msg = False, 'Send timed out'
+
+        print(f"[SEND] Serial ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
         await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
 
@@ -1791,27 +2020,13 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             mapper.messages[channel_index].insert(0, sent_message)
             await mapper.broadcast_message(sent_message)
 
-        if mapper.connection_type != 'tcp':
-            await asyncio.sleep(2)
-            send_restart = True
-            send_restart_no_nodes = True
-            restart_event.set()
-
     except asyncio.TimeoutError:
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
-        if mapper and mapper.connection_type != 'tcp':
-            send_restart = True
-            send_restart_no_nodes = True
-            restart_event.set()
     except Exception as e:
         print(f"[SEND] Error: {e}")
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}))
         await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
-        if mapper and mapper.connection_type != 'tcp':
-            send_restart = True
-            send_restart_no_nodes = True
-            restart_event.set()
 
 
 async def run_traceroute(node_id, websocket):
@@ -1838,22 +2053,62 @@ async def run_traceroute(node_id, websocket):
 
         loop = asyncio.get_event_loop()
 
-        if conn_type == 'tcp':
-            # TCP: run alongside listener, no interruption needed
-            cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
-            print(f"[TRACEROUTE] TCP mode, running: {' '.join(cmd)}")
-        else:
-            # Serial: must stop listener to free the port
-            cmd = [mapper.meshtastic_cmd, '--port', mapper.port, '--traceroute', node_id]
-            print(f"[TRACEROUTE] Serial mode - stopping listener to free port")
-            if mapper.current_process:
-                try:
-                    mapper.current_process.terminate()
-                except Exception as e:
-                    print(f"[TRACEROUTE] Warning terminating listener: {e}")
-            # Give listener process time to release the serial port
-            await asyncio.sleep(2)
-            print(f"[TRACEROUTE] Running: {' '.join(cmd)}")
+        if conn_type == 'serial':
+            try:
+                if not mapper._serial_iface or not mapper._serial_iface.iface:
+                    await websocket.send(json.dumps({
+                        'type': 'traceroute_result',
+                        'node_id': node_id, 'error': 'Not connected'
+                    }))
+                    return
+
+                mapper._pending_traceroute_result = None
+                print(f"[TRACEROUTE] Sending traceroute via serial Python API...")
+                await loop.run_in_executor(
+                    None,
+                    lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
+                )
+                print(f"[TRACEROUTE] Sent, checking for result...")
+                # Small yield to let any pending callbacks complete
+                await asyncio.sleep(0.5)
+                for _ in range(60):
+                    await asyncio.sleep(1)
+                    if mapper._pending_traceroute_result:
+                        result = mapper._pending_traceroute_result
+                        mapper._pending_traceroute_result = None
+                        all_known = {**mapper.nodes, **mapper.nodes_no_position}
+                        for hop in result['route'] + result['route_back']:
+                            hop_id = hop.get('id')
+                            if hop_id and hop_id in all_known:
+                                n = all_known[hop_id]
+                                if 'lat' in n:
+                                    hop['lat'] = n['lat']
+                                    hop['lon'] = n['lon']
+                                hop['name'] = n.get('name', hop.get('name', hop_id))
+                        await websocket.send(json.dumps({
+                            'type': 'traceroute_result',
+                            'node_id': node_id,
+                            'route': result['route'],
+                            'route_back': result['route_back'],
+                            'raw': ''
+                        }))
+                        return
+
+                await websocket.send(json.dumps({
+                    'type': 'traceroute_result',
+                    'node_id': node_id,
+                    'error': 'Timeout - no traceroute response received'
+                }))
+            except Exception as e:
+                await websocket.send(json.dumps({
+                    'type': 'traceroute_result',
+                    'node_id': node_id, 'error': str(e)
+                }))
+            return
+
+        # TCP: run alongside listener, no interruption needed
+        cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
+        print(f"[TRACEROUTE] TCP mode, running: {' '.join(cmd)}")
 
         try:
             result = await asyncio.wait_for(
@@ -1866,26 +2121,10 @@ async def run_traceroute(node_id, websocket):
             raw_output = result.stdout + result.stderr
             print(f"[TRACEROUTE] Output: {raw_output[:300]}")
         except asyncio.TimeoutError:
-            if conn_type == 'serial':
-                await websocket.send(json.dumps({
-                    'type': 'traceroute_status', 'status': 'reconnecting'
-                }))
-                await asyncio.sleep(3)
-                traceroute_restart = True
-                restart_event.set()
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
             }))
             return
-
-        # For serial: restart the listener now
-        if conn_type == 'serial':
-            await websocket.send(json.dumps({
-                'type': 'traceroute_status', 'status': 'reconnecting'
-            }))
-            await asyncio.sleep(3)
-            traceroute_restart = True
-            restart_event.set()
 
         route, route_back = parse_traceroute_output(raw_output)
 

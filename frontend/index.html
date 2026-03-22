@@ -8,12 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=1.18">
+    <link rel="stylesheet" href="styles.css?v=1.19">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.18 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.19 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -32,8 +32,8 @@
                oninput="searchNodes(this.value)" autocomplete="off">
         <div id="search-results"></div>
     </div>
-    <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
-        <h3>📶 Mesh Info ▼</h3>
+    <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A'){this.classList.toggle('open');document.getElementById('stats-title').textContent=this.classList.contains('open')?'📶 Mesh Info ▼':'📶 Mesh Info ▶';}">
+        <h3 id="stats-title">📶 Mesh Info ▼</h3>
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -81,8 +81,8 @@
         </label><br>
         </div>
     </div>
-    <div id="no-gps-panel" class="open" onclick="this.classList.toggle('open')">
-        <h4>📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
+    <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
+        <h4 id="nogps-title">📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
         <div id="no-gps-content">
         <div id="no-gps-list"></div>
         </div>
@@ -129,16 +129,19 @@
         </div>
         <div id="traceroute-body"></div>
     </div>
-    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4')this.classList.toggle('open')">
-        <h4>💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
+    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('messages-title');const cnt=document.getElementById('messages-total-cnt').textContent;const snd=document.getElementById('sound-toggle').outerHTML;const blink=document.getElementById('messages-blink').outerHTML;if(t)t.innerHTML=this.classList.contains('open')?'💬 Messages ▼ (<span id=\'messages-total-cnt\'>'+cnt+'</span>) '+snd+' '+blink:'💬 Messages ▶ (<span id=\'messages-total-cnt\'>'+cnt+'</span>) '+snd+' '+blink;}">
+        <h4 id="messages-title">💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
         <div id="messages-content">
             <div id="channel-tabs"></div>
             <div id="messages-list"></div>
-            <div id="send-area">
-                <div id="dm-selector" style="display:none;">
-                    <span>To: </span>
-                    <input type="text" id="dm-node-id" placeholder="!nodeID or search..." size="15">
-                    <button onclick="clearDM()">✕</button>
+        </div>
+        <div id="send-area">
+                <div id="dm-selector">
+                    <span style="color:#6b7280;font-size:11px">To:</span>
+                    <input type="text" id="dm-node-id" placeholder="All (broadcast)" size="18"
+                        oninput="dmSearch(this.value)" autocomplete="off">
+                    <button onclick="clearDM()" title="Clear DM">✕</button>
+                    <div id="dm-search-results" style="display:none;position:absolute;background:white;border:1px solid #e5e7eb;border-radius:4px;max-height:150px;overflow-y:auto;z-index:2000;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:11px;"></div>
                 </div>
                 <div id="send-row">
                     <select id="send-channel-select"></select>
@@ -147,7 +150,6 @@
                 </div>
                 <div id="send-status"></div>
             </div>
-        </div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
@@ -492,11 +494,14 @@
                     const senderName = senderNode?.name || msg.from_name || msg.from_id;
                     const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
                     const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
+                    const dmBtn = msg.from_id !== trackerInfo.node_id
+                        ? `<button onclick="openDM('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
+                        : '';
                     return `
                     <div class="${itemClass}">
                         <div class="msg-header">
                             <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                            <span class="msg-sender">${senderName}${dmLabel}</span>
+                            <span class="msg-sender">${senderName}${dmLabel}</span>${dmBtn}
                         </div>
                         <div class="msg-text">${msg.text}</div>
                     </div>`;
@@ -587,27 +592,72 @@
                 return;
             }
             const channelIndex = parseInt(document.getElementById('send-channel-select').value) || 0;
-            const destId = (document.getElementById('dm-node-id').value || '').trim() || null;
+            const destId = window._dmDestId || null;
             const connType = trackerInfo.connection_type || 'serial';
             if (connType === 'serial') {
-                if (!confirm('⚠️ USB: listener will pause ~5s during send. Continue?')) return;
+                // Python API: no listener pause needed
             }
             document.getElementById('send-btn').disabled = true;
             window._pendingSend = {text, channelIndex, destId};
             ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
         }
 
+        function dmSearch(query) {
+            const resultsEl = document.getElementById('dm-search-results');
+            if (!query || query.length < 1) {
+                resultsEl.style.display = 'none';
+                // Empty = broadcast mode
+                window._dmDestId = null;
+                window._dmDestName = null;
+                document.getElementById('dm-selector').classList.remove('active');
+                return;
+            }
+            const q = query.toLowerCase();
+            const matches = [];
+            [...allNodes, ...allNodesNoGps].forEach(n => {
+                if (n.via_mqtt) return;
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push(n);
+                }
+            });
+            const top = matches.slice(0, 8);
+            if (top.length === 0) {
+                resultsEl.style.display = 'none';
+                return;
+            }
+            resultsEl.innerHTML = top.map(n => `
+                <div onclick="selectDMNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');"
+                     style="padding:4px 8px;cursor:pointer;border-bottom:1px solid #f3f4f6;"
+                     onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+                    <b>${n.name||n.id}</b> <span style="color:#9ca3af">${n.id}</span>
+                </div>`).join('');
+            resultsEl.style.display = 'block';
+        }
+
+        function selectDMNode(nodeId, nodeName) {
+            window._dmDestId = nodeId;
+            window._dmDestName = nodeName;
+            document.getElementById('dm-node-id').value = nodeName;
+            document.getElementById('dm-search-results').style.display = 'none';
+            document.getElementById('dm-selector').classList.add('active');
+            document.getElementById('send-text').focus();
+        }
+
         function openDM(nodeId, nodeName) {
             const panel = document.getElementById('messages-panel');
             if (!panel.classList.contains('open')) panel.classList.add('open');
-            document.getElementById('dm-selector').style.display = 'flex';
-            document.getElementById('dm-node-id').value = nodeId;
-            setTimeout(() => { const inp = document.getElementById('send-text'); if (inp) inp.focus(); }, 100);
+            selectDMNode(nodeId, nodeName);
         }
 
         function clearDM() {
-            document.getElementById('dm-selector').style.display = 'none';
-            document.getElementById('dm-node-id').value = '';
+            window._dmDestId = null;
+            window._dmDestName = null;
+            const inp = document.getElementById('dm-node-id');
+            if (inp) inp.value = '';
+            const res = document.getElementById('dm-search-results');
+            if (res) res.style.display = 'none';
+            const sel = document.getElementById('dm-selector');
+            if (sel) sel.classList.remove('active');
         }
 
         function fetchNodesJSON(retryCount = 0) {
@@ -1025,9 +1075,7 @@
                 closeTraceroutePanel();
                 const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
                 document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
-                const initMsg = connType === 'serial'
-                    ? '⚠️ Pausing listener for traceroute...'
-                    : '⏳ Running traceroute... (60s)';
+                const initMsg = '⏳ Running traceroute... (60s)';
                 document.getElementById('traceroute-body').innerHTML = `<div id="traceroute-loading">${initMsg}</div>`;
                 document.getElementById('traceroute-panel').style.display = 'block';
                 window._tracerouteNodeId = nodeId;
@@ -1051,13 +1099,13 @@
                     tracerouteTimeout = null;
                     if (window._tracerouteNodeId) {
                         document.getElementById('traceroute-body').innerHTML =
-                            '<div style="color:#374151;padding:10px;">⏱️ Traceroute did not return a result. Listener should be restarting.</div>' +
+                            '<div style="color:#374151;padding:10px;">⏱️ No response received. The node may be too far (3+ hops) or temporarily unreachable.</div>' +
                             '<button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>';
                     }
                 }, 90000);
             };
             if (connType === 'serial') {
-                if (!confirm('⚠️ USB connection: listener will pause ~30-60s during traceroute. Continue?')) return;
+                // Python API: no listener pause needed
             }
             sendRequest();
         }
@@ -1461,6 +1509,8 @@
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
+                        <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;">✉️ DM</button>
+                        <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;background:#dcfce7;border-color:#86efac;color:#166534;">TR</button>
                     </div>`;
                 }).join('');
             } else {
@@ -1582,7 +1632,11 @@
             const bottom = stats.getBoundingClientRect().bottom;
             noGps.style.top = (bottom + 10) + 'px';
         }
-        new ResizeObserver(repositionNoGpsPanel).observe(document.getElementById('stats'));
+        const _statsResizeObs = new ResizeObserver(repositionNoGpsPanel);
+        _statsResizeObs.observe(document.getElementById('stats'));
+        // Run immediately on load
+        setTimeout(repositionNoGpsPanel, 100);
+        window.addEventListener('resize', repositionNoGpsPanel);
 
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {

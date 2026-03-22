@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=1.18">
+    <link rel="stylesheet" href="styles.css?v=1.19">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.18 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.19 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -296,7 +296,7 @@
         </div>
         <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Last Pkt</th><th></th><th></th></tr></thead>
+            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Type</th><th>Via</th><th>Last Pkt</th><th></th><th></th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -597,6 +597,9 @@ function renderAll(data) {
         rssi.map(r => r.bucket >= -90 ? 'rgba(16,185,129,0.7)' : r.bucket >= -110 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)'));
 
     // Top senders table
+    const nodesMap = {};
+    Object.entries(data.nodes||{}).forEach(([id,n]) => { nodesMap[id] = n.name||id; });
+
     const tbody1 = document.querySelector('#top-senders-table tbody');
     tbody1.innerHTML = (data.top_senders||[]).slice(0,15).map(s => {
         const tip = getNodeSuggestion(s);
@@ -605,8 +608,8 @@ function renderAll(data) {
             <td style="font-weight:500">${s.from_name !== s.from_id ? s.from_name : '—'}</td>
             <td style="font-size:11px;color:#6b7280;font-family:monospace">${s.from_id}</td>
             <td>${s.cnt}</td>
-            <td>${s.avg_snr!=null ? Number(s.avg_snr).toFixed(1)+' dB' : '-'}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
+            <td style="font-size:10px;color:#374151;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${s.last_relay && !s.last_relay.startsWith('relay_') ? (nodesMap[s.last_relay]||s.last_relay) : 'direct'}">${s.last_relay && !s.last_relay.startsWith('relay_') ? `<span style="color:#2563eb">${(nodesMap[s.last_relay]||s.last_relay).substring(0,15)}</span>` : '—'}</td>
             <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
             <td>${tipBtn}</td>
             <td><button onclick="clearNodeStats('${s.from_id}', '${(s.from_name||s.from_id).replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>

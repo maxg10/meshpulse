@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.18 (Navigation & Stats Improvements)
+**Current Version:** v1.19 (Serial Python API & Traceroute Improvements)
 
 ## Running & Deployment
 
@@ -176,40 +176,43 @@ meshtastic-network-mapper/
 └── .gitignore                    # Git ignore rules
 ```
 
-## Recent Changes (v1.18)
+## Recent Changes (v1.19)
 
 **Added:**
-- Top navigation bar on all pages — 3-column layout: title left, status center, nav right
-- `favicon_stats.ico` — separate favicon for stats page (orange bar chart on navy)
-- Watchdog thread — restarts serial listener after 10min of silence (fixes frozen `meshtastic --listen`)
-- WS status dot moved to navbar center with "live/connecting/offline" label and last update time
-- Clear node stats button (🗑️) in Most Active Nodes table — deletes packets + anomalies for that node
-- `active_node_count` field in stats summary — proper DISTINCT count instead of top_senders length
-- Time-ago display next to anomaly timestamps in Recent Anomalies
+- Serial connection now uses Python Meshtastic API (`SerialMeshtasticInterface`) — mirrors TCP implementation, no more subprocess
+- `_run_serial()` method — Python API listener for USB serial connections
+- `_on_serial_packet()` — routes serial packets to shared parsers (same as TCP)
+- `_handle_traceroute_packet()` — handles `TRACEROUTE_APP` packets for both serial and TCP
+- `_pending_traceroute_result` — stores traceroute result from callback for async retrieval
+- Traceroute now works without pausing the listener (serial and TCP)
+- Traceroute result shows full route with intermediate hops and SNR values
+- `Via` column in Most Active Nodes — shows which node last relayed each packet
+- DM button next to each message in Messages panel
+- DM recipient search in send area (autocomplete from known nodes)
+- TR (Traceroute) button in No GPS panel nodes
+- DM button in No GPS panel nodes
+- Arrow indicators for collapsible panels (▼ open, ▶ closed)
 
 **Fixed:**
-- LOS elevation API: replaced broken `open-elevation.com` (expired SSL cert) with `opentopodata.org` via WebSocket proxy (bypasses CORS)
-- `relayNode` now extracted from ALL packet types (nodeinfo, telemetry, text) not just position
-- Own node telemetry heartbeat no longer triggers false FREQUENT_TELEMETRY anomalies
-- Own node excluded from "Relayed Through Your Node" table
-- Node TTL reduced from 48h to 24h to match stats page 24h window
-- `data_window_minutes` now reflects actual 24h window, not entire DB history
-- Most Active Nodes now shows one row per node per packet type (position vs telemetry visible separately)
-- Most Active Nodes TYPE column shows most frequent packet type per node
-- Packet Types and Hop Count charts fixed to normal height (removed oversized flex containers)
-- Chart.js resize fixed via ResizeObserver on all cards
-- Anomaly CLI suggestions now use correct syntax (no `=` sign)
-- `clear_node_packets` now also deletes anomalies for that node
-- Panel positions adjusted for 44px navbar (search bar, LOS panel, traceroute, messages)
-- Radio panel removed from map (info available in Stats page)
-- Meshtastic CLI syntax fixed in anomaly suggestions
+- Traceroute reads from `decoded.traceroute` field (not `routeDiscovery`) in Python API
+- SNR values scaled correctly (divided by 4.0 from Meshtastic integer encoding)
+- Race condition in traceroute callback vs waiting loop
+- USB pause warning dialog removed (Python API doesn't need listener pause)
+- Traceroute timeout message updated (removed reference to listener restart)
+- Traceroute panel height increased to show Close button for long routes
+- Messages panel send area is now sticky at bottom (moved outside scrollable content)
+- DM from Messages panel fixed
+- No GPS panel uses fixed positioning, repositioned dynamically below Mesh Info
+- Navbar z-index increased to 10000 to prevent Leaflet overlap
+- `relay_node_id` now stores full node ID (resolved from last byte matching)
+- Stats panel uses `position:fixed` instead of `position:absolute`
 
 **Changed:**
-- Version bumped to v1.18
-- `styles.css?v=1.18`
-- `top_senders` query groups by `from_id, portnum` (one row per node per type, LIMIT 30)
-- "Last Seen" column renamed to "Last Pkt" in Most Active Nodes
-- Network Statistics page header removed (info now in navbar)
+- Version bumped to v1.19
+- `styles.css?v=1.19`
+- Serial mode no longer uses subprocess or regex parsers
+- Watchdog updated to disconnect Python API interface instead of killing subprocess
+- `top_senders` query includes `last_relay` subquery for Via column
 
 ### StatsDB Architecture
 - **DB path**: `/var/www/html/meshtastic/stats.db`
