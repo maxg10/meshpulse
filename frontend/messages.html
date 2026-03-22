@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Meshtastic Messages</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="styles.css?v=2.0">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #f3f4f6;
+            margin: 0;
+            padding-top: 44px;
+        }
+        .page-container {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 10px 16px 16px;
+            height: calc(100vh - 44px);
+            display: flex;
+            flex-direction: column;
+        }
+        .messages-card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .messages-header {
+            background: #1f2937;
+            color: white;
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            border-radius: 8px 8px 0 0;
+            flex-shrink: 0;
+        }
+        .messages-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+        #channel-tabs {
+            display: flex;
+            gap: 4px;
+            padding: 8px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            flex-wrap: wrap;
+            flex-shrink: 0;
+            background: white;
+        }
+        #messages-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 12px;
+        }
+        .message-item {
+            padding: 6px 0;
+            border-bottom: 1px solid #f3f4f6;
+            font-size: 13px;
+        }
+        .message-item.message-dm {
+            background: #fff7ed;
+            border-left: 3px solid #f97316;
+            padding-left: 8px;
+        }
+        .msg-header {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 2px;
+        }
+        .msg-time { color: #9ca3af; font-size: 10px; }
+        .msg-sender { font-weight: 600; font-size: 12px; }
+        .msg-text { color: #374151; }
+        #send-area {
+            border-top: 1px solid #e5e7eb;
+            padding: 10px 12px;
+            background: white;
+            border-radius: 0 0 8px 8px;
+            flex-shrink: 0;
+        }
+        #dm-selector {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 6px;
+            position: relative;
+        }
+        #dm-selector input {
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            flex: 1;
+        }
+        #dm-selector.active input { border-color: #f97316; background: #fff7ed; }
+        #dm-selector button { font-size: 12px; color: #6b7280; background: none; border: none; cursor: pointer; }
+        #send-row { display: flex; gap: 6px; align-items: center; }
+        #send-channel-select {
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 4px 8px;
+            font-size: 12px;
+            background: white;
+        }
+        #send-text {
+            flex: 1;
+            border: 1px solid #d1d5db;
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: 13px;
+        }
+        #send-btn {
+            background: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 6px 14px;
+            font-size: 13px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        #send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        #send-status { font-size: 11px; color: #6b7280; margin-top: 4px; }
+        .dm-btn {
+            font-size: 10px;
+            padding: 1px 6px;
+            background: #eff6ff;
+            color: #2563eb;
+            border: 1px solid #bfdbfe;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0 — Messages</span></div>
+    <div class="topnav-status">
+        <span class="ws-dot ws-disconnected" id="ws-dot"></span>
+        <span id="ws-label">Connecting...</span>
+    </div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshtastic/config.html" class="topnav-link">⚙️ Config</a>
+        <a href="/meshtastic/messages.html" class="topnav-link active" id="nav-messages">💬 Messages</a>
+    </div>
+</nav>
+
+<div class="page-container">
+    <div class="messages-card">
+        <div class="messages-header">
+            <h2>💬 Messages</h2>
+            <button id="sound-toggle" onclick="toggleSound()" title="Toggle sound"
+                style="margin-left:auto;background:none;border:none;color:white;font-size:16px;cursor:pointer">🔔</button>
+        </div>
+        <div id="channel-tabs"></div>
+        <div id="messages-list"></div>
+        <div id="send-area">
+            <div id="dm-selector">
+                <span style="color:#6b7280;font-size:11px">To:</span>
+                <input type="text" id="dm-node-id" placeholder="All (broadcast)" size="18"
+                    oninput="dmSearch(this.value)" autocomplete="off">
+                <button onclick="clearDM()" title="Clear DM">✕</button>
+                <div id="dm-search-results" style="display:none;position:absolute;background:white;border:1px solid #e5e7eb;border-radius:4px;max-height:150px;overflow-y:auto;z-index:2000;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:11px;"></div>
+            </div>
+            <div id="send-row">
+                <select id="send-channel-select"></select>
+                <input type="text" id="send-text" placeholder="Type message..." maxlength="200"
+                    onkeydown="if(event.key==='Enter')sendMessage()">
+                <button id="send-btn" onclick="sendMessage()">Send ➤</button>
+            </div>
+            <div id="send-status"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let ws = null;
+let allMessages = {};
+let activeChannel = 0;
+let channelNames = {};
+let unreadCounts = {};
+let soundEnabled = true;
+let allNodes = [];
+let allNodesNoGps = [];
+let trackerInfo = {};
+
+const _bc = new BroadcastChannel('meshtastic_msgs');
+
+function broadcastUnreadReset() {
+    _bc.postMessage({type: 'unread_reset'});
+}
+
+function resetUnread() {
+    localStorage.setItem('meshtastic_unread', 0);
+    broadcastUnreadReset();
+}
+
+// Reset on load and when page becomes visible
+resetUnread();
+document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) resetUnread();
+});
+
+// ── Nav unread badge ─────────────────────────────────────────────
+function updateNavUnread() {
+    const count = parseInt(localStorage.getItem('meshtastic_unread') || '0');
+    const el = document.getElementById('nav-messages');
+    if (!el) return;
+    el.innerHTML = count > 0
+        ? `💬 Messages <span style="background:#ef4444;color:white;border-radius:10px;padding:1px 6px;font-size:10px;font-weight:bold;margin-left:3px">${count}</span>`
+        : '💬 Messages';
+}
+updateNavUnread();
+setInterval(updateNavUnread, 2000);
+_bc.onmessage = () => { localStorage.setItem('meshtastic_unread', 0); updateNavUnread(); };
+
+// ── WebSocket ────────────────────────────────────────────────────
+function connectWS() {
+    ws = new WebSocket(`ws://${location.hostname}:8765`);
+    ws.onopen = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-connected';
+        document.getElementById('ws-label').textContent = 'Connected';
+        ws.send(JSON.stringify({type: 'get_messages'}));
+    };
+    ws.onclose = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
+        document.getElementById('ws-label').textContent = 'Disconnected – reconnecting…';
+        setTimeout(connectWS, 3000);
+    };
+    ws.onerror = () => ws.close();
+    ws.onmessage = e => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'messages_data') {
+            if (data.channel_names) {
+                channelNames = {};
+                Object.entries(data.channel_names).forEach(([k, v]) => {
+                    channelNames[parseInt(k)] = v;
+                });
+            }
+            if (data.messages) {
+                if (Array.isArray(data.messages)) {
+                    allMessages = data.messages.length > 0 ? {0: data.messages} : {};
+                } else {
+                    allMessages = {};
+                    Object.entries(data.messages).forEach(([k, v]) => {
+                        allMessages[parseInt(k)] = v;
+                    });
+                }
+            }
+            // Add empty arrays for channels that have no messages yet
+            Object.keys(channelNames).forEach(idx => {
+                const i = parseInt(idx);
+                if (!allMessages[i]) allMessages[i] = [];
+            });
+            updateChannelTabs();
+            updateMessagesDisplay();
+            updateSendChannelSelect();
+            localStorage.setItem('meshtastic_unread', 0);
+        } else if (data.type === 'new_message') {
+            handleNewMessage(data.message);
+        } else if (data.type === 'node_update') {
+            const n = data.node;
+            if (n && n.id) {
+                if (n.lat != null) {
+                    allNodes = allNodes.filter(x => x.id !== n.id);
+                    allNodes.push(n);
+                } else {
+                    allNodesNoGps = allNodesNoGps.filter(x => x.id !== n.id);
+                    allNodesNoGps.push(n);
+                }
+            }
+        } else if (data.type === 'connection_status') {
+            if (data.tracker) {
+                trackerInfo = {...trackerInfo, ...data.tracker};
+                if (data.tracker.channels) {
+                    data.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
+                    updateChannelTabs();
+                    updateSendChannelSelect();
+                }
+            }
+        } else if (data.type === 'send_status') {
+            const statusEl = document.getElementById('send-status');
+            if (statusEl) {
+                if (data.status === 'sending') {
+                    statusEl.textContent = '⏳ Sending...';
+                } else if (data.status === 'done') {
+                    statusEl.textContent = data.success ? '✅ Sent!' : '❌ Failed';
+                    if (data.success) setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+                }
+            }
+        } else if (data.type === 'send_result') {
+            const btn = document.getElementById('send-btn');
+            if (btn) btn.disabled = false;
+            if (data.success) {
+                const inp = document.getElementById('send-text');
+                if (inp) inp.value = '';
+                clearDM();
+            }
+            window._pendingSend = null;
+        }
+    };
+}
+
+// ── Messages ─────────────────────────────────────────────────────
+function formatMessageTime(timestamp) {
+    const date = new Date(timestamp * 1000);
+    const hours = date.getHours().toString().padStart(2, '0');
+    const minutes = date.getMinutes().toString().padStart(2, '0');
+    return `${hours}:${minutes}`;
+}
+
+function handleNewMessage(message) {
+    const ch = message.channel_index != null ? message.channel_index : 0;
+    if (!allMessages[ch]) allMessages[ch] = [];
+    allMessages[ch].unshift(message);
+    if (allMessages[ch].length > 50) allMessages[ch] = allMessages[ch].slice(0, 50);
+
+    if (ch !== activeChannel) {
+        unreadCounts[ch] = (unreadCounts[ch] || 0) + 1;
+    }
+
+    // Only increment localStorage unread if page not in focus
+    if (document.hidden) {
+        const unread = parseInt(localStorage.getItem('meshtastic_unread') || '0');
+        localStorage.setItem('meshtastic_unread', unread + 1);
+    }
+
+    playBeep();
+    updateMessagesDisplay();
+}
+
+function updateMessagesDisplay() {
+    updateChannelTabs();
+    updateSendChannelSelect();
+    const msgs = allMessages[activeChannel] || [];
+    const messagesList = document.getElementById('messages-list');
+    if (msgs.length > 0) {
+        messagesList.innerHTML = msgs.map(msg => {
+            const isDM = msg.is_dm;
+            const itemClass = isDM ? 'message-item message-dm' : 'message-item';
+            const senderNode = allNodes.find(n => n.id === msg.from_id) ||
+                               allNodesNoGps.find(n => n.id === msg.from_id);
+            const senderName = senderNode?.name || msg.from_name || msg.from_id;
+            const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
+            const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
+            const dmBtn = msg.from_id !== trackerInfo.node_id
+                ? `<button onclick="selectDMNode('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
+                : '';
+            return `
+            <div class="${itemClass}">
+                <div class="msg-header">
+                    <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
+                    <span class="msg-sender">${senderName}${dmLabel}</span>${dmBtn}
+                </div>
+                <div class="msg-text">${msg.text}</div>
+            </div>`;
+        }).join('');
+    } else {
+        messagesList.innerHTML = '<div class="message-item" style="color:#9ca3af">No messages</div>';
+    }
+}
+
+function updateChannelTabs() {
+    const tabsEl = document.getElementById('channel-tabs');
+    if (!tabsEl) return;
+    const indices = new Set([
+        ...Object.keys(allMessages).map(Number),
+        ...Object.keys(channelNames).map(Number)
+    ]);
+    if (indices.size === 0) { tabsEl.innerHTML = ''; return; }
+    tabsEl.innerHTML = [...indices].sort((a, b) => a - b).map(idx => {
+        const name = channelNames[idx] || `Ch ${idx}`;
+        const unread = unreadCounts[idx] || 0;
+        const badge = unread > 0 ? `<span class="unread-badge">${unread}</span>` : '';
+        const active = idx === activeChannel ? ' active' : '';
+        return `<div class="channel-tab${active}" onclick="setActiveChannel(${idx})">${name}${badge}</div>`;
+    }).join('');
+}
+
+function setActiveChannel(index) {
+    activeChannel = index;
+    unreadCounts[index] = 0;
+    resetUnread();
+    updateMessagesDisplay();
+    const sel = document.getElementById('send-channel-select');
+    if (sel) sel.value = index;
+}
+
+function updateSendChannelSelect() {
+    const sel = document.getElementById('send-channel-select');
+    if (!sel) return;
+    const indices = [...new Set([
+        ...Object.keys(allMessages).map(Number),
+        ...Object.keys(channelNames).map(Number),
+        0
+    ])].sort((a, b) => a - b);
+    sel.innerHTML = indices.map(idx => {
+        const name = channelNames[idx] || (idx === 0 ? 'Primary' : `Ch ${idx}`);
+        return `<option value="${idx}"${idx === activeChannel ? ' selected' : ''}>${name}</option>`;
+    }).join('');
+}
+
+// ── Send ─────────────────────────────────────────────────────────
+function sendMessage() {
+    const text = (document.getElementById('send-text').value || '').trim();
+    if (!text) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        document.getElementById('send-status').textContent = '❌ Not connected';
+        return;
+    }
+    const channelIndex = parseInt(document.getElementById('send-channel-select').value) || 0;
+    const destId = window._dmDestId || null;
+    document.getElementById('send-btn').disabled = true;
+    window._pendingSend = {text, channelIndex, destId};
+    ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
+}
+
+// ── DM ───────────────────────────────────────────────────────────
+function dmSearch(query) {
+    const resultsEl = document.getElementById('dm-search-results');
+    if (!query || query.length < 1) {
+        resultsEl.style.display = 'none';
+        window._dmDestId = null;
+        window._dmDestName = null;
+        document.getElementById('dm-selector').classList.remove('active');
+        return;
+    }
+    const q = query.toLowerCase();
+    const matches = [];
+    [...allNodes, ...allNodesNoGps].forEach(n => {
+        if (n.via_mqtt) return;
+        if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+            matches.push(n);
+        }
+    });
+    const top = matches.slice(0, 8);
+    if (top.length === 0) { resultsEl.style.display = 'none'; return; }
+    resultsEl.innerHTML = top.map(n => `
+        <div onclick="selectDMNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');"
+             style="padding:4px 8px;cursor:pointer;border-bottom:1px solid #f3f4f6;"
+             onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+            <b>${n.name||n.id}</b> <span style="color:#9ca3af">${n.id}</span>
+        </div>`).join('');
+    resultsEl.style.display = 'block';
+}
+
+function selectDMNode(nodeId, nodeName) {
+    window._dmDestId = nodeId;
+    window._dmDestName = nodeName;
+    document.getElementById('dm-node-id').value = nodeName;
+    document.getElementById('dm-search-results').style.display = 'none';
+    document.getElementById('dm-selector').classList.add('active');
+    document.getElementById('send-text').focus();
+}
+
+function clearDM() {
+    window._dmDestId = null;
+    window._dmDestName = null;
+    const inp = document.getElementById('dm-node-id');
+    if (inp) inp.value = '';
+    const res = document.getElementById('dm-search-results');
+    if (res) res.style.display = 'none';
+    const sel = document.getElementById('dm-selector');
+    if (sel) sel.classList.remove('active');
+}
+
+// ── Sound ────────────────────────────────────────────────────────
+function toggleSound() {
+    soundEnabled = !soundEnabled;
+    document.getElementById('sound-toggle').textContent = soundEnabled ? '🔔' : '🔕';
+}
+
+function playBeep() {
+    if (!soundEnabled) return;
+    try {
+        const ctx = new AudioContext();
+        const osc = ctx.createOscillator();
+        osc.connect(ctx.destination);
+        osc.frequency.value = 800;
+        osc.start();
+        setTimeout(() => { osc.stop(); ctx.close(); }, 100);
+    } catch(e) {}
+}
+
+connectWS();
+</script>
+</body>
+</html>

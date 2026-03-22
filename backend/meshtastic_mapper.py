@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.19
+#ver 2.0
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -16,11 +16,13 @@ import os
 import asyncio
 import websockets
 import threading
+import base64
 import sqlite3
 import meshtastic
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
+from meshtastic.protobuf import config_pb2
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -80,6 +82,17 @@ class TCPMeshtasticInterface:
                 raise Exception("Connection timeout")
 
         iface_ref[0] = self.interface
+
+    @property
+    def localNode(self):
+        return self.interface.localNode
+
+    @property
+    def nodes(self):
+        return self.interface.nodes
+
+    def getMyNodeInfo(self):
+        return self.interface.getMyNodeInfo()
 
     def disconnect(self):
         """Unsubscribe and close the interface."""
@@ -385,6 +398,7 @@ class ListenBasedMapper:
         self.host = host
         self.current_process = None
         self._serial_iface = None
+        self._tcp_iface = None
         self._pending_traceroute_result = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
@@ -567,7 +581,14 @@ class ListenBasedMapper:
                         # Clean old nodes immediately
                         self.clean_old_nodes_from_dict(nodes)
                         self.clean_old_nodes_from_dict(nodes_no_pos)
-                    
+
+                        # Remove from no-position any node that already has GPS position
+                        duplicates = [nid for nid in nodes_no_pos if nid in nodes]
+                        for nid in duplicates:
+                            del nodes_no_pos[nid]
+                        if duplicates:
+                            print(f"[LOAD] Removed {len(duplicates)} duplicate nodes from no-GPS list")
+
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
                     
@@ -617,6 +638,259 @@ class ListenBasedMapper:
                 if node_id not in self.nodes and node_id not in self.nodes_no_position:
                     self.known_names.pop(node_id, None)
     
+    def get_device_config(self):
+        """Read current config from connected device via Python API."""
+        iface = None
+        if self.connection_type == 'serial' and self._serial_iface:
+            iface = self._serial_iface.iface
+        elif self.connection_type == 'tcp' and self._tcp_iface:
+            iface = self._tcp_iface
+
+        if not iface:
+            raise Exception('No active connection to device')
+
+        # For TCP, check that the underlying interface is actually connected
+        if self.connection_type == 'tcp' and hasattr(iface, 'interface') and iface.interface is None:
+            raise Exception('TCP connection not yet established — please wait and retry')
+
+        node = iface.localNode
+        config = {}
+
+        try:
+            d = node.localConfig.device
+            config['device'] = {
+                'role': d.role,
+                'node_info_broadcast_secs': d.node_info_broadcast_secs,
+                'serial_enabled': d.serial_enabled,
+            }
+        except Exception as e:
+            config['device'] = {'error': str(e)}
+
+        try:
+            p = node.localConfig.position
+            config['position'] = {
+                'position_broadcast_secs': p.position_broadcast_secs,
+                'gps_enabled': p.gps_mode != 0,
+                'gps_update_interval': p.gps_update_interval,
+                'position_broadcast_smart_enabled': p.position_broadcast_smart_enabled,
+            }
+        except Exception as e:
+            config['position'] = {'error': str(e)}
+
+        try:
+            l = node.localConfig.lora
+            config['lora'] = {
+                'region': l.region,
+                'region_name': config_pb2.Config.LoRaConfig.RegionCode.Name(l.region) if l.region else 'UNSET',
+                'hop_limit': l.hop_limit,
+                'modem_preset': l.modem_preset,
+                'tx_power': l.tx_power,
+                'use_preset': l.use_preset,
+            }
+        except Exception as e:
+            config['lora'] = {'error': str(e)}
+
+        try:
+            t = node.moduleConfig.telemetry
+            config['telemetry'] = {
+                'device_update_interval': t.device_update_interval,
+                'environment_update_interval': t.environment_update_interval,
+                'environment_measurement_enabled': t.environment_measurement_enabled,
+            }
+        except Exception as e:
+            config['telemetry'] = {'error': str(e)}
+
+        try:
+            # Network config
+            n = node.localConfig.network
+            config['network'] = {
+                'wifi_enabled': n.wifi_enabled,
+                'wifi_ssid': n.wifi_ssid,
+                'wifi_psk': n.wifi_psk,
+                'address_mode': n.address_mode,
+                'ntp_server': n.ntp_server,
+            }
+        except Exception as e:
+            config['network'] = {'error': str(e)}
+
+        try:
+            # Add connection info to network config
+            config['network']['current_ip'] = self.config.get('host', None) if self.connection_type == 'tcp' else None
+            config['network']['connection_type'] = self.connection_type
+        except:
+            pass
+
+        try:
+            # Bluetooth config
+            b = node.localConfig.bluetooth
+            config['bluetooth'] = {
+                'enabled': b.enabled,
+                'mode': b.mode,
+                'fixed_pin': b.fixed_pin,
+            }
+        except Exception as e:
+            config['bluetooth'] = {'error': str(e)}
+
+        try:
+            # Channels
+            from meshtastic.protobuf import channel_pb2
+            channels = []
+            for ch in node.channels:
+                channels.append({
+                    'index': ch.index,
+                    'name': ch.settings.name,
+                    'role': ch.role,
+                    'role_name': channel_pb2.Channel.Role.Name(ch.role),
+                    'psk': base64.b64encode(ch.settings.psk).decode('utf-8') if ch.settings.psk else '',
+                })
+            config['channels'] = channels
+        except Exception as e:
+            config['channels'] = []
+
+        try:
+            # Extra device fields
+            d = node.localConfig.device
+            config['device']['rebroadcast_mode'] = d.rebroadcast_mode
+            config['device']['serial_enabled'] = d.serial_enabled
+            config['device']['led_heartbeat_disabled'] = d.led_heartbeat_disabled
+        except:
+            pass
+
+        try:
+            # Extra position fields
+            p = node.localConfig.position
+            config['position']['broadcast_smart_minimum_distance'] = p.broadcast_smart_minimum_distance
+            config['position']['broadcast_smart_minimum_interval_secs'] = p.broadcast_smart_minimum_interval_secs
+        except:
+            pass
+
+        try:
+            # Extra telemetry fields
+            t = node.moduleConfig.telemetry
+            config['telemetry']['device_telemetry_enabled'] = t.device_telemetry_enabled
+            config['telemetry']['power_measurement_enabled'] = t.power_measurement_enabled
+            config['telemetry']['power_update_interval'] = t.power_update_interval
+            config['telemetry']['environment_screen_enabled'] = t.environment_screen_enabled
+            config['telemetry']['health_measurement_enabled'] = t.health_measurement_enabled
+            config['telemetry']['health_update_interval'] = t.health_update_interval
+        except:
+            pass
+
+        try:
+            # Current position for fixed position pre-fill
+            my_info = iface.getMyNodeInfo()
+            pos = my_info.get('position', {})
+            if pos:
+                config['current_position'] = {
+                    'lat': pos.get('latitude', 0),
+                    'lon': pos.get('longitude', 0),
+                    'alt': pos.get('altitude', 0),
+                }
+        except:
+            pass
+
+        try:
+            u = iface.getMyNodeInfo().get('user', {})
+            config['user'] = {
+                'long_name': u.get('longName', ''),
+                'short_name': u.get('shortName', ''),
+            }
+        except Exception as e:
+            config['user'] = {'error': str(e)}
+
+        return config
+
+    def apply_device_config(self, changes, reboot=False):
+        """Apply config changes to device via Python API."""
+        iface = None
+        if self.connection_type == 'serial' and self._serial_iface:
+            iface = self._serial_iface.iface
+        elif self.connection_type == 'tcp' and self._tcp_iface:
+            iface = self._tcp_iface
+
+        if not iface:
+            raise Exception('No active connection to device')
+
+        if self.connection_type == 'tcp' and hasattr(iface, 'interface') and iface.interface is None:
+            raise Exception('TCP connection not yet established — please wait and retry')
+
+        node = iface.localNode
+        applied = []
+
+        if 'user' in changes:
+            u = changes['user']
+            if 'long_name' in u:
+                node.setOwner(longName=u['long_name'], shortName=u.get('short_name'))
+                applied.append('user.long_name')
+            elif 'short_name' in u:
+                node.setOwner(shortName=u['short_name'])
+                applied.append('user.short_name')
+
+        if 'device' in changes:
+            for key, val in changes['device'].items():
+                if key == 'role' or key == 'rebroadcast_mode':
+                    setattr(node.localConfig.device, key, int(val))
+                else:
+                    setattr(node.localConfig.device, key, val)
+                applied.append(f'device.{key}')
+            node.writeConfig('device')
+
+        if 'position' in changes:
+            for key, val in changes['position'].items():
+                if key == 'gps_enabled':
+                    node.localConfig.position.gps_mode = 1 if val else 0
+                    applied.append('position.gps_mode')
+                else:
+                    setattr(node.localConfig.position, key, val)
+                    applied.append(f'position.{key}')
+            node.writeConfig('position')
+
+        if 'lora' in changes:
+            for key, val in changes['lora'].items():
+                if key in ('region', 'modem_preset'):
+                    setattr(node.localConfig.lora, key, int(val))
+                else:
+                    setattr(node.localConfig.lora, key, val)
+                applied.append(f'lora.{key}')
+            node.writeConfig('lora')
+
+        if 'telemetry' in changes:
+            for key, val in changes['telemetry'].items():
+                setattr(node.moduleConfig.telemetry, key, val)
+                applied.append(f'telemetry.{key}')
+            node.writeConfig('telemetry')
+
+        # Network config changes
+        if 'network' in changes:
+            for key, val in changes['network'].items():
+                if not key.startswith('ipv4_config'):
+                    if key == 'address_mode':
+                        setattr(node.localConfig.network, key, int(val))
+                    else:
+                        setattr(node.localConfig.network, key, val)
+                    applied.append(f'network.{key}')
+            node.writeConfig('network')
+
+        # Bluetooth config changes
+        if 'bluetooth' in changes:
+            for key, val in changes['bluetooth'].items():
+                if key == 'mode':
+                    setattr(node.localConfig.bluetooth, key, int(val))
+                else:
+                    setattr(node.localConfig.bluetooth, key, val)
+                applied.append(f'bluetooth.{key}')
+            node.writeConfig('bluetooth')
+
+        if reboot:
+            try:
+                node.reboot()
+                print(f"[CONFIG] Device reboot requested")
+            except (BrokenPipeError, OSError):
+                print(f"[CONFIG] Connection dropped during reboot (expected)")
+
+        print(f"[CONFIG] Applied: {applied}")
+        return applied
+
     def _watchdog_loop(self):
         """Restart meshtastic --listen subprocess if no packets received for WATCHDOG_TIMEOUT seconds."""
         WATCHDOG_TIMEOUT = 600  # 10 minutes of silence = restart subprocess
@@ -782,7 +1056,11 @@ class ListenBasedMapper:
                         'via_mqtt': via_mqtt,
                         'source': 'live'
                     }
-                    
+                    # Remove from no-position dict if node now has GPS
+                    if node_id in self.nodes_no_position:
+                        del self.nodes_no_position[node_id]
+                        print(f"[GPS] {node_id} moved from no-GPS to GPS list")
+
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
@@ -916,6 +1194,10 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
@@ -1151,6 +1433,10 @@ class ListenBasedMapper:
                     'via_mqtt': via_mqtt,
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
                 self._update_message_names(node_id, name)
@@ -1237,6 +1523,10 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
 
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
@@ -1437,9 +1727,18 @@ class ListenBasedMapper:
         websockets.broadcast(connected_clients, msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
+    def _dedup_nodes(self):
+        """Remove any node from nodes_no_position that also exists in nodes (has GPS)."""
+        duplicates = [nid for nid in self.nodes_no_position if nid in self.nodes]
+        for nid in duplicates:
+            del self.nodes_no_position[nid]
+        if duplicates:
+            print(f"[DEDUP] Removed {len(duplicates)} nodes from no-GPS that now have GPS")
+
     def save_nodes(self):
         """Save to JSON"""
         try:
+            self._dedup_nodes()
             max_dist, farthest_id = self.get_max_distance()
             
             data = {
@@ -1640,6 +1939,7 @@ class ListenBasedMapper:
             try:
                 print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
                 tcp_iface = TCPMeshtasticInterface(self.host)
+                self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
 
@@ -2283,6 +2583,243 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'get_config':
+                    if mapper:
+                        try:
+                            config = mapper.get_device_config()
+                            await websocket.send(json.dumps({
+                                'type': 'config_data',
+                                'config': config
+                            }))
+                        except Exception as e:
+                            print(f"[CONFIG] get_config error: {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'config_error',
+                                'error': str(e)
+                            }))
+
+                elif data.get('type') == 'set_config':
+                    if mapper:
+                        changes = data.get('changes', {})
+                        reboot = data.get('reboot', False)
+                        try:
+                            result = mapper.apply_device_config(changes, reboot)
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': True,
+                                'rebooting': reboot,
+                                'applied': result
+                            }))
+                        except (BrokenPipeError, OSError) as e:
+                            # Device disconnected after reboot — this is expected
+                            print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': True,
+                                'applied': [],
+                                'rebooting': True,
+                                'warning': 'Device disconnected — config likely saved, device may be rebooting'
+                            }))
+                        except Exception as e:
+                            print(f"[CONFIG] Error: {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': False,
+                                'error': str(e)
+                            }))
+
+                elif data.get('type') == 'set_fixed_position':
+                    if mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                lat = data.get('lat', 0)
+                                lon = data.get('lon', 0)
+                                alt = data.get('alt', 0)
+                                iface.localNode.setPosition(lat, lon, alt)
+                                await websocket.send(json.dumps({
+                                    'type': 'fixed_position_result',
+                                    'success': True
+                                }))
+                                print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'fixed_position_result',
+                                'success': False, 'error': str(e)
+                            }))
+
+                elif data.get('type') == 'clear_fixed_position':
+                    if mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                iface.localNode.removePosition()
+                                await websocket.send(json.dumps({
+                                    'type': 'clear_position_result',
+                                    'success': True
+                                }))
+                                print(f"[CONFIG] Fixed position cleared")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_position_result',
+                                'success': False, 'error': str(e)
+                            }))
+
+                elif data.get('type') == 'get_favorites':
+                    try:
+                        iface = None
+                        if mapper and mapper.connection_type == 'serial' and mapper._serial_iface:
+                            iface = mapper._serial_iface.iface
+                        elif mapper and mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                            iface = mapper._tcp_iface
+                        if not iface:
+                            raise Exception('No active connection')
+                        favorites = []
+                        for node_num, node_info in iface.nodes.items():
+                            if node_info.get('isFavorite'):
+                                user = node_info.get('user', {})
+                                favorites.append({
+                                    'node_id': user.get('id', node_num),
+                                    'name': user.get('longName', user.get('id', node_num)),
+                                    'short_name': user.get('shortName', '??'),
+                                })
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                    except Exception as e:
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': [], 'error': str(e)}))
+
+                elif data.get('type') == 'set_favorite':
+                    node_id = data.get('node_id', '').strip()
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                    elif mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if not iface:
+                                raise Exception('No active connection')
+                            iface.localNode.setFavorite(node_id)
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'set', 'node_id': node_id}))
+                            try:
+                                favorites = []
+                                for node_num, node_info in iface.nodes.items():
+                                    if node_info.get('isFavorite'):
+                                        user = node_info.get('user', {})
+                                        favorites.append({
+                                            'node_id': user.get('id', node_num),
+                                            'name': user.get('longName', user.get('id', node_num)),
+                                            'short_name': user.get('shortName', '??'),
+                                        })
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                            except:
+                                pass
+                        except Exception as e:
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+
+                elif data.get('type') == 'remove_favorite':
+                    node_id = data.get('node_id', '').strip()
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                    elif mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if not iface:
+                                raise Exception('No active connection')
+                            iface.localNode.removeFavorite(node_id)
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'remove', 'node_id': node_id}))
+                            try:
+                                favorites = []
+                                for node_num, node_info in iface.nodes.items():
+                                    if node_info.get('isFavorite'):
+                                        user = node_info.get('user', {})
+                                        favorites.append({
+                                            'node_id': user.get('id', node_num),
+                                            'name': user.get('longName', user.get('id', node_num)),
+                                            'short_name': user.get('shortName', '??'),
+                                        })
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                            except:
+                                pass
+                        except Exception as e:
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+
+                elif data.get('type') == 'save_channel':
+                    try:
+                        iface = None
+                        if mapper and mapper.connection_type == 'serial' and mapper._serial_iface:
+                            iface = mapper._serial_iface.iface
+                        elif mapper and mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                            iface = mapper._tcp_iface
+                        if not iface:
+                            raise Exception('No active connection')
+
+                        from meshtastic.protobuf import channel_pb2
+                        import meshtastic.util
+
+                        ch_index = int(data.get('index', 0))
+                        ch_name = data.get('name', '')
+                        ch_role = int(data.get('role', 1))
+                        ch_psk = data.get('psk', None)
+
+                        node = iface.localNode
+                        channel = node.channels[ch_index]
+
+                        channel.settings.name = ch_name
+
+                        if ch_index == 0:
+                            channel.role = channel_pb2.Channel.Role.PRIMARY
+                        elif ch_role == 3:
+                            channel.role = channel_pb2.Channel.Role.DISABLED
+                        else:
+                            channel.role = channel_pb2.Channel.Role.SECONDARY
+
+                        if ch_psk is not None:
+                            if ch_psk == 'none':
+                                channel.settings.psk = b''
+                            elif ch_psk == 'default':
+                                channel.settings.psk = base64.b64decode('AQ==')
+                            elif ch_psk == 'random':
+                                channel.settings.psk = meshtastic.util.genPSK256()
+                            elif ch_psk.startswith('base64:'):
+                                channel.settings.psk = base64.b64decode(ch_psk[7:])
+                            elif ch_psk.startswith('custom:'):
+                                raw = ch_psk[7:].strip()
+                                if raw.startswith('0x') or raw.startswith('0X'):
+                                    hex_str = raw[2:]
+                                    if len(hex_str) % 2 != 0:
+                                        raise Exception(f'Invalid hex PSK length: {len(hex_str)} chars (must be even)')
+                                    channel.settings.psk = bytes.fromhex(hex_str)
+                                else:
+                                    channel.settings.psk = base64.b64decode(raw)
+
+                        node.writeChannel(ch_index)
+                        print(f"[CONFIG] Channel {ch_index} saved: name={ch_name!r} role={ch_role} psk={'changed' if ch_psk else 'unchanged'}")
+                        await websocket.send(json.dumps({
+                            'type': 'channel_save_result',
+                            'success': True,
+                            'index': ch_index
+                        }))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'channel_save_result',
+                            'success': False,
+                            'error': str(e)
+                        }))
+
                 elif data.get('type') == 'clear_node_stats':
                     node_id = data.get('node_id', '').strip()
                     if node_id and mapper:
@@ -2320,6 +2857,28 @@ async def websocket_handler(websocket):
                                 'type': 'elevation_data',
                                 'error': str(e)
                             }))
+                elif data.get('type') == 'get_messages':
+                    if mapper:
+                        channel_names = {}
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                for ch in iface.localNode.channels:
+                                    if ch.role != 0:  # not DISABLED
+                                        name = ch.settings.name or ('Primary' if ch.index == 0 else f'Ch {ch.index}')
+                                        channel_names[ch.index] = name
+                        except:
+                            pass
+                        await websocket.send(json.dumps({
+                            'type': 'messages_data',
+                            'messages': mapper.messages,
+                            'channel_names': channel_names
+                        }))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:

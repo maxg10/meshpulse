@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=1.19">
+    <link rel="stylesheet" href="styles.css?v=2.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.19 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -135,7 +135,8 @@
     <div class="topnav-links">
         <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
         <a href="/meshtastic/stats.html" class="topnav-link active">📊 Stats</a>
-        <a href="#" class="topnav-link topnav-soon">⚙️ Config <span class="soon-badge">soon</span></a>
+        <a href="/meshtastic/config.html" class="topnav-link">⚙️ Config</a>
+        <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
     </div>
 </nav>
 
@@ -867,6 +868,29 @@ function clearNodeStats(nodeId, nodeName) {
 }
 
 connectWS();
+
+// Unread messages badge
+const _bc = new BroadcastChannel('meshtastic_msgs');
+_bc.onmessage = (e) => { if (e.data === 'reset') updateNavUnread(); };
+function updateNavUnread() {
+    const cnt = parseInt(localStorage.getItem('meshtastic_unread') || '0');
+    const el = document.getElementById('nav-messages');
+    if (!el) return;
+    const badge = el.querySelector('.nav-unread');
+    if (cnt > 0) {
+        if (!badge) {
+            const b = document.createElement('span');
+            b.className = 'nav-unread';
+            b.style.cssText = 'background:#ef4444;color:#fff;border-radius:9px;padding:1px 5px;font-size:10px;margin-left:4px;';
+            el.appendChild(b);
+        }
+        el.querySelector('.nav-unread').textContent = cnt;
+    } else {
+        if (badge) badge.remove();
+    }
+}
+setInterval(updateNavUnread, 2000);
+updateNavUnread();
 </script>
 </body>
 </html>

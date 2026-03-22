@@ -1,0 +1,1296 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Meshtastic Config</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="styles.css?v=2.0">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #111827;
+            color: #1f2937;
+            margin: 0; padding: 16px;
+            padding-top: 60px;
+        }
+        .card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            margin-bottom: 14px;
+        }
+        .card-title {
+            font-size: 13px; font-weight: bold; color: #374151;
+            margin: 0 0 14px 0; padding-bottom: 8px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ws-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+        .ws-connected { background: #22c55e; }
+        .ws-disconnected { background: #ef4444; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+        .tab {
+            padding: 8px 16px; border-radius: 6px; cursor: pointer;
+            font-size: 13px; font-weight: 500; border: none;
+            background: rgba(255,255,255,0.1); color: #9ca3af;
+            transition: all 0.15s;
+        }
+        .tab:hover { background: rgba(255,255,255,0.2); color: #f9fafb; }
+        .tab.active { background: #2563eb; color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Form fields */
+        .field { margin-bottom: 14px; }
+        .field label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: #374151; margin-bottom: 4px;
+        }
+        .field .desc {
+            font-size: 11px; color: #6b7280; margin-bottom: 4px;
+        }
+        .field input[type="text"],
+        .field input[type="number"],
+        .field select {
+            width: 100%; padding: 7px 10px; border: 1px solid #d1d5db;
+            border-radius: 5px; font-size: 13px; color: #1f2937;
+            background: #fff; transition: border 0.15s;
+        }
+        .field input:focus, .field select:focus {
+            outline: none; border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+        }
+        .field input.changed, .field select.changed {
+            border-color: #f59e0b; background: #fffbeb;
+        }
+        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .field input[type="checkbox"] { width: auto; margin-right: 6px; }
+        .field-check { display: flex; align-items: center; margin-bottom: 14px; }
+        .field-check label { font-size: 13px; color: #374151; cursor: pointer; }
+
+        /* Action bar */
+        .action-bar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: #1f2937; padding: 12px 16px;
+            display: flex; align-items: center; gap: 10px;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.4); z-index: 1000;
+        }
+        .btn {
+            padding: 8px 20px; border-radius: 6px; border: none;
+            font-size: 13px; font-weight: 600; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled { background: #6b7280; cursor: not-allowed; }
+        .btn-secondary { background: #374151; color: #d1d5db; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .changes-info { color: #9ca3af; font-size: 12px; flex: 1; }
+        .changes-pending { color: #f59e0b; }
+
+        /* Status messages */
+        .alert {
+            padding: 10px 14px; border-radius: 6px; font-size: 12px;
+            margin-bottom: 14px;
+        }
+        .alert-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .alert-success { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+        .alert-warning { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+
+        /* Tooltips */
+        .tip {
+            display: inline-block; width: 14px; height: 14px; border-radius: 50%;
+            background: #e5e7eb; color: #6b7280; font-size: 10px; font-weight: bold;
+            text-align: center; line-height: 14px; cursor: help; margin-left: 4px;
+            vertical-align: middle; flex-shrink: 0;
+        }
+        .tip:hover { background: #3b82f6; color: white; }
+        #g-tooltip {
+            display: none; position: fixed; z-index: 9999;
+            background: #1f2937; color: #f9fafb;
+            border-radius: 5px; padding: 8px 10px;
+            font-size: 11px; max-width: 260px;
+            line-height: 1.5; pointer-events: none;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        /* Loading state */
+        .loading { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
+
+        @media (max-width: 600px) {
+            .field-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="g-tooltip"></div>
+
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0 — Config</span></div>
+    <div class="topnav-status">
+        <span class="ws-dot ws-disconnected" id="ws-dot"></span>
+        <span id="ws-label">Connecting...</span>
+        <span style="color:#4b5563">·</span>
+        <span id="device-status" style="color:#eab308">⏳ Waiting for device...</span>
+        <span style="color:#4b5563">·</span>
+        <span style="color:#6b7280">Tracker: <span id="tracker-label" style="color:#9ca3af">-</span></span>
+    </div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshtastic/config.html" class="topnav-link active">⚙️ Config</a>
+        <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
+    </div>
+</nav>
+
+<div id="status-bar"></div>
+
+<div class="tabs">
+    <button class="tab active" onclick="switchTab('user', this)">👤 User</button>
+    <button class="tab" onclick="switchTab('device', this)">📱 Device</button>
+    <button class="tab" onclick="switchTab('lora', this)">📡 LoRa</button>
+    <button class="tab" onclick="switchTab('position', this)">📍 Position</button>
+    <button class="tab" onclick="switchTab('telemetry', this)">🔋 Telemetry</button>
+    <button class="tab" onclick="switchTab('network', this)">🌐 Network</button>
+    <button class="tab" onclick="switchTab('bluetooth', this)">🔵 Bluetooth</button>
+    <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
+    <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
+</div>
+
+<!-- User tab -->
+<div id="tab-user" class="tab-content active">
+    <div class="card">
+        <div class="card-title">👤 User Settings</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Long Name <span class="tip" onmouseenter="showTip('Your full display name shown to other nodes. Max 40 characters. Changing this triggers a nodeinfo broadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Your full display name (1-40 chars)</div>
+                <input type="text" id="user.long_name" maxlength="40"
+                    oninput="markChanged(this)" placeholder="Loading...">
+            </div>
+            <div class="field">
+                <label>Short Name <span class="tip" onmouseenter="showTip('2-4 character abbreviation shown on maps and small displays. Changing this triggers a nodeinfo broadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Abbreviated name (2-4 chars)</div>
+                <input type="text" id="user.short_name" maxlength="4"
+                    oninput="markChanged(this)" placeholder="Loading...">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device tab -->
+<div id="tab-device" class="tab-content">
+    <div class="card">
+        <div class="card-title">📱 Device Settings</div>
+        <div class="field">
+            <label>Role <span class="tip" onmouseenter="showTip('CLIENT: normal user. ROUTER: dedicated router. ROUTER_LATE: router with delay. CLIENT_MUTE: listens only. CLIENT_BASE: no position broadcast. TRACKER: frequent position updates.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">How this node participates in the mesh</div>
+            <select id="device.role" onchange="markChanged(this)">
+                <option value="0">CLIENT</option>
+                <option value="1">CLIENT_MUTE (no rebroadcast)</option>
+                <option value="2">ROUTER</option>
+                <option value="3">CLIENT_BASE (no GPS broadcast)</option>
+                <option value="4">TRACKER</option>
+                <option value="5">SENSOR</option>
+                <option value="6">REPEATER</option>
+                <option value="7">TAK</option>
+                <option value="8">TAK_TRACKER</option>
+                <option value="9">LOST_AND_FOUND</option>
+                <option value="11">ROUTER_LATE</option>
+            </select>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>NodeInfo Broadcast Interval (seconds) <span class="tip" onmouseenter="showTip('How often your node announces itself to the mesh. Default: 900s (15 min). Lower = more traffic. Recommended: 3600s+ for stationary nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">How often to broadcast node info. Default: 900s</div>
+                <input type="number" id="device.node_info_broadcast_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Rebroadcast Mode <span class="tip" onmouseenter="showTip('ALL: rebroadcast everything. LOCAL_ONLY: only rebroadcast to local nodes. KNOWN_ONLY: only rebroadcast to known nodes. NONE: no rebroadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Controls which packets are rebroadcast</div>
+                <select id="device.rebroadcast_mode" onchange="markChanged(this)">
+                    <option value="0">ALL</option>
+                    <option value="1">ALL_SKIP_DECODING</option>
+                    <option value="2">LOCAL_ONLY</option>
+                    <option value="3">KNOWN_ONLY</option>
+                    <option value="4">NONE</option>
+                </select>
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="device.serial_enabled" onchange="markChanged(this)">
+            <label for="device.serial_enabled">Serial Console Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="device.led_heartbeat_disabled" onchange="markChanged(this)">
+            <label for="device.led_heartbeat_disabled">Disable LED Heartbeat</label>
+        </div>
+    </div>
+</div>
+
+<!-- LoRa tab -->
+<div id="tab-lora" class="tab-content">
+    <div class="card">
+        <div class="card-title">📡 LoRa Settings</div>
+        <div class="alert alert-warning">⚠️ Changing LoRa settings may disconnect you from the mesh. Make sure all nodes use the same settings.</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Region</label>
+                <div class="desc">Your regulatory region</div>
+                <select id="lora.region" onchange="markChanged(this)">
+                    <option value="0">Unset</option>
+                    <option value="1">US</option>
+                    <option value="2">EU_433</option>
+                    <option value="3">EU_868</option>
+                    <option value="4">CN</option>
+                    <option value="5">JP</option>
+                    <option value="6">ANZ</option>
+                    <option value="7">KR</option>
+                    <option value="8">TW</option>
+                    <option value="9">RU</option>
+                    <option value="10">IN</option>
+                    <option value="11">NZ_865</option>
+                    <option value="12">TH</option>
+                    <option value="13">LORA_24</option>
+                    <option value="14">UA_433</option>
+                    <option value="15">UA_868</option>
+                    <option value="16">MY_433</option>
+                    <option value="17">MY_919</option>
+                    <option value="18">SG_923</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Hop Limit <span class="tip" onmouseenter="showTip('Maximum number of hops a packet can take. Default: 3. Higher = more range but more channel congestion. Max: 7.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Max hops (1-7). Default: 3</div>
+                <input type="number" id="lora.hop_limit" min="1" max="7"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field">
+            <label>Modem Preset <span class="tip" onmouseenter="showTip('LONG_FAST: best balance. LONG_SLOW: max range, slow. MEDIUM_FAST/SLOW: medium range. SHORT_FAST: short range, fast. All nodes must use same preset!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">LoRa modem configuration preset</div>
+            <select id="lora.modem_preset" onchange="markChanged(this)">
+                <option value="0">LONG_FAST</option>
+                <option value="1">LONG_SLOW</option>
+                <option value="2">VERY_LONG_SLOW</option>
+                <option value="3">MEDIUM_SLOW</option>
+                <option value="4">MEDIUM_FAST</option>
+                <option value="5">SHORT_SLOW</option>
+                <option value="6">SHORT_FAST</option>
+                <option value="7">LONG_MODERATE</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>TX Power (dBm, 0 = max allowed)</label>
+            <div class="desc">Transmit power. 0 = use regional maximum</div>
+            <input type="number" id="lora.tx_power" min="0" max="30"
+                oninput="markChanged(this)">
+        </div>
+    </div>
+</div>
+
+<!-- Position tab -->
+<div id="tab-position" class="tab-content">
+    <div class="card">
+        <div class="card-title">📍 Position Settings</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Position Broadcast Interval (seconds) <span class="tip" onmouseenter="showTip('How often GPS position is sent. 0 = disabled. Recommended: 1800s+ for stationary, 30s for moving. High frequency wastes airtime!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = disabled. ≥1800s recommended for stationary nodes</div>
+                <input type="number" id="position.position_broadcast_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>GPS Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often the GPS module acquires a new fix internally. Default: 0 (use GPS module default, ~30s). 0 = let firmware decide. Higher values save battery on stationary nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">How often to update GPS fix internally</div>
+                <input type="number" id="position.gps_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Smart Broadcast Min Distance (meters) <span class="tip" onmouseenter="showTip('Minimum distance (meters) the node must move before smart broadcast triggers a position update. Default: 100m. Only used when Smart Position Broadcast is enabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Minimum distance moved before smart broadcast triggers</div>
+                <input type="number" id="position.broadcast_smart_minimum_distance" min="0" max="10000"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Smart Broadcast Min Interval (seconds) <span class="tip" onmouseenter="showTip('Minimum time (seconds) between smart position broadcasts regardless of movement. Default: 30s. Prevents flooding the mesh when moving fast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Minimum interval between smart broadcasts</div>
+                <input type="number" id="position.broadcast_smart_minimum_interval_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="position.gps_enabled" onchange="markChanged(this); toggleFixedPosition()">
+            <label for="position.gps_enabled">GPS Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="position.position_broadcast_smart_enabled" onchange="markChanged(this)">
+            <label for="position.position_broadcast_smart_enabled">Smart Position Broadcast (only send when moved)</label>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title" id="fixed-pos-title">📌 Fixed Position</div>
+        <div class="alert alert-info">ℹ️ Set a fixed GPS position manually. Useful for stationary routers without GPS or indoors.</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Latitude</label>
+                <input type="number" id="fixed.lat" step="0.000001" min="-90" max="90"
+                    placeholder="e.g. 52.406374" oninput="updateFixedBtn()">
+            </div>
+            <div class="field">
+                <label>Longitude</label>
+                <input type="number" id="fixed.lon" step="0.000001" min="-180" max="180"
+                    placeholder="e.g. 16.925167" oninput="updateFixedBtn()">
+            </div>
+        </div>
+        <div class="field">
+            <label>Altitude (meters)</label>
+            <input type="number" id="fixed.alt" step="1" min="-500" max="9000"
+                placeholder="e.g. 85" oninput="updateFixedBtn()">
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+            <button class="btn btn-primary" id="fixed-pos-btn" onclick="setFixedPosition()" disabled>
+                📌 Set Fixed Position
+            </button>
+            <button class="btn btn-secondary" onclick="clearFixedPosition()">
+                🗑️ Clear Fixed Position
+            </button>
+            <button class="btn btn-secondary" onclick="useCurrentPosition()">
+                📍 Use Current GPS
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Telemetry tab -->
+<div id="tab-telemetry" class="tab-content">
+    <div class="card">
+        <div class="card-title">🔋 Device Telemetry</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Device Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often battery level and device metrics are broadcast. Default: 1800s (30 min). Minimum recommended: 1800s.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Battery/metrics interval. ≥1800s recommended</div>
+                <input type="number" id="telemetry.device_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Power Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often power sensor readings are broadcast. Default: 0 (disabled). Minimum recommended: 1800s.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Power monitoring interval (if sensor available)</div>
+                <input type="number" id="telemetry.power_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.device_telemetry_enabled" onchange="markChanged(this)">
+            <label for="telemetry.device_telemetry_enabled">Device Telemetry Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting device metrics (battery level, voltage, CPU usage). Recommended to keep enabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.power_measurement_enabled" onchange="markChanged(this)">
+            <label for="telemetry.power_measurement_enabled">Power Measurement Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting power/current sensor data. Requires INA219 or compatible power sensor module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">🌡️ Environment Telemetry</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Environment Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often environment sensors (temp, humidity, pressure) are broadcast. Default: 0 (disabled). Minimum recommended: 1800s. Requires environment sensor hardware.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Temperature/humidity/pressure sensor interval</div>
+                <input type="number" id="telemetry.environment_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Health Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often health sensor readings are broadcast. Default: 0 (disabled).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Health sensor interval (if available)</div>
+                <input type="number" id="telemetry.health_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.environment_measurement_enabled" onchange="markChanged(this)">
+            <label for="telemetry.environment_measurement_enabled">Environment Measurement Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting environment sensor data (temperature, humidity, barometric pressure). Requires compatible sensor module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.environment_screen_enabled" onchange="markChanged(this)">
+            <label for="telemetry.environment_screen_enabled">Show Environment on Screen <span class="tip" onmouseenter="showTip('Show environment sensor readings on the device screen.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.health_measurement_enabled" onchange="markChanged(this)">
+            <label for="telemetry.health_measurement_enabled">Health Measurement Enabled <span class="tip" onmouseenter="showTip('Enables health sensors like pulse oximeter (MAX30102) or motion sensor (BMI270). Only useful if your device has these sensors attached.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+</div>
+
+<!-- Network tab -->
+<div id="tab-network" class="tab-content">
+    <div class="card" id="network-info-card" style="display:none;margin-bottom:12px">
+        <div class="card-title">📡 Current Connection</div>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+            <div>
+                <div style="font-size:11px;color:#6b7280">Connection Type</div>
+                <div style="font-weight:600;font-size:13px" id="net-connection-type">-</div>
+            </div>
+            <div id="net-ip-block" style="display:none">
+                <div style="font-size:11px;color:#6b7280">Device IP Address</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <code style="font-weight:600;font-size:14px;background:#f3f4f6;padding:2px 8px;border-radius:4px" id="net-current-ip">-</code>
+                    <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px"
+                        onclick="copyIP()" title="Copy IP">📋 Copy</button>
+                </div>
+            </div>
+            <div id="net-serial-block" style="display:none">
+                <div style="font-size:11px;color:#6b7280">Serial Port</div>
+                <div style="font-weight:600;font-size:13px" id="net-serial-port">-</div>
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">🌐 WiFi Settings</div>
+        <div class="alert alert-warning">⚠️ WiFi settings only apply to devices with WiFi support (Heltec, T-Beam, etc.)</div>
+        <div class="field-check">
+            <input type="checkbox" id="network.wifi_enabled" onchange="markChanged(this); toggleWifiFields()">
+            <label for="network.wifi_enabled">WiFi Enabled</label>
+        </div>
+        <div id="wifi-fields" style="opacity:0.4;pointer-events:none;">
+        <div class="field-row">
+            <div class="field">
+                <label>WiFi SSID <span class="tip" onmouseenter="showTip('Name of the WiFi network to connect to. Leave empty to disable WiFi. Device reboot required after changing WiFi settings.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Network name to connect to</div>
+                <input type="text" id="network.wifi_ssid" maxlength="32"
+                    oninput="markChanged(this)" placeholder="Your WiFi network name">
+            </div>
+            <div class="field">
+                <label>WiFi Password <span class="tip" onmouseenter="showTip('WiFi password. Leave empty for open networks. Stored on device — make sure you trust this network.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Network password</div>
+                <input type="password" id="network.wifi_psk" maxlength="64"
+                    oninput="markChanged(this)" placeholder="Password">
+            </div>
+        </div>
+        </div>
+    </div>
+    <div class="card" id="ip-card" style="opacity:0.4;pointer-events:none;">
+        <div class="card-title">🔌 IP Address Settings</div>
+        <div class="field">
+            <label>Address Mode <span class="tip" onmouseenter="showTip('DHCP: automatically assigned IP (recommended). Static: manually configured IP address.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">How to obtain IP address</div>
+            <select id="network.address_mode" onchange="markChanged(this); toggleStaticIP()">
+                <option value="0">DHCP (automatic)</option>
+                <option value="1">Static IP</option>
+            </select>
+        </div>
+        <div id="static-ip-fields" style="display:none;">
+            <div class="field-row">
+                <div class="field">
+                    <label>IP Address</label>
+                    <input type="text" id="network.ipv4_config.ip" placeholder="192.168.1.100"
+                        oninput="markChanged(this)">
+                </div>
+                <div class="field">
+                    <label>Gateway</label>
+                    <input type="text" id="network.ipv4_config.gateway" placeholder="192.168.1.1"
+                        oninput="markChanged(this)">
+                </div>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label>Subnet Mask</label>
+                    <input type="text" id="network.ipv4_config.subnet" placeholder="255.255.255.0"
+                        oninput="markChanged(this)">
+                </div>
+                <div class="field">
+                    <label>DNS Server</label>
+                    <input type="text" id="network.ipv4_config.dns" placeholder="8.8.8.8"
+                        oninput="markChanged(this)">
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <label>NTP Server <span class="tip" onmouseenter="showTip('Time synchronization server. Default: 0.pool.ntp.org. Used to keep device clock accurate. Requires WiFi or Ethernet connection.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Time synchronization server</div>
+            <input type="text" id="network.ntp_server" placeholder="0.pool.ntp.org"
+                oninput="markChanged(this)">
+        </div>
+    </div>
+</div>
+
+<!-- Bluetooth tab -->
+<div id="tab-bluetooth" class="tab-content">
+    <div class="card">
+        <div class="card-title">🔵 Bluetooth Settings</div>
+        <div class="field-check">
+            <input type="checkbox" id="bluetooth.enabled" onchange="markChanged(this)">
+            <label for="bluetooth.enabled">Bluetooth Enabled <span class="tip" onmouseenter="showTip('Enable Bluetooth for pairing with phone apps (e.g. Meshtastic iOS/Android). Disable to save power on headless nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Pairing Mode <span class="tip" onmouseenter="showTip('Random PIN: most secure, new PIN each restart. Fixed PIN: convenient, same PIN always. No PIN: insecure, anyone can connect.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">How Bluetooth pairing works</div>
+            <select id="bluetooth.mode" onchange="markChanged(this)">
+                <option value="0">Random PIN (new PIN each restart)</option>
+                <option value="1">Fixed PIN</option>
+                <option value="2">No PIN (insecure)</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Fixed PIN <span class="tip" onmouseenter="showTip('6-digit PIN used when Pairing Mode is set to Fixed PIN. Default: 123456. Change this for security — default PIN is publicly known!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">6-digit PIN when using Fixed PIN mode</div>
+            <input type="number" id="bluetooth.fixed_pin" min="0" max="999999"
+                oninput="markChanged(this)" placeholder="123456">
+        </div>
+    </div>
+</div>
+
+<!-- Channels tab -->
+<div id="tab-channels" class="tab-content">
+    <div class="card">
+        <div class="card-title">📻 Channels
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="addChannel()">+ Add Channel</button>
+        </div>
+        <div class="alert alert-warning">
+            ⚠️ Changing PSK disconnects all users of that channel. Channel 0 is always PRIMARY and cannot be disabled.
+        </div>
+        <div id="channels-list">
+            <div class="loading">Loading channels...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Favorites tab -->
+<div id="tab-favorites" class="tab-content">
+    <div class="card">
+        <div class="card-title">⭐ Favorite Nodes</div>
+        <div class="alert alert-warning">
+            ⚠️ Favorites affect routing behavior on CLIENT_BASE nodes. Only favorite nodes you control. On ROUTER/ROUTER_LATE roles this is informational only.
+        </div>
+        <div class="field">
+            <label>Node ID <span class="tip" onmouseenter="showTip('Enter node ID in format !xxxxxxxx (e.g. !7b6c8272). You can find node IDs on the map by clicking a node.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Paste a node ID to add or remove from favorites on the device</div>
+            <div style="display:flex;gap:10px;margin-top:6px;">
+                <input type="text" id="favorite-node-id" placeholder="e.g. !7b6c8272"
+                    style="flex:1" oninput="updateFavoriteButtons()">
+                <button class="btn btn-primary" id="btn-set-favorite" onclick="setFavorite()" disabled>⭐ Set Favorite</button>
+                <button class="btn btn-secondary" id="btn-remove-favorite" onclick="removeFavorite()" disabled>✕ Remove Favorite</button>
+            </div>
+        </div>
+        <div id="favorite-result" style="margin-top:10px"></div>
+    </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">📋 Current Favorites on Device
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="loadFavorites()">🔄 Refresh</button>
+        </div>
+        <div id="favorites-list">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Action bar -->
+<div class="action-bar">
+    <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
+    <button class="btn btn-primary" id="save-btn" onclick="saveConfig()" disabled>💾 Save Changes</button>
+    <button class="btn btn-danger" id="reboot-btn" onclick="rebootDevice()">🔄 Reboot</button>
+    <span class="changes-info" id="changes-info">Loading config...</span>
+</div>
+
+<div style="height:60px"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let ws = null;
+let originalConfig = {};
+let pendingChanges = {};
+let channelPsks = {};
+
+// ── Fixed position helpers ───────────────────────────────────────
+function updateNetworkInfo(config) {
+    const card = document.getElementById('network-info-card');
+    const connType = config.network?.connection_type;
+    const ip = config.network?.current_ip;
+
+    if (!connType) return;
+    card.style.display = 'block';
+
+    document.getElementById('net-connection-type').textContent =
+        connType === 'tcp' ? '🌐 TCP (WiFi)' : '🔌 USB Serial';
+
+    if (connType === 'tcp' && ip) {
+        document.getElementById('net-ip-block').style.display = 'block';
+        document.getElementById('net-serial-block').style.display = 'none';
+        document.getElementById('net-current-ip').textContent = ip;
+    } else if (connType === 'serial') {
+        document.getElementById('net-ip-block').style.display = 'none';
+        document.getElementById('net-serial-block').style.display = 'block';
+        document.getElementById('net-serial-port').textContent = '-';
+    }
+}
+
+function copyIP() {
+    const ip = document.getElementById('net-current-ip').textContent;
+    const ta = document.createElement('textarea');
+    ta.value = ip;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+        document.execCommand('copy');
+        showAlert('📋 IP copied: ' + ip, 'success');
+    } catch(e) {
+        showAlert('❌ Copy failed', 'error');
+    }
+    document.body.removeChild(ta);
+}
+
+function toggleStaticIP() {
+    const mode = document.getElementById('network.address_mode').value;
+    document.getElementById('static-ip-fields').style.display = mode === '1' ? 'block' : 'none';
+}
+
+function toggleWifiFields() {
+    const enabled = document.getElementById('network.wifi_enabled').checked;
+    const fields = document.getElementById('wifi-fields');
+    const ipCard = document.getElementById('ip-card');
+    if (fields) fields.style.opacity = enabled ? '1' : '0.4';
+    if (fields) fields.style.pointerEvents = enabled ? '' : 'none';
+    if (ipCard) ipCard.style.opacity = enabled ? '1' : '0.4';
+    if (ipCard) ipCard.style.pointerEvents = enabled ? '' : 'none';
+}
+
+function updateFixedBtn() {
+    const lat = document.getElementById('fixed.lat').value;
+    const lon = document.getElementById('fixed.lon').value;
+    document.getElementById('fixed-pos-btn').disabled = !lat || !lon;
+}
+
+function setFixedPosition() {
+    const lat = parseFloat(document.getElementById('fixed.lat').value);
+    const lon = parseFloat(document.getElementById('fixed.lon').value);
+    const alt = parseInt(document.getElementById('fixed.alt').value) || 0;
+    if (!lat || !lon) return;
+    if (!confirm(`Set fixed position to ${lat}, ${lon}, alt ${alt}m?`)) return;
+    ws.send(JSON.stringify({
+        type: 'set_fixed_position',
+        lat: lat, lon: lon, alt: alt
+    }));
+    showAlert('📌 Setting fixed position...', 'info');
+}
+
+function clearFixedPosition() {
+    if (!confirm('Remove fixed position? Device will use GPS again.')) return;
+    ws.send(JSON.stringify({type: 'clear_fixed_position'}));
+    showAlert('🗑️ Clearing fixed position...', 'info');
+}
+
+function useCurrentPosition() {
+    ws.send(JSON.stringify({type: 'get_config'}));
+    showAlert('📍 Loading current GPS position...', 'info');
+}
+
+// ── Channels renderer ────────────────────────────────────────────
+function renderChannels(channels) {
+    const el = document.getElementById('channels-list');
+    if (!channels || channels.length === 0) {
+        el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px">No channels found.</div>';
+        return;
+    }
+    channels.forEach(ch => { channelPsks[ch.index] = ch.psk || ''; });
+    el.innerHTML = channels.map(ch => {
+        const isPrimary = ch.index === 0;
+        const roleOptions = [
+            {v:1, l:'PRIMARY'},
+            {v:2, l:'SECONDARY'},
+            {v:3, l:'DISABLED'}
+        ].map(o => `<option value="${o.v}"${ch.role===o.v?' selected':''}${isPrimary&&o.v!==1?' disabled':''}>${o.l}</option>`).join('');
+
+
+        return `
+        <div class="card" style="margin-bottom:10px;border:1px solid #e5e7eb">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-weight:700;font-size:13px">Ch ${ch.index}</span>
+                <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${ch.role===1?'#dbeafe':ch.role===3?'#f3f4f6':'#d1fae5'};color:${ch.role===1?'#1d4ed8':ch.role===3?'#9ca3af':'#065f46'}">${ch.role_name||'UNKNOWN'}</span>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label>Name</label>
+                    <input type="text" id="ch-name-${ch.index}" value="${ch.name||''}" maxlength="11" placeholder="${isPrimary?'Primary channel':'Channel name'}" oninput="chMarkChanged(${ch.index})">
+                </div>
+                <div class="field">
+                    <label>Role</label>
+                    <select id="ch-role-${ch.index}" onchange="chMarkChanged(${ch.index})"${isPrimary?' disabled':''}>
+                        ${roleOptions}
+                    </select>
+                </div>
+            </div>
+            <div class="field">
+                <label>PSK (encryption key) <span class="tip" onmouseenter="showTip('Current PSK shown as Base64. Select an option to change it, or leave as-is to keep current key. Changing PSK will disconnect all other users!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
+                    ${ch.psk ? `
+                        <span style="font-family:monospace;font-size:11px;word-break:break-all">${ch.psk}</span>
+                        <button onclick="copyChannelPsk(${ch.index})"
+                            class="btn btn-secondary" style="font-size:10px;padding:1px 6px;margin-left:4px;flex-shrink:0">📋</button>
+                    ` : '<span style="color:#9ca3af">none (no encryption)</span>'}
+                    <select id="ch-psk-action-${ch.index}" onchange="chPskActionChange(${ch.index}); chMarkChanged(${ch.index})">
+                        <option value="">Keep current PSK</option>
+                        <option value="default">Set to default (AQ==)</option>
+                        <option value="random">Generate random AES256</option>
+                        <option value="none">Remove encryption</option>
+                        <option value="custom">Enter custom PSK...</option>
+                    </select>
+                </div>
+                <div id="ch-psk-custom-${ch.index}" style="display:none;margin-top:6px">
+                    <input type="text" id="ch-psk-custom-input-${ch.index}"
+                        placeholder="Hex: 0x1a2b... or Base64: AQ==..."
+                        style="width:100%;padding:4px 8px;border:1px solid #d1d5db;border-radius:4px;font-family:monospace;font-size:12px"
+                        oninput="chMarkChanged(${ch.index})">
+                    <div style="margin-top:3px;font-size:10px;color:#6b7280">
+                        8-bit: 1 byte hex/base64 &nbsp;|&nbsp; 128-bit: 16 bytes &nbsp;|&nbsp; 256-bit: 32 bytes<br>
+                        Hex example: <code>0x1a2b3c4d...</code> &nbsp;|&nbsp; Base64 example: <code>AQIDBA==</code>
+                    </div>
+                    <div id="ch-psk-custom-error-${ch.index}" style="color:#dc2626;font-size:11px;margin-top:2px;display:none"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn btn-primary" id="ch-save-btn-${ch.index}" onclick="saveChannel(${ch.index})" disabled>💾 Save Ch ${ch.index}</button>
+                <span id="ch-status-${ch.index}" style="font-size:11px;color:#6b7280;align-self:center"></span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function chMarkChanged(index) {
+    document.getElementById(`ch-save-btn-${index}`).disabled = false;
+    document.getElementById(`ch-status-${index}`).textContent = '● unsaved changes';
+    document.getElementById(`ch-status-${index}`).style.color = '#f59e0b';
+}
+
+function chPskActionChange(index) {
+    const action = document.getElementById(`ch-psk-action-${index}`).value;
+    const customDiv = document.getElementById(`ch-psk-custom-${index}`);
+    if (customDiv) customDiv.style.display = action === 'custom' ? 'block' : 'none';
+    const errEl = document.getElementById(`ch-psk-custom-error-${index}`);
+    if (errEl) { errEl.textContent = ''; errEl.style.display = 'none'; }
+}
+
+function saveChannel(index) {
+    const name = document.getElementById(`ch-name-${index}`).value.trim();
+    const roleEl = document.getElementById(`ch-role-${index}`);
+    const role = roleEl ? parseInt(roleEl.value) : 1;
+    const pskAction = document.getElementById(`ch-psk-action-${index}`).value;
+
+    let pskValue = pskAction || null;
+
+    if (pskAction === 'custom') {
+        const customInput = document.getElementById(`ch-psk-custom-input-${index}`).value.trim();
+        const errEl = document.getElementById(`ch-psk-custom-error-${index}`);
+
+        if (!customInput) {
+            errEl.textContent = '❌ Please enter a PSK value';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        const validHex = /^0x[0-9a-fA-F]+$/.test(customInput);
+        const validBase64 = /^[A-Za-z0-9+/]+=*$/.test(customInput);
+
+        if (!validHex && !validBase64) {
+            errEl.textContent = '❌ Invalid format. Use hex (0x...) or base64';
+            errEl.style.display = 'block';
+            return;
+        }
+
+        let byteLength = 0;
+        if (validHex) {
+            byteLength = (customInput.length - 2) / 2;
+        } else {
+            byteLength = Math.floor(atob(customInput).length);
+        }
+
+        if (![1, 16, 32].includes(byteLength)) {
+            errEl.textContent = `❌ Invalid key length: ${byteLength} bytes. Must be 1 (8-bit), 16 (128-bit), or 32 (256-bit)`;
+            errEl.style.display = 'block';
+            return;
+        }
+
+        errEl.style.display = 'none';
+        pskValue = 'custom:' + customInput;
+    }
+
+    const pskWarning = pskValue && pskValue !== null ? '\n⚠️ PSK will be changed — other users will be disconnected!' : '';
+    if (!confirm(`Save changes to Channel ${index}?${pskWarning}`)) return;
+
+    ws.send(JSON.stringify({
+        type: 'save_channel',
+        index: index,
+        name: name,
+        role: role,
+        psk: pskValue
+    }));
+    document.getElementById(`ch-save-btn-${index}`).disabled = true;
+    document.getElementById(`ch-status-${index}`).textContent = 'Saving...';
+    document.getElementById(`ch-status-${index}`).style.color = '#6b7280';
+}
+
+function addChannel() {
+    showAlert('ℹ️ To add a channel, edit an existing DISABLED slot and set role to SECONDARY.', 'info');
+}
+
+function copyChannelPsk(index) {
+    const psk = channelPsks[index];
+    if (!psk) return;
+    const ta = document.createElement('textarea');
+    ta.value = psk;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+        document.execCommand('copy');
+        showAlert('📋 PSK copied!', 'success');
+    } catch(e) {
+        showAlert('❌ Copy failed — select manually: ' + psk, 'error');
+    }
+    document.body.removeChild(ta);
+}
+
+function toggleFixedPosition() {
+    const gpsEnabled = document.getElementById('position.gps_enabled').checked;
+    const fixedCard = document.getElementById('fixed-pos-title').closest('.card');
+    if (gpsEnabled) {
+        fixedCard.style.opacity = '0.4';
+        fixedCard.style.pointerEvents = 'none';
+        fixedCard.title = 'Disable GPS to use fixed position';
+    } else {
+        fixedCard.style.opacity = '1';
+        fixedCard.style.pointerEvents = 'auto';
+        fixedCard.title = '';
+    }
+}
+
+// ── Favorites ────────────────────────────────────────────────────
+function loadFavorites() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'get_favorites'}));
+        document.getElementById('favorites-list').innerHTML = '<div class="loading">Loading...</div>';
+    }
+}
+
+function renderFavoritesList(favorites) {
+    const el = document.getElementById('favorites-list');
+    if (!el) return;
+    if (!favorites || favorites.length === 0) {
+        el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px">No favorite nodes set on device.</div>';
+        return;
+    }
+    el.innerHTML = favorites.map(f => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+            <span style="font-weight:600;font-size:13px">${f.name}</span>
+            <span style="font-family:monospace;font-size:11px;color:#6b7280">${f.node_id}</span>
+            <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px">${f.short_name}</span>
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:2px 8px"
+                onclick="quickRemoveFavorite('${f.node_id}')">✕ Remove</button>
+        </div>
+    `).join('');
+}
+
+function quickRemoveFavorite(nodeId) {
+    document.getElementById('favorite-node-id').value = nodeId;
+    updateFavoriteButtons();
+    ws.send(JSON.stringify({type: 'remove_favorite', node_id: nodeId}));
+    showAlert('✕ Removing ' + nodeId + '...', 'info');
+}
+
+function updateFavoriteButtons() {
+    const val = document.getElementById('favorite-node-id').value.trim();
+    const valid = /^![0-9a-fA-F]{8}$/.test(val);
+    document.getElementById('btn-set-favorite').disabled = !valid;
+    document.getElementById('btn-remove-favorite').disabled = !valid;
+}
+
+function setFavorite() {
+    const nodeId = document.getElementById('favorite-node-id').value.trim();
+    ws.send(JSON.stringify({type: 'set_favorite', node_id: nodeId}));
+    showAlert('⭐ Setting favorite...', 'info');
+}
+
+function removeFavorite() {
+    const nodeId = document.getElementById('favorite-node-id').value.trim();
+    ws.send(JSON.stringify({type: 'remove_favorite', node_id: nodeId}));
+    showAlert('✕ Removing favorite...', 'info');
+}
+
+// ── Tooltips ─────────────────────────────────────────────────────
+const gTip = document.getElementById('g-tooltip');
+function showTip(text, e) {
+    gTip.textContent = text;
+    gTip.style.display = 'block';
+    positionTip(e);
+}
+function positionTip(e) {
+    const margin = 12, tw = 260;
+    let x = e.clientX + margin, y = e.clientY + margin;
+    if (x + tw > window.innerWidth) x = e.clientX - tw - margin;
+    gTip.style.left = x + 'px';
+    gTip.style.top = y + 'px';
+}
+document.addEventListener('mousemove', e => {
+    if (gTip.style.display === 'block') positionTip(e);
+});
+
+// ── WebSocket ────────────────────────────────────────────────────
+function updateDeviceStatus(ready) {
+    const el = document.getElementById('device-status');
+    if (!el) return;
+    if (ready) {
+        el.textContent = '✅ Device ready';
+        el.style.color = '#22c55e';
+    } else {
+        el.textContent = '⏳ Waiting for device...';
+        el.style.color = '#eab308';
+    }
+}
+
+function connectWS() {
+    ws = new WebSocket(`ws://${location.hostname}:8765`);
+    ws.onopen = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-connected';
+        document.getElementById('ws-label').textContent = 'Connected';
+        updateDeviceStatus(false);
+        ws.send(JSON.stringify({type: 'get_config'}));
+        // retry handled by global startConfigRetry()
+    };
+    ws.onclose = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
+        document.getElementById('ws-label').textContent = 'Disconnected – reconnecting…';
+        updateDeviceStatus(false);
+        originalConfig = {};
+        setTimeout(connectWS, 3000);
+    };
+    ws.onerror = () => ws.close();
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if (d.type === 'config_data') {
+            originalConfig = d.config;
+            pendingChanges = {};
+            populateForm(d.config);
+            updateChangesInfo();
+        } else if (d.type === 'config_saved') {
+            if (d.success) {
+                showAlert(d.rebooting ? '✅ Config saved! Device is rebooting...' : '✅ Config saved successfully!', 'success');
+                pendingChanges = {};
+                // Clear changed highlights
+                document.querySelectorAll('.changed').forEach(el => el.classList.remove('changed'));
+                updateChangesInfo();
+                if (!d.rebooting) {
+                    ws.send(JSON.stringify({type: 'get_config'}));
+                }
+            } else {
+                showAlert('❌ Error saving config: ' + d.error, 'error');
+            }
+        } else if (d.type === 'favorite_result') {
+            if (d.success) {
+                const msg = d.action === 'set'
+                    ? `✅ Node ${d.node_id} set as favorite on device`
+                    : `✅ Node ${d.node_id} removed from favorites on device`;
+                showAlert(msg, 'success');
+                const resultEl = document.getElementById('favorite-result');
+                if (resultEl) resultEl.innerHTML = '';
+            } else {
+                showAlert('❌ Error: ' + d.error, 'error');
+            }
+        } else if (d.type === 'favorites_list') {
+            renderFavoritesList(d.favorites);
+        } else if (d.type === 'fixed_position_result') {
+            showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
+        } else if (d.type === 'clear_position_result') {
+            showAlert(d.success ? '✅ Fixed position cleared!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
+        } else if (d.type === 'connection_status') {
+            if (d.tracker) {
+                document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
+            }
+            if (d.status === 'connected' && Object.keys(originalConfig).length === 0) {
+                // Retry get_config with a delay to allow TCP to fully establish
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'get_config'}));
+                    }
+                }, 2000);
+            }
+        } else if (d.type === 'channel_save_result') {
+            const statusEl = document.getElementById(`ch-status-${d.index}`);
+            if (d.success) {
+                showAlert(`✅ Channel ${d.index} saved successfully!`, 'success');
+                if (statusEl) { statusEl.textContent = '✓ saved'; statusEl.style.color = '#16a34a'; }
+                ws.send(JSON.stringify({type: 'get_config'}));
+            } else {
+                showAlert('❌ Error saving channel: ' + d.error, 'error');
+                if (statusEl) { statusEl.textContent = '✗ error'; statusEl.style.color = '#dc2626'; }
+            }
+        } else if (d.type === 'config_error') {
+            if (d.error && (d.error.includes('not yet established') || d.error.includes('No active connection'))) {
+                // TCP not ready yet — retry is handled by the interval in onopen
+                document.getElementById('changes-info').textContent = '⏳ Waiting for device TCP connection...';
+            } else {
+                showAlert('❌ Error loading config: ' + d.error, 'error');
+                document.getElementById('changes-info').textContent = 'Error loading config';
+            }
+        }
+    };
+}
+
+// ── Form population ──────────────────────────────────────────────
+function populateForm(config) {
+    // Config loaded — stop retry loop
+    if (_configRetryInterval) {
+        clearInterval(_configRetryInterval);
+        _configRetryInterval = null;
+    }
+    updateDeviceStatus(true);
+    // User
+    setField('user.long_name', config.user?.long_name || '');
+    setField('user.short_name', config.user?.short_name || '');
+
+    // Device
+    setField('device.role', config.device?.role ?? 0);
+    setField('device.node_info_broadcast_secs', config.device?.node_info_broadcast_secs ?? 900);
+
+    // LoRa
+    setField('lora.region', config.lora?.region ?? 0);
+    setField('lora.hop_limit', config.lora?.hop_limit ?? 3);
+    setField('lora.modem_preset', config.lora?.modem_preset ?? 0);
+    setField('lora.tx_power', config.lora?.tx_power ?? 0);
+
+    // Position
+    setField('position.position_broadcast_secs', config.position?.position_broadcast_secs ?? 0);
+    setField('position.gps_update_interval', config.position?.gps_update_interval ?? 0);
+    setField('position.gps_enabled', config.position?.gps_enabled ?? true);
+    setField('position.position_broadcast_smart_enabled', config.position?.position_broadcast_smart_enabled ?? false);
+
+    // Telemetry
+    setField('telemetry.device_update_interval', config.telemetry?.device_update_interval ?? 1800);
+    setField('telemetry.environment_update_interval', config.telemetry?.environment_update_interval ?? 0);
+    setField('telemetry.environment_measurement_enabled', config.telemetry?.environment_measurement_enabled ?? false);
+
+    // Network
+    setField('network.wifi_enabled', config.network?.wifi_enabled ?? false);
+    setField('network.wifi_ssid', config.network?.wifi_ssid || '');
+    setField('network.wifi_psk', config.network?.wifi_psk || '');
+    setField('network.address_mode', config.network?.address_mode ?? 0);
+    setField('network.ntp_server', config.network?.ntp_server || '');
+    toggleStaticIP();
+    toggleWifiFields();
+
+    // Bluetooth
+    setField('bluetooth.enabled', config.bluetooth?.enabled ?? true);
+    setField('bluetooth.mode', config.bluetooth?.mode ?? 0);
+    setField('bluetooth.fixed_pin', config.bluetooth?.fixed_pin ?? 123456);
+
+    // Device extra fields
+    setField('device.rebroadcast_mode', config.device?.rebroadcast_mode ?? 0);
+    setField('device.serial_enabled', config.device?.serial_enabled ?? true);
+    setField('device.led_heartbeat_disabled', config.device?.led_heartbeat_disabled ?? false);
+
+    // Position extra fields
+    setField('position.broadcast_smart_minimum_distance', config.position?.broadcast_smart_minimum_distance ?? 0);
+    setField('position.broadcast_smart_minimum_interval_secs', config.position?.broadcast_smart_minimum_interval_secs ?? 0);
+
+    // Telemetry extra fields
+    setField('telemetry.device_telemetry_enabled', config.telemetry?.device_telemetry_enabled ?? true);
+    setField('telemetry.power_measurement_enabled', config.telemetry?.power_measurement_enabled ?? false);
+    setField('telemetry.power_update_interval', config.telemetry?.power_update_interval ?? 0);
+    setField('telemetry.environment_screen_enabled', config.telemetry?.environment_screen_enabled ?? false);
+    setField('telemetry.health_measurement_enabled', config.telemetry?.health_measurement_enabled ?? false);
+    setField('telemetry.health_update_interval', config.telemetry?.health_update_interval ?? 0);
+
+    // Fixed position - pre-fill from current node position
+    if (config.current_position) {
+        document.getElementById('fixed.lat').value = config.current_position.lat || '';
+        document.getElementById('fixed.lon').value = config.current_position.lon || '';
+        document.getElementById('fixed.alt').value = config.current_position.alt || '';
+        updateFixedBtn();
+    }
+
+    // Channels
+    if (config.channels) {
+        renderChannels(config.channels);
+    }
+
+    updateNetworkInfo(config);
+
+    document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
+    document.getElementById('save-btn').disabled = true;
+    toggleFixedPosition();
+}
+
+function setField(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') {
+        el.checked = !!value;
+    } else {
+        el.value = value;
+    }
+    el.classList.remove('changed');
+}
+
+// ── Change tracking ──────────────────────────────────────────────
+function markChanged(el) {
+    const [section, key] = el.id.split('.');
+    const value = el.type === 'checkbox' ? el.checked :
+                  el.type === 'number' ? parseInt(el.value) || 0 : el.value;
+
+    // Check if back to original
+    const orig = originalConfig[section]?.[key];
+    const isChanged = orig !== undefined ? String(orig) !== String(value) : true;
+
+    if (isChanged) {
+        el.classList.add('changed');
+        if (!pendingChanges[section]) pendingChanges[section] = {};
+        pendingChanges[section][key] = value;
+    } else {
+        el.classList.remove('changed');
+        if (pendingChanges[section]) {
+            delete pendingChanges[section][key];
+            if (Object.keys(pendingChanges[section]).length === 0) {
+                delete pendingChanges[section];
+            }
+        }
+    }
+    updateChangesInfo();
+}
+
+function updateChangesInfo() {
+    const total = Object.values(pendingChanges).reduce((sum, s) => sum + Object.keys(s).length, 0);
+    const info = document.getElementById('changes-info');
+    const btn = document.getElementById('save-btn');
+    if (total === 0) {
+        info.textContent = 'No pending changes';
+        info.className = 'changes-info';
+        btn.disabled = true;
+    } else {
+        info.textContent = `⚠️ ${total} pending change${total > 1 ? 's' : ''} — click Save to apply`;
+        info.className = 'changes-info changes-pending';
+        btn.disabled = false;
+    }
+}
+
+// ── Save / Revert / Reboot ───────────────────────────────────────
+function saveConfig() {
+    if (Object.keys(pendingChanges).length === 0) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showAlert('❌ Not connected to device', 'error');
+        return;
+    }
+    const needsReboot = 'lora' in pendingChanges || 'device' in pendingChanges;
+    if (needsReboot) {
+        if (!confirm('⚠️ Some changes require a device reboot to take effect. Reboot after saving?')) return;
+    }
+    ws.send(JSON.stringify({
+        type: 'set_config',
+        changes: pendingChanges,
+        reboot: needsReboot
+    }));
+    showAlert('💾 Saving config...', 'info');
+}
+
+function revertChanges() {
+    pendingChanges = {};
+    populateForm(originalConfig);
+    showAlert('↩ Changes reverted', 'info');
+}
+
+function rebootDevice() {
+    if (!confirm('🔄 Reboot the device now?')) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showAlert('❌ Not connected to device', 'error');
+        return;
+    }
+    ws.send(JSON.stringify({type: 'set_config', changes: {}, reboot: true}));
+    showAlert('🔄 Rebooting device...', 'warning');
+}
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(name, el) {
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    if (el) el.classList.add('active');
+    else document.querySelectorAll('.tab').forEach(t => {
+        if (t.getAttribute('onclick') && t.getAttribute('onclick').includes("'" + name + "'")) t.classList.add('active');
+    });
+    location.hash = name;
+    if (name === 'favorites') loadFavorites();
+}
+
+// Restore tab from URL hash on load
+window.addEventListener('DOMContentLoaded', () => {
+    const hash = location.hash.replace('#', '');
+    if (hash) switchTab(hash);
+});
+
+// ── Alert helper ─────────────────────────────────────────────────
+function showAlert(msg, type) {
+    const bar = document.getElementById('status-bar');
+    bar.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:12px">${msg}</div>`;
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => { bar.innerHTML = ''; }, 4000);
+    }
+}
+
+connectWS();
+
+// Global config retry — runs independently of WebSocket reconnects
+let _configRetryInterval = null;
+
+function startConfigRetry() {
+    if (_configRetryInterval) return; // already running
+    _configRetryInterval = setInterval(() => {
+        if (Object.keys(originalConfig).length > 0) {
+            clearInterval(_configRetryInterval);
+            _configRetryInterval = null;
+            return;
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'get_config'}));
+        }
+    }, 4000);
+}
+
+// Start retry loop once on page load
+startConfigRetry();
+
+// Unread messages badge
+const _bc = new BroadcastChannel('meshtastic_msgs');
+_bc.onmessage = (e) => { if (e.data === 'reset') updateNavUnread(); };
+function updateNavUnread() {
+    const cnt = parseInt(localStorage.getItem('meshtastic_unread') || '0');
+    const el = document.getElementById('nav-messages');
+    if (!el) return;
+    const badge = el.querySelector('.nav-unread');
+    if (cnt > 0) {
+        if (!badge) {
+            const b = document.createElement('span');
+            b.className = 'nav-unread';
+            b.style.cssText = 'background:#ef4444;color:#fff;border-radius:9px;padding:1px 5px;font-size:10px;margin-left:4px;';
+            el.appendChild(b);
+        }
+        el.querySelector('.nav-unread').textContent = cnt;
+    } else {
+        if (badge) badge.remove();
+    }
+}
+setInterval(updateNavUnread, 2000);
+updateNavUnread();
+</script>
+</body>
+</html>

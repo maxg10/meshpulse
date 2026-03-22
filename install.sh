@@ -151,6 +151,8 @@ sudo cp frontend/styles.css /var/www/html/meshtastic/
 sudo cp frontend/favicon.ico /var/www/html/meshtastic/
 sudo cp frontend/favicon_stats.ico /var/www/html/meshtastic/
 sudo cp frontend/stats.html /var/www/html/meshtastic/
+sudo cp frontend/config.html /var/www/html/meshtastic/
+sudo cp frontend/messages.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
 # Create empty nodes.json if it doesn't exist

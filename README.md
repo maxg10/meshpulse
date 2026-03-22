@@ -151,6 +151,30 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
+## What's New in v2.0 — Config & Messages
+
+**Config page (new):**
+- 📱 Full device configuration via web UI — Device, LoRa, Position, Telemetry, Network, Bluetooth
+- 📻 Channel editor — name, PSK (default/random/custom hex/base64), role (PRIMARY/SECONDARY/DISABLED)
+- ⭐ Favorites management — set/remove favorite nodes directly in firmware via Python API
+- 🔌 Shows current device IP address (TCP mode) with copy button
+- ⏳ Smart retry when TCP device not yet connected on page load
+
+**Messages page (new):**
+- 💬 Standalone messages.html — no longer overlaps the map
+- 🔔 Unread badge in navbar across all pages
+- 📻 Shows all configured channels even when empty
+- 📨 Send broadcast and DM from dedicated page
+
+**Bug fixes:**
+- 🐛 Nodes no longer appear in both GPS and No GPS panel simultaneously
+- 🐛 ROUTER_LATE role correctly mapped to value 11 (firmware 2.7+)
+- 🐛 Enum fields (role, region, modem_preset) correctly cast to int on save
+- 🐛 BrokenPipe after device reboot treated as success, not error
+- 🐛 TCPMeshtasticInterface proxy for localNode, nodes, getMyNodeInfo
+- 🐛 PSK copy button works on HTTP/Safari (execCommand fallback)
+- 🐛 Config auto-retries when TCP connection not yet established
+
 **v1.19 - Serial Python API & Traceroute Improvements**
 - 🔌 Serial (USB) connection now uses Python Meshtastic API — same as TCP, no more subprocess parsing
 - 🔍 Traceroute fixed: shows full route with node names, SNR values, and map lines
