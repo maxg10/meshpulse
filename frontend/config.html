@@ -697,7 +697,6 @@ function renderChannels(channels) {
             {v:3, l:'DISABLED'}
         ].map(o => `<option value="${o.v}"${ch.role===o.v?' selected':''}${isPrimary&&o.v!==1?' disabled':''}>${o.l}</option>`).join('');
 
-        const pskDisplay = ch.psk ? ch.psk.substring(0,24)+'...' : 'none (no encryption)';
 
         return `
         <div class="card" style="margin-bottom:10px;border:1px solid #e5e7eb">
@@ -720,7 +719,11 @@ function renderChannels(channels) {
             <div class="field">
                 <label>PSK (encryption key) <span class="tip" onmouseenter="showTip('Current PSK shown as Base64. Select an option to change it, or leave as-is to keep current key. Changing PSK will disconnect all other users!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
-                    <code style="font-size:10px;background:#f3f4f6;padding:2px 6px;border-radius:3px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ch.psk}">${pskDisplay}</code>
+                    ${ch.psk ? `
+                        <span style="font-family:monospace;font-size:11px;word-break:break-all">${ch.psk}</span>
+                        <button onclick="navigator.clipboard.writeText('${ch.psk}').then(()=>showAlert('📋 PSK copied!','success'))"
+                            class="btn btn-secondary" style="font-size:10px;padding:1px 6px;margin-left:4px;flex-shrink:0">📋</button>
+                    ` : '<span style="color:#9ca3af">none (no encryption)</span>'}
                     <select id="ch-psk-action-${ch.index}" onchange="chPskActionChange(${ch.index}); chMarkChanged(${ch.index})">
                         <option value="">Keep current PSK</option>
                         <option value="default">Set to default (AQ==)</option>
