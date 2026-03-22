@@ -569,7 +569,14 @@ class ListenBasedMapper:
                         # Clean old nodes immediately
                         self.clean_old_nodes_from_dict(nodes)
                         self.clean_old_nodes_from_dict(nodes_no_pos)
-                    
+
+                        # Remove from no-position any node that already has GPS position
+                        duplicates = [nid for nid in nodes_no_pos if nid in nodes]
+                        for nid in duplicates:
+                            del nodes_no_pos[nid]
+                        if duplicates:
+                            print(f"[LOAD] Removed {len(duplicates)} duplicate nodes from no-GPS list")
+
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
                     
@@ -1678,9 +1685,18 @@ class ListenBasedMapper:
         websockets.broadcast(connected_clients, msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
+    def _dedup_nodes(self):
+        """Remove any node from nodes_no_position that also exists in nodes (has GPS)."""
+        duplicates = [nid for nid in self.nodes_no_position if nid in self.nodes]
+        for nid in duplicates:
+            del self.nodes_no_position[nid]
+        if duplicates:
+            print(f"[DEDUP] Removed {len(duplicates)} nodes from no-GPS that now have GPS")
+
     def save_nodes(self):
         """Save to JSON"""
         try:
+            self._dedup_nodes()
             max_dist, farthest_id = self.get_max_distance()
             
             data = {
