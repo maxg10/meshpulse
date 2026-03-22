@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.19
+#ver 1.20
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
