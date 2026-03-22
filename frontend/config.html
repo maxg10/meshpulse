@@ -951,18 +951,20 @@ function connectWS() {
     ws.onopen = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
-        // Initial config load with delay (TCP may not be ready yet)
-        setTimeout(() => {
+        ws.send(JSON.stringify({type: 'get_config'}));
+        // Keep retrying until config loads (handles TCP not ready yet)
+        let retryCount = 0;
+        const retryInterval = setInterval(() => {
+            if (Object.keys(originalConfig).length > 0) {
+                clearInterval(retryInterval);
+                return;
+            }
+            retryCount++;
+            if (retryCount > 20) { clearInterval(retryInterval); return; } // Give up after 60s
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'get_config'}));
             }
-        }, 1500);
-        // Retry after 5s in case TCP connection needs more time
-        setTimeout(() => {
-            if (ws && ws.readyState === WebSocket.OPEN && Object.keys(originalConfig).length === 0) {
-                ws.send(JSON.stringify({type: 'get_config'}));
-            }
-        }, 5000);
+        }, 3000);
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
@@ -1030,14 +1032,9 @@ function connectWS() {
                 if (statusEl) { statusEl.textContent = '✗ error'; statusEl.style.color = '#dc2626'; }
             }
         } else if (d.type === 'config_error') {
-            if (d.error && d.error.includes('not yet established')) {
-                // TCP not ready yet — retry silently after 3s
+            if (d.error && (d.error.includes('not yet established') || d.error.includes('No active connection'))) {
+                // TCP not ready yet — retry is handled by the interval in onopen
                 document.getElementById('changes-info').textContent = '⏳ Waiting for device connection...';
-                setTimeout(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN && Object.keys(originalConfig).length === 0) {
-                        ws.send(JSON.stringify({type: 'get_config'}));
-                    }
-                }, 3000);
             } else {
                 showAlert('❌ Error loading config: ' + d.error, 'error');
                 document.getElementById('changes-info').textContent = 'Error loading config';

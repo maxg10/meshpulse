@@ -2592,6 +2592,7 @@ async def websocket_handler(websocket):
                                 'config': config
                             }))
                         except Exception as e:
+                            print(f"[CONFIG] get_config error: {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_error',
                                 'error': str(e)
