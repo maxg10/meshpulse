@@ -1510,6 +1510,7 @@
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
                         <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;">✉️ DM</button>
+                        <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;background:#dcfce7;border-color:#86efac;color:#166534;">TR</button>
                     </div>`;
                 }).join('');
             } else {
