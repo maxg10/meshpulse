@@ -2583,6 +2583,28 @@ async def websocket_handler(websocket):
                                 'success': False, 'error': str(e)
                             }))
 
+                elif data.get('type') == 'get_favorites':
+                    try:
+                        iface = None
+                        if mapper and mapper.connection_type == 'serial' and mapper._serial_iface:
+                            iface = mapper._serial_iface.iface
+                        elif mapper and mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                            iface = mapper._tcp_iface
+                        if not iface:
+                            raise Exception('No active connection')
+                        favorites = []
+                        for node_num, node_info in iface.nodes.items():
+                            if node_info.get('isFavorite'):
+                                user = node_info.get('user', {})
+                                favorites.append({
+                                    'node_id': user.get('id', node_num),
+                                    'name': user.get('longName', user.get('id', node_num)),
+                                    'short_name': user.get('shortName', '??'),
+                                })
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                    except Exception as e:
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': [], 'error': str(e)}))
+
                 elif data.get('type') == 'set_favorite':
                     node_id = data.get('node_id', '').strip()
                     if not node_id:
@@ -2598,6 +2620,19 @@ async def websocket_handler(websocket):
                                 raise Exception('No active connection')
                             iface.localNode.setFavorite(node_id)
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'set', 'node_id': node_id}))
+                            try:
+                                favorites = []
+                                for node_num, node_info in iface.nodes.items():
+                                    if node_info.get('isFavorite'):
+                                        user = node_info.get('user', {})
+                                        favorites.append({
+                                            'node_id': user.get('id', node_num),
+                                            'name': user.get('longName', user.get('id', node_num)),
+                                            'short_name': user.get('shortName', '??'),
+                                        })
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                            except:
+                                pass
                         except Exception as e:
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
 
@@ -2616,6 +2651,19 @@ async def websocket_handler(websocket):
                                 raise Exception('No active connection')
                             iface.localNode.removeFavorite(node_id)
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'remove', 'node_id': node_id}))
+                            try:
+                                favorites = []
+                                for node_num, node_info in iface.nodes.items():
+                                    if node_info.get('isFavorite'):
+                                        user = node_info.get('user', {})
+                                        favorites.append({
+                                            'node_id': user.get('id', node_num),
+                                            'name': user.get('longName', user.get('id', node_num)),
+                                            'short_name': user.get('shortName', '??'),
+                                        })
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                            except:
+                                pass
                         except Exception as e:
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
 

@@ -555,6 +555,14 @@
         </div>
         <div id="favorite-result" style="margin-top:10px"></div>
     </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">📋 Current Favorites on Device
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="loadFavorites()">🔄 Refresh</button>
+        </div>
+        <div id="favorites-list">
+            <div class="loading">Loading...</div>
+        </div>
+    </div>
 </div>
 
 <!-- Action bar -->
@@ -654,6 +662,38 @@ function toggleFixedPosition() {
 }
 
 // ── Favorites ────────────────────────────────────────────────────
+function loadFavorites() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'get_favorites'}));
+        document.getElementById('favorites-list').innerHTML = '<div class="loading">Loading...</div>';
+    }
+}
+
+function renderFavoritesList(favorites) {
+    const el = document.getElementById('favorites-list');
+    if (!el) return;
+    if (!favorites || favorites.length === 0) {
+        el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px">No favorite nodes set on device.</div>';
+        return;
+    }
+    el.innerHTML = favorites.map(f => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
+            <span style="font-weight:600;font-size:13px">${f.name}</span>
+            <span style="font-family:monospace;font-size:11px;color:#6b7280">${f.node_id}</span>
+            <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px">${f.short_name}</span>
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:2px 8px"
+                onclick="quickRemoveFavorite('${f.node_id}')">✕ Remove</button>
+        </div>
+    `).join('');
+}
+
+function quickRemoveFavorite(nodeId) {
+    document.getElementById('favorite-node-id').value = nodeId;
+    updateFavoriteButtons();
+    ws.send(JSON.stringify({type: 'remove_favorite', node_id: nodeId}));
+    showAlert('✕ Removing ' + nodeId + '...', 'info');
+}
+
 function updateFavoriteButtons() {
     const val = document.getElementById('favorite-node-id').value.trim();
     const valid = /^![0-9a-fA-F]{8}$/.test(val);
@@ -742,6 +782,8 @@ function connectWS() {
             } else {
                 showAlert('❌ Error: ' + d.error, 'error');
             }
+        } else if (d.type === 'favorites_list') {
+            renderFavoritesList(d.favorites);
         } else if (d.type === 'fixed_position_result') {
             showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
         } else if (d.type === 'clear_position_result') {
@@ -938,6 +980,7 @@ function switchTab(name, el) {
         if (t.getAttribute('onclick') && t.getAttribute('onclick').includes("'" + name + "'")) t.classList.add('active');
     });
     location.hash = name;
+    if (name === 'favorites') loadFavorites();
 }
 
 // Restore tab from URL hash on load
