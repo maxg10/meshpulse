@@ -77,13 +77,14 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);cursor:pointer;max-width:200px}
 #legend .section{font-weight:bold;margin:8px 0 4px;font-size:11px;color:#666}
 #legend .section:first-child{margin-top:0}
 
-#messages-panel{position:fixed;top:370px;left:10px;background:rgba(255,255,255,.95);
+#messages-panel{position:fixed;top:370px;left:10px;max-height:calc(100vh - 386px);background:rgba(255,255,255,.95);
 padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
 box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
-#messages-panel.open{display:flex;flex-direction:column;max-height:500px;overflow:hidden}
+#messages-panel.open{display:flex;flex-direction:column;max-height:calc(100vh - 386px);overflow:hidden}
 #messages-panel h4{margin:0;font-size:13px;user-select:none;flex-shrink:0}
 #messages-content{display:none;margin-top:8px;overflow-y:auto;min-height:0}
 #messages-panel.open #messages-content{display:block;flex:1;min-height:0}
+#messages-list{flex:1;overflow-y:auto;min-height:0;}
 .message-item{padding:6px 0;border-bottom:1px solid #eee;font-family:Arial,sans-serif;font-size:12px}
 .message-item:last-child{border-bottom:none}
 .message-item.message-dm{background:#dbeafe;padding:6px 4px;border-radius:4px;margin:4px 0}
