@@ -1564,6 +1564,8 @@ class ListenBasedMapper:
     def _handle_traceroute_packet(self, packet):
         """Handle incoming traceroute response packet from Python API."""
         try:
+            import json as _json
+            print(f"[TRACEROUTE DEBUG] Full packet: {_json.dumps(packet, default=str)[:500]}")
             decoded = packet.get('decoded', {})
             route_discovery = decoded.get('routeDiscovery', {})
             route_nums = route_discovery.get('route', [])
