@@ -238,22 +238,31 @@ function connectWS() {
     ws.onmessage = e => {
         const data = JSON.parse(e.data);
         if (data.type === 'messages_data') {
+            if (data.channel_names) {
+                channelNames = {};
+                Object.entries(data.channel_names).forEach(([k, v]) => {
+                    channelNames[parseInt(k)] = v;
+                });
+            }
             if (data.messages) {
                 if (Array.isArray(data.messages)) {
                     allMessages = data.messages.length > 0 ? {0: data.messages} : {};
                 } else {
                     allMessages = {};
-                    Object.keys(data.messages).forEach(k => {
-                        allMessages[parseInt(k)] = data.messages[k];
+                    Object.entries(data.messages).forEach(([k, v]) => {
+                        allMessages[parseInt(k)] = v;
                     });
                 }
             }
-            if (data.channel_names) {
-                Object.keys(data.channel_names).forEach(k => {
-                    channelNames[parseInt(k)] = data.channel_names[k];
-                });
-            }
+            // Add empty arrays for channels that have no messages yet
+            Object.keys(channelNames).forEach(idx => {
+                const i = parseInt(idx);
+                if (!allMessages[i]) allMessages[i] = [];
+            });
+            updateChannelTabs();
             updateMessagesDisplay();
+            updateSendChannelSelect();
+            localStorage.setItem('meshtastic_unread', 0);
         } else if (data.type === 'new_message') {
             handleNewMessage(data.message);
         } else if (data.type === 'node_update') {

@@ -2849,6 +2849,28 @@ async def websocket_handler(websocket):
                                 'type': 'elevation_data',
                                 'error': str(e)
                             }))
+                elif data.get('type') == 'get_messages':
+                    if mapper:
+                        channel_names = {}
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                for ch in iface.localNode.channels:
+                                    if ch.role != 0:  # not DISABLED
+                                        name = ch.settings.name or ('Primary' if ch.index == 0 else f'Ch {ch.index}')
+                                        channel_names[ch.index] = name
+                        except:
+                            pass
+                        await websocket.send(json.dumps({
+                            'type': 'messages_data',
+                            'messages': mapper.messages,
+                            'channel_names': channel_names
+                        }))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
