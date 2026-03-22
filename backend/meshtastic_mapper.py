@@ -649,6 +649,10 @@ class ListenBasedMapper:
         if not iface:
             raise Exception('No active connection to device')
 
+        # For TCP, check that the underlying interface is actually connected
+        if self.connection_type == 'tcp' and hasattr(iface, 'interface') and iface.interface is None:
+            raise Exception('TCP connection not yet established — please wait and retry')
+
         node = iface.localNode
         config = {}
 
@@ -806,6 +810,9 @@ class ListenBasedMapper:
 
         if not iface:
             raise Exception('No active connection to device')
+
+        if self.connection_type == 'tcp' and hasattr(iface, 'interface') and iface.interface is None:
+            raise Exception('TCP connection not yet established — please wait and retry')
 
         node = iface.localNode
         applied = []

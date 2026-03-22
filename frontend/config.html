@@ -951,13 +951,18 @@ function connectWS() {
     ws.onopen = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
-        ws.send(JSON.stringify({type: 'get_config'}));
-        // Retry after 2s in case backend needs time after restart
+        // Initial config load with delay (TCP may not be ready yet)
         setTimeout(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({type: 'get_config'}));
             }
-        }, 2000);
+        }, 1500);
+        // Retry after 5s in case TCP connection needs more time
+        setTimeout(() => {
+            if (ws && ws.readyState === WebSocket.OPEN && Object.keys(originalConfig).length === 0) {
+                ws.send(JSON.stringify({type: 'get_config'}));
+            }
+        }, 5000);
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
@@ -1007,12 +1012,12 @@ function connectWS() {
                 document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
             }
             if (d.status === 'connected' && Object.keys(originalConfig).length === 0) {
-                // Config not yet loaded - request it now
+                // Retry get_config with a delay to allow TCP to fully establish
                 setTimeout(() => {
                     if (ws && ws.readyState === WebSocket.OPEN) {
                         ws.send(JSON.stringify({type: 'get_config'}));
                     }
-                }, 500);
+                }, 2000);
             }
         } else if (d.type === 'channel_save_result') {
             const statusEl = document.getElementById(`ch-status-${d.index}`);
