@@ -590,7 +590,7 @@
             const destId = (document.getElementById('dm-node-id').value || '').trim() || null;
             const connType = trackerInfo.connection_type || 'serial';
             if (connType === 'serial') {
-                if (!confirm('⚠️ USB: listener will pause ~5s during send. Continue?')) return;
+                // Python API: no listener pause needed
             }
             document.getElementById('send-btn').disabled = true;
             window._pendingSend = {text, channelIndex, destId};
@@ -1025,9 +1025,7 @@
                 closeTraceroutePanel();
                 const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
                 document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
-                const initMsg = connType === 'serial'
-                    ? '⚠️ Pausing listener for traceroute...'
-                    : '⏳ Running traceroute... (60s)';
+                const initMsg = '⏳ Running traceroute... (60s)';
                 document.getElementById('traceroute-body').innerHTML = `<div id="traceroute-loading">${initMsg}</div>`;
                 document.getElementById('traceroute-panel').style.display = 'block';
                 window._tracerouteNodeId = nodeId;
@@ -1057,7 +1055,7 @@
                 }, 90000);
             };
             if (connType === 'serial') {
-                if (!confirm('⚠️ USB connection: listener will pause ~30-60s during traceroute. Continue?')) return;
+                // Python API: no listener pause needed
             }
             sendRequest();
         }

@@ -380,6 +380,7 @@ class ListenBasedMapper:
         self.host = host
         self.current_process = None
         self._serial_iface = None
+        self._pending_traceroute_result = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age
@@ -1093,6 +1094,8 @@ class ListenBasedMapper:
             self.parse_telemetry_from_packet(packet)
         elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
             self.parse_text_from_packet(packet)
+        elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
+            self._handle_traceroute_packet(packet)
 
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
@@ -1552,9 +1555,44 @@ class ListenBasedMapper:
                 self.parse_telemetry_from_packet(packet)
             elif portnum in ('TEXT_MESSAGE_APP', portnums_pb2.PortNum.Value('TEXT_MESSAGE_APP')):
                 self.parse_text_from_packet(packet)
+            elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
+                self._handle_traceroute_packet(packet)
             self._last_radio_packet_time = time.time()
         except Exception as e:
             print(f"[SERIAL] Packet routing error: {e}")
+
+    def _handle_traceroute_packet(self, packet):
+        """Handle incoming traceroute response packet from Python API."""
+        try:
+            decoded = packet.get('decoded', {})
+            route_discovery = decoded.get('routeDiscovery', {})
+            route = route_discovery.get('route', [])
+            route_back = route_discovery.get('routeBack', [])
+
+            all_known = {**self.nodes, **self.nodes_no_position}
+
+            def num_to_hop(num):
+                hex_id = f"!{num:08x}"
+                node = all_known.get(hex_id, {})
+                return {
+                    'id': hex_id,
+                    'name': node.get('name', hex_id),
+                    'lat': node.get('lat'),
+                    'lon': node.get('lon'),
+                    'snr': None
+                }
+
+            route_hops = [num_to_hop(n) for n in route]
+            route_back_hops = [num_to_hop(n) for n in route_back]
+
+            self._pending_traceroute_result = {
+                'route': route_hops,
+                'route_back': route_back_hops,
+                'node_id': f"!{packet.get('to', 0):08x}"
+            }
+            print(f"[TRACEROUTE] Received result: {len(route_hops)} hops forward, {len(route_back_hops)} hops back")
+        except Exception as e:
+            print(f"[TRACEROUTE] Error parsing traceroute packet: {e}")
 
     def _run_tcp(self):
         """Run TCP listener using the Python Meshtastic API (no subprocess)."""
@@ -1985,27 +2023,50 @@ async def run_traceroute(node_id, websocket):
         loop = asyncio.get_event_loop()
 
         if conn_type == 'serial':
-            # Serial: use Python API (no listener stop needed)
             try:
-                if mapper._serial_iface and mapper._serial_iface.iface:
-                    await loop.run_in_executor(
-                        None,
-                        lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
-                    )
-                    await asyncio.sleep(60)
-                    await websocket.send(json.dumps({
-                        'type': 'traceroute_result',
-                        'node_id': node_id,
-                        'route': [],
-                        'route_back': [],
-                        'raw': 'Traceroute sent via Python API'
-                    }))
-                else:
+                if not mapper._serial_iface or not mapper._serial_iface.iface:
                     await websocket.send(json.dumps({
                         'type': 'traceroute_result',
                         'node_id': node_id,
                         'error': 'Not connected'
                     }))
+                    return
+
+                mapper._pending_traceroute_result = None
+                await loop.run_in_executor(
+                    None,
+                    lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
+                )
+
+                # Wait up to 60s for result via _handle_traceroute_packet callback
+                for _ in range(60):
+                    await asyncio.sleep(1)
+                    if mapper._pending_traceroute_result:
+                        result = mapper._pending_traceroute_result
+                        mapper._pending_traceroute_result = None
+                        all_known = {**mapper.nodes, **mapper.nodes_no_position}
+                        for hop in result['route'] + result['route_back']:
+                            hop_id = hop.get('id')
+                            if hop_id and hop_id in all_known:
+                                n = all_known[hop_id]
+                                if 'lat' in n:
+                                    hop['lat'] = n['lat']
+                                    hop['lon'] = n['lon']
+                                hop['name'] = n.get('name', hop.get('name', hop_id))
+                        await websocket.send(json.dumps({
+                            'type': 'traceroute_result',
+                            'node_id': node_id,
+                            'route': result['route'],
+                            'route_back': result['route_back'],
+                            'raw': ''
+                        }))
+                        return
+
+                await websocket.send(json.dumps({
+                    'type': 'traceroute_result',
+                    'node_id': node_id,
+                    'error': 'Timeout - no response received'
+                }))
             except Exception as e:
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
