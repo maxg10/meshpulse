@@ -136,10 +136,12 @@
             <div id="messages-list"></div>
         </div>
         <div id="send-area">
-                <div id="dm-selector" style="display:none;">
-                    <span>To: </span>
-                    <input type="text" id="dm-node-id" placeholder="!nodeID or search..." size="15">
-                    <button onclick="clearDM()">✕</button>
+                <div id="dm-selector">
+                    <span style="color:#6b7280;font-size:11px">To:</span>
+                    <input type="text" id="dm-node-id" placeholder="All (broadcast)" size="18"
+                        oninput="dmSearch(this.value)" autocomplete="off">
+                    <button onclick="clearDM()" title="Clear DM">✕</button>
+                    <div id="dm-search-results" style="display:none;position:absolute;background:white;border:1px solid #e5e7eb;border-radius:4px;max-height:150px;overflow-y:auto;z-index:2000;min-width:200px;box-shadow:0 2px 8px rgba(0,0,0,0.15);font-size:11px;"></div>
                 </div>
                 <div id="send-row">
                     <select id="send-channel-select"></select>
@@ -587,7 +589,7 @@
                 return;
             }
             const channelIndex = parseInt(document.getElementById('send-channel-select').value) || 0;
-            const destId = (document.getElementById('dm-node-id').value || '').trim() || null;
+            const destId = window._dmDestId || null;
             const connType = trackerInfo.connection_type || 'serial';
             if (connType === 'serial') {
                 // Python API: no listener pause needed
@@ -597,17 +599,62 @@
             ws.send(JSON.stringify({type: 'send_message', text, channel_index: channelIndex, dest_id: destId}));
         }
 
+        function dmSearch(query) {
+            const resultsEl = document.getElementById('dm-search-results');
+            if (!query || query.length < 1) {
+                resultsEl.style.display = 'none';
+                // Empty = broadcast mode
+                window._dmDestId = null;
+                window._dmDestName = null;
+                document.getElementById('dm-selector').classList.remove('active');
+                return;
+            }
+            const q = query.toLowerCase();
+            const matches = [];
+            [...allNodes, ...allNodesNoGps].forEach(n => {
+                if (n.via_mqtt) return;
+                if ((n.name && n.name.toLowerCase().includes(q)) || (n.id && n.id.toLowerCase().includes(q))) {
+                    matches.push(n);
+                }
+            });
+            const top = matches.slice(0, 8);
+            if (top.length === 0) {
+                resultsEl.style.display = 'none';
+                return;
+            }
+            resultsEl.innerHTML = top.map(n => `
+                <div onclick="selectDMNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');"
+                     style="padding:4px 8px;cursor:pointer;border-bottom:1px solid #f3f4f6;"
+                     onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
+                    <b>${n.name||n.id}</b> <span style="color:#9ca3af">${n.id}</span>
+                </div>`).join('');
+            resultsEl.style.display = 'block';
+        }
+
+        function selectDMNode(nodeId, nodeName) {
+            window._dmDestId = nodeId;
+            window._dmDestName = nodeName;
+            document.getElementById('dm-node-id').value = nodeName;
+            document.getElementById('dm-search-results').style.display = 'none';
+            document.getElementById('dm-selector').classList.add('active');
+            document.getElementById('send-text').focus();
+        }
+
         function openDM(nodeId, nodeName) {
             const panel = document.getElementById('messages-panel');
             if (!panel.classList.contains('open')) panel.classList.add('open');
-            document.getElementById('dm-selector').style.display = 'flex';
-            document.getElementById('dm-node-id').value = nodeId;
-            setTimeout(() => { const inp = document.getElementById('send-text'); if (inp) inp.focus(); }, 100);
+            selectDMNode(nodeId, nodeName);
         }
 
         function clearDM() {
-            document.getElementById('dm-selector').style.display = 'none';
-            document.getElementById('dm-node-id').value = '';
+            window._dmDestId = null;
+            window._dmDestName = null;
+            const inp = document.getElementById('dm-node-id');
+            if (inp) inp.value = '';
+            const res = document.getElementById('dm-search-results');
+            if (res) res.style.display = 'none';
+            const sel = document.getElementById('dm-selector');
+            if (sel) sel.classList.remove('active');
         }
 
         function fetchNodesJSON(retryCount = 0) {

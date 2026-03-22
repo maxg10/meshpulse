@@ -220,6 +220,8 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
 #send-btn:hover{background:#374151}
 #send-btn:disabled{background:#9ca3af;cursor:not-allowed}
 #send-channel-select{font-size:11px;padding:2px 4px;border:1px solid #e5e7eb;border-radius:4px}
-#dm-selector{font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:4px;background:#dbeafe;padding:3px 6px;border-radius:4px}
+#dm-selector{font-size:11px;margin-bottom:4px;display:flex;align-items:center;gap:4px;background:#f3f4f6;padding:3px 6px;border-radius:4px;position:relative}
+#dm-selector input{border:1px solid #d1d5db;border-radius:3px;padding:2px 4px;font-size:11px;flex:1}
+#dm-selector.active{background:#dbeafe}
 #dm-node-id{font-size:11px;padding:2px 4px;border:1px solid #93c5fd;border-radius:3px}
 #send-status{margin-top:4px;min-height:14px;font-size:10px;color:#666}
