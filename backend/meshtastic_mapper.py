@@ -814,7 +814,7 @@ class ListenBasedMapper:
             for key, val in changes['telemetry'].items():
                 setattr(node.moduleConfig.telemetry, key, val)
                 applied.append(f'telemetry.{key}')
-            node.writeModuleConfig('telemetry')
+            node.writeConfig('telemetry')
 
         # Network config changes
         if 'network' in changes:
