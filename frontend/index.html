@@ -32,8 +32,8 @@
                oninput="searchNodes(this.value)" autocomplete="off">
         <div id="search-results"></div>
     </div>
-    <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A')this.classList.toggle('open')">
-        <h3>📶 Mesh Info ▼</h3>
+    <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A'){this.classList.toggle('open');document.getElementById('stats-title').textContent=this.classList.contains('open')?'📶 Mesh Info ▼':'📶 Mesh Info ▶';}">
+        <h3 id="stats-title">📶 Mesh Info ▼</h3>
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
@@ -81,8 +81,8 @@
         </label><br>
         </div>
     </div>
-    <div id="no-gps-panel" class="open" onclick="this.classList.toggle('open')">
-        <h4>📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
+    <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
+        <h4 id="nogps-title">📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
         <div id="no-gps-content">
         <div id="no-gps-list"></div>
         </div>
@@ -129,8 +129,8 @@
         </div>
         <div id="traceroute-body"></div>
     </div>
-    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4')this.classList.toggle('open')">
-        <h4>💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
+    <div id="messages-panel" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('messages-title');const cnt=document.getElementById('messages-total-cnt').textContent;const snd=document.getElementById('sound-toggle').outerHTML;const blink=document.getElementById('messages-blink').outerHTML;if(t)t.innerHTML=this.classList.contains('open')?'💬 Messages ▼ (<span id=\'messages-total-cnt\'>'+cnt+'</span>) '+snd+' '+blink:'💬 Messages ▶ (<span id=\'messages-total-cnt\'>'+cnt+'</span>) '+snd+' '+blink;}">
+        <h4 id="messages-title">💬 Messages ▼ (<span id="messages-total-cnt">0</span>) <button id="sound-toggle" onclick="event.stopPropagation();toggleSound()" title="Toggle sound">🔔</button> <span id="messages-blink" style="display:none;color:#ef4444;">●</span></h4>
         <div id="messages-content">
             <div id="channel-tabs"></div>
             <div id="messages-list"></div>
@@ -495,7 +495,7 @@
                     const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
                     const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
                     const dmBtn = msg.from_id !== trackerInfo.node_id
-                        ? `<button onclick="openDM('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" style="font-size:9px;padding:1px 4px;margin-left:4px;cursor:pointer;background:#f3f4f6;border:1px solid #d1d5db;border-radius:3px;color:#374151;vertical-align:middle" title="Send DM">DM</button>`
+                        ? `<button onclick="openDM('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
                         : '';
                     return `
                     <div class="${itemClass}">
@@ -1509,7 +1509,7 @@
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
-                        <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" style="font-size:10px;padding:1px 5px;margin-top:2px;cursor:pointer;">✉️ DM</button>
+                        <button onclick="openDM('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="margin-top:2px;">✉️ DM</button>
                     </div>`;
                 }).join('');
             } else {
