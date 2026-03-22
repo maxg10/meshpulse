@@ -137,6 +137,9 @@
     <button class="tab" onclick="switchTab('lora')">📡 LoRa</button>
     <button class="tab" onclick="switchTab('position')">📍 Position</button>
     <button class="tab" onclick="switchTab('telemetry')">🔋 Telemetry</button>
+    <button class="tab" onclick="switchTab('network')">🌐 Network</button>
+    <button class="tab" onclick="switchTab('bluetooth')">🔵 Bluetooth</button>
+    <button class="tab" onclick="switchTab('channels')">📻 Channels</button>
 </div>
 
 <!-- User tab -->
@@ -169,24 +172,44 @@
             <div class="desc">How this node participates in the mesh</div>
             <select id="device.role" onchange="markChanged(this)">
                 <option value="0">CLIENT</option>
-                <option value="1">CLIENT_MUTE</option>
+                <option value="1">CLIENT_MUTE (no rebroadcast)</option>
                 <option value="2">ROUTER</option>
-                <option value="3">CLIENT_BASE</option>
-                <option value="4">ROUTER_LATE</option>
-                <option value="5">TRACKER</option>
-                <option value="6">LOST_AND_FOUND</option>
-                <option value="7">SENSOR</option>
-                <option value="8">REPEATER</option>
-                <option value="9">TAK</option>
-                <option value="10">TAK_TRACKER</option>
-                <option value="11">ROUTER_LATE</option>
+                <option value="3">CLIENT_BASE (no GPS broadcast)</option>
+                <option value="4">TRACKER</option>
+                <option value="5">SENSOR</option>
+                <option value="6">REPEATER</option>
+                <option value="7">TAK</option>
+                <option value="8">TAK_TRACKER</option>
+                <option value="9">LOST_AND_FOUND</option>
+                <option value="10">ROUTER_LATE</option>
             </select>
         </div>
-        <div class="field">
-            <label>NodeInfo Broadcast Interval (seconds)</label>
-            <div class="desc">How often to broadcast node info. Default: 900s (15 min)</div>
-            <input type="number" id="device.node_info_broadcast_secs" min="0" max="86400"
-                oninput="markChanged(this)">
+        <div class="field-row">
+            <div class="field">
+                <label>NodeInfo Broadcast Interval (seconds)</label>
+                <div class="desc">How often to broadcast node info. Default: 900s</div>
+                <input type="number" id="device.node_info_broadcast_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Rebroadcast Mode</label>
+                <div class="desc">Controls which packets are rebroadcast</div>
+                <select id="device.rebroadcast_mode" onchange="markChanged(this)">
+                    <option value="0">ALL</option>
+                    <option value="1">ALL_SKIP_DECODING</option>
+                    <option value="2">LOCAL_ONLY</option>
+                    <option value="3">KNOWN_ONLY</option>
+                    <option value="4">NONE</option>
+                </select>
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="device.serial_enabled" onchange="markChanged(this)">
+            <label for="device.serial_enabled">Serial Console Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="device.led_heartbeat_disabled" onchange="markChanged(this)">
+            <label for="device.led_heartbeat_disabled">Disable LED Heartbeat</label>
         </div>
     </div>
 </div>
@@ -256,27 +279,73 @@
 <div id="tab-position" class="tab-content">
     <div class="card">
         <div class="card-title">📍 Position Settings</div>
-        <div class="field">
-            <label>Position Broadcast Interval (seconds)</label>
-            <div class="desc">How often to broadcast GPS position. 0 = disabled. Recommended: ≥1800s for stationary nodes</div>
-            <input type="number" id="position.position_broadcast_secs" min="0" max="86400"
-                oninput="markChanged(this)">
+        <div class="field-row">
+            <div class="field">
+                <label>Position Broadcast Interval (seconds)</label>
+                <div class="desc">0 = disabled. ≥1800s recommended for stationary nodes</div>
+                <input type="number" id="position.position_broadcast_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>GPS Update Interval (seconds)</label>
+                <div class="desc">How often to update GPS fix internally</div>
+                <input type="number" id="position.gps_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
         </div>
-        <div class="field">
-            <label>GPS Update Interval (seconds)</label>
-            <div class="desc">How often to update GPS fix internally</div>
-            <input type="number" id="position.gps_update_interval" min="0" max="86400"
-                oninput="markChanged(this)">
+        <div class="field-row">
+            <div class="field">
+                <label>Smart Broadcast Min Distance (meters)</label>
+                <div class="desc">Minimum distance moved before smart broadcast triggers</div>
+                <input type="number" id="position.broadcast_smart_minimum_distance" min="0" max="10000"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Smart Broadcast Min Interval (seconds)</label>
+                <div class="desc">Minimum interval between smart broadcasts</div>
+                <input type="number" id="position.broadcast_smart_minimum_interval_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
         </div>
         <div class="field-check">
-            <input type="checkbox" id="position.gps_enabled"
-                onchange="markChanged(this)">
+            <input type="checkbox" id="position.gps_enabled" onchange="markChanged(this)">
             <label for="position.gps_enabled">GPS Enabled</label>
         </div>
         <div class="field-check">
-            <input type="checkbox" id="position.position_broadcast_smart_enabled"
-                onchange="markChanged(this)">
+            <input type="checkbox" id="position.position_broadcast_smart_enabled" onchange="markChanged(this)">
             <label for="position.position_broadcast_smart_enabled">Smart Position Broadcast (only send when moved)</label>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">📌 Fixed Position</div>
+        <div class="alert alert-info">ℹ️ Set a fixed GPS position manually. Useful for stationary routers without GPS or indoors.</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Latitude</label>
+                <input type="number" id="fixed.lat" step="0.000001" min="-90" max="90"
+                    placeholder="e.g. 52.406374" oninput="updateFixedBtn()">
+            </div>
+            <div class="field">
+                <label>Longitude</label>
+                <input type="number" id="fixed.lon" step="0.000001" min="-180" max="180"
+                    placeholder="e.g. 16.925167" oninput="updateFixedBtn()">
+            </div>
+        </div>
+        <div class="field">
+            <label>Altitude (meters)</label>
+            <input type="number" id="fixed.alt" step="1" min="-500" max="9000"
+                placeholder="e.g. 85" oninput="updateFixedBtn()">
+        </div>
+        <div style="display:flex;gap:10px;margin-top:8px;">
+            <button class="btn btn-primary" id="fixed-pos-btn" onclick="setFixedPosition()" disabled>
+                📌 Set Fixed Position
+            </button>
+            <button class="btn btn-secondary" onclick="clearFixedPosition()">
+                🗑️ Clear Fixed Position
+            </button>
+            <button class="btn btn-secondary" onclick="useCurrentPosition()">
+                📍 Use Current GPS
+            </button>
         </div>
     </div>
 </div>
@@ -284,23 +353,163 @@
 <!-- Telemetry tab -->
 <div id="tab-telemetry" class="tab-content">
     <div class="card">
-        <div class="card-title">🔋 Telemetry Settings</div>
-        <div class="field">
-            <label>Device Telemetry Interval (seconds)</label>
-            <div class="desc">How often to send battery/metrics. Recommended: ≥1800s (30 min)</div>
-            <input type="number" id="telemetry.device_update_interval" min="0" max="86400"
-                oninput="markChanged(this)">
-        </div>
-        <div class="field">
-            <label>Environment Telemetry Interval (seconds)</label>
-            <div class="desc">How often to send environment sensor data (if available)</div>
-            <input type="number" id="telemetry.environment_update_interval" min="0" max="86400"
-                oninput="markChanged(this)">
+        <div class="card-title">🔋 Device Telemetry</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Device Update Interval (seconds)</label>
+                <div class="desc">Battery/metrics interval. ≥1800s recommended</div>
+                <input type="number" id="telemetry.device_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Power Update Interval (seconds)</label>
+                <div class="desc">Power monitoring interval (if sensor available)</div>
+                <input type="number" id="telemetry.power_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
         </div>
         <div class="field-check">
-            <input type="checkbox" id="telemetry.environment_measurement_enabled"
-                onchange="markChanged(this)">
+            <input type="checkbox" id="telemetry.device_telemetry_enabled" onchange="markChanged(this)">
+            <label for="telemetry.device_telemetry_enabled">Device Telemetry Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.power_measurement_enabled" onchange="markChanged(this)">
+            <label for="telemetry.power_measurement_enabled">Power Measurement Enabled</label>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">🌡️ Environment Telemetry</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Environment Update Interval (seconds)</label>
+                <div class="desc">Temperature/humidity/pressure sensor interval</div>
+                <input type="number" id="telemetry.environment_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Health Update Interval (seconds)</label>
+                <div class="desc">Health sensor interval (if available)</div>
+                <input type="number" id="telemetry.health_update_interval" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.environment_measurement_enabled" onchange="markChanged(this)">
             <label for="telemetry.environment_measurement_enabled">Environment Measurement Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.environment_screen_enabled" onchange="markChanged(this)">
+            <label for="telemetry.environment_screen_enabled">Show Environment on Screen</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.health_measurement_enabled" onchange="markChanged(this)">
+            <label for="telemetry.health_measurement_enabled">Health Measurement Enabled</label>
+        </div>
+    </div>
+</div>
+
+<!-- Network tab -->
+<div id="tab-network" class="tab-content">
+    <div class="card">
+        <div class="card-title">🌐 WiFi Settings</div>
+        <div class="alert alert-warning">⚠️ WiFi settings only apply to devices with WiFi support (Heltec, T-Beam, etc.)</div>
+        <div class="field-check">
+            <input type="checkbox" id="network.wifi_enabled" onchange="markChanged(this)">
+            <label for="network.wifi_enabled">WiFi Enabled</label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>WiFi SSID</label>
+                <div class="desc">Network name to connect to</div>
+                <input type="text" id="network.wifi_ssid" maxlength="32"
+                    oninput="markChanged(this)" placeholder="Your WiFi network name">
+            </div>
+            <div class="field">
+                <label>WiFi Password</label>
+                <div class="desc">Network password</div>
+                <input type="password" id="network.wifi_psk" maxlength="64"
+                    oninput="markChanged(this)" placeholder="Password">
+            </div>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">🔌 IP Address Settings</div>
+        <div class="field">
+            <label>Address Mode</label>
+            <div class="desc">How to obtain IP address</div>
+            <select id="network.address_mode" onchange="markChanged(this); toggleStaticIP()">
+                <option value="0">DHCP (automatic)</option>
+                <option value="1">Static IP</option>
+            </select>
+        </div>
+        <div id="static-ip-fields" style="display:none;">
+            <div class="field-row">
+                <div class="field">
+                    <label>IP Address</label>
+                    <input type="text" id="network.ipv4_config.ip" placeholder="192.168.1.100"
+                        oninput="markChanged(this)">
+                </div>
+                <div class="field">
+                    <label>Gateway</label>
+                    <input type="text" id="network.ipv4_config.gateway" placeholder="192.168.1.1"
+                        oninput="markChanged(this)">
+                </div>
+            </div>
+            <div class="field-row">
+                <div class="field">
+                    <label>Subnet Mask</label>
+                    <input type="text" id="network.ipv4_config.subnet" placeholder="255.255.255.0"
+                        oninput="markChanged(this)">
+                </div>
+                <div class="field">
+                    <label>DNS Server</label>
+                    <input type="text" id="network.ipv4_config.dns" placeholder="8.8.8.8"
+                        oninput="markChanged(this)">
+                </div>
+            </div>
+        </div>
+        <div class="field">
+            <label>NTP Server</label>
+            <div class="desc">Time synchronization server</div>
+            <input type="text" id="network.ntp_server" placeholder="0.pool.ntp.org"
+                oninput="markChanged(this)">
+        </div>
+    </div>
+</div>
+
+<!-- Bluetooth tab -->
+<div id="tab-bluetooth" class="tab-content">
+    <div class="card">
+        <div class="card-title">🔵 Bluetooth Settings</div>
+        <div class="field-check">
+            <input type="checkbox" id="bluetooth.enabled" onchange="markChanged(this)">
+            <label for="bluetooth.enabled">Bluetooth Enabled</label>
+        </div>
+        <div class="field">
+            <label>Pairing Mode</label>
+            <div class="desc">How Bluetooth pairing works</div>
+            <select id="bluetooth.mode" onchange="markChanged(this)">
+                <option value="0">Random PIN (new PIN each restart)</option>
+                <option value="1">Fixed PIN</option>
+                <option value="2">No PIN (insecure)</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>Fixed PIN</label>
+            <div class="desc">6-digit PIN when using Fixed PIN mode</div>
+            <input type="number" id="bluetooth.fixed_pin" min="0" max="999999"
+                oninput="markChanged(this)" placeholder="123456">
+        </div>
+    </div>
+</div>
+
+<!-- Channels tab -->
+<div id="tab-channels" class="tab-content">
+    <div class="card">
+        <div class="card-title">📻 Channels</div>
+        <div class="alert alert-info">ℹ️ Channel configuration coming soon. Currently showing read-only channel info.</div>
+        <div id="channels-list">
+            <div class="loading">Loading channels...</div>
         </div>
     </div>
 </div>
@@ -320,6 +529,62 @@
 let ws = null;
 let originalConfig = {};
 let pendingChanges = {};
+
+// ── Fixed position helpers ───────────────────────────────────────
+function toggleStaticIP() {
+    const mode = document.getElementById('network.address_mode').value;
+    document.getElementById('static-ip-fields').style.display = mode === '1' ? 'block' : 'none';
+}
+
+function updateFixedBtn() {
+    const lat = document.getElementById('fixed.lat').value;
+    const lon = document.getElementById('fixed.lon').value;
+    document.getElementById('fixed-pos-btn').disabled = !lat || !lon;
+}
+
+function setFixedPosition() {
+    const lat = parseFloat(document.getElementById('fixed.lat').value);
+    const lon = parseFloat(document.getElementById('fixed.lon').value);
+    const alt = parseInt(document.getElementById('fixed.alt').value) || 0;
+    if (!lat || !lon) return;
+    if (!confirm(`Set fixed position to ${lat}, ${lon}, alt ${alt}m?`)) return;
+    ws.send(JSON.stringify({
+        type: 'set_fixed_position',
+        lat: lat, lon: lon, alt: alt
+    }));
+    showAlert('📌 Setting fixed position...', 'info');
+}
+
+function clearFixedPosition() {
+    if (!confirm('Remove fixed position? Device will use GPS again.')) return;
+    ws.send(JSON.stringify({type: 'clear_fixed_position'}));
+    showAlert('🗑️ Clearing fixed position...', 'info');
+}
+
+function useCurrentPosition() {
+    ws.send(JSON.stringify({type: 'get_config'}));
+    showAlert('📍 Loading current GPS position...', 'info');
+}
+
+// ── Channels renderer ────────────────────────────────────────────
+function renderChannels(channels) {
+    const el = document.getElementById('channels-list');
+    if (!channels || channels.length === 0) {
+        el.innerHTML = '<div style="color:#6b7280;font-size:12px">No channels found</div>';
+        return;
+    }
+    el.innerHTML = channels.map((ch, i) => `
+        <div style="padding:8px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:8px;">
+            <div style="font-weight:600;font-size:12px;color:#374151">
+                Ch ${i}: ${ch.name || 'Default'}
+                <span style="font-size:10px;color:#6b7280;font-weight:normal">
+                    ${ch.role === 1 ? '(Primary)' : ch.role === 2 ? '(Secondary)' : '(Disabled)'}
+                </span>
+            </div>
+            ${ch.psk ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">PSK: ${ch.psk.substring(0,8)}...</div>` : ''}
+        </div>
+    `).join('');
+}
 
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
@@ -355,6 +620,10 @@ function connectWS() {
             } else {
                 showAlert('❌ Error saving config: ' + d.error, 'error');
             }
+        } else if (d.type === 'fixed_position_result') {
+            showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
+        } else if (d.type === 'clear_position_result') {
+            showAlert(d.success ? '✅ Fixed position cleared!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
         } else if (d.type === 'config_error') {
             showAlert('❌ Error loading config: ' + d.error, 'error');
             document.getElementById('changes-info').textContent = 'Error loading config';
@@ -390,6 +659,49 @@ function populateForm(config) {
     setField('telemetry.device_update_interval', config.telemetry?.device_update_interval ?? 1800);
     setField('telemetry.environment_update_interval', config.telemetry?.environment_update_interval ?? 0);
     setField('telemetry.environment_measurement_enabled', config.telemetry?.environment_measurement_enabled ?? false);
+
+    // Network
+    setField('network.wifi_enabled', config.network?.wifi_enabled ?? false);
+    setField('network.wifi_ssid', config.network?.wifi_ssid || '');
+    setField('network.wifi_psk', config.network?.wifi_psk || '');
+    setField('network.address_mode', config.network?.address_mode ?? 0);
+    setField('network.ntp_server', config.network?.ntp_server || '');
+    toggleStaticIP();
+
+    // Bluetooth
+    setField('bluetooth.enabled', config.bluetooth?.enabled ?? true);
+    setField('bluetooth.mode', config.bluetooth?.mode ?? 0);
+    setField('bluetooth.fixed_pin', config.bluetooth?.fixed_pin ?? 123456);
+
+    // Device extra fields
+    setField('device.rebroadcast_mode', config.device?.rebroadcast_mode ?? 0);
+    setField('device.serial_enabled', config.device?.serial_enabled ?? true);
+    setField('device.led_heartbeat_disabled', config.device?.led_heartbeat_disabled ?? false);
+
+    // Position extra fields
+    setField('position.broadcast_smart_minimum_distance', config.position?.broadcast_smart_minimum_distance ?? 0);
+    setField('position.broadcast_smart_minimum_interval_secs', config.position?.broadcast_smart_minimum_interval_secs ?? 0);
+
+    // Telemetry extra fields
+    setField('telemetry.device_telemetry_enabled', config.telemetry?.device_telemetry_enabled ?? true);
+    setField('telemetry.power_measurement_enabled', config.telemetry?.power_measurement_enabled ?? false);
+    setField('telemetry.power_update_interval', config.telemetry?.power_update_interval ?? 0);
+    setField('telemetry.environment_screen_enabled', config.telemetry?.environment_screen_enabled ?? false);
+    setField('telemetry.health_measurement_enabled', config.telemetry?.health_measurement_enabled ?? false);
+    setField('telemetry.health_update_interval', config.telemetry?.health_update_interval ?? 0);
+
+    // Fixed position - pre-fill from current node position
+    if (config.current_position) {
+        document.getElementById('fixed.lat').value = config.current_position.lat || '';
+        document.getElementById('fixed.lon').value = config.current_position.lon || '';
+        document.getElementById('fixed.alt').value = config.current_position.alt || '';
+        updateFixedBtn();
+    }
+
+    // Channels
+    if (config.channels) {
+        renderChannels(config.channels);
+    }
 
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
