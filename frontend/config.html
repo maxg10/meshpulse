@@ -952,19 +952,7 @@ function connectWS() {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
         ws.send(JSON.stringify({type: 'get_config'}));
-        // Keep retrying until config loads (handles TCP not ready yet)
-        let retryCount = 0;
-        const retryInterval = setInterval(() => {
-            if (Object.keys(originalConfig).length > 0) {
-                clearInterval(retryInterval);
-                return;
-            }
-            retryCount++;
-            if (retryCount > 20) { clearInterval(retryInterval); return; } // Give up after 60s
-            if (ws && ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify({type: 'get_config'}));
-            }
-        }, 3000);
+        // retry handled by global startConfigRetry()
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
@@ -1045,6 +1033,11 @@ function connectWS() {
 
 // ── Form population ──────────────────────────────────────────────
 function populateForm(config) {
+    // Config loaded — stop retry loop
+    if (_configRetryInterval) {
+        clearInterval(_configRetryInterval);
+        _configRetryInterval = null;
+    }
     // User
     setField('user.long_name', config.user?.long_name || '');
     setField('user.short_name', config.user?.short_name || '');
@@ -1237,6 +1230,26 @@ function showAlert(msg, type) {
 }
 
 connectWS();
+
+// Global config retry — runs independently of WebSocket reconnects
+let _configRetryInterval = null;
+
+function startConfigRetry() {
+    if (_configRetryInterval) return; // already running
+    _configRetryInterval = setInterval(() => {
+        if (Object.keys(originalConfig).length > 0) {
+            clearInterval(_configRetryInterval);
+            _configRetryInterval = null;
+            return;
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'get_config'}));
+        }
+    }, 4000);
+}
+
+// Start retry loop once on page load
+startConfigRetry();
 
 // Unread messages badge
 const _bc = new BroadcastChannel('meshtastic_msgs');
