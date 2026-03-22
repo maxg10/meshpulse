@@ -1582,17 +1582,14 @@ class ListenBasedMapper:
                     'snr': None
                 }
 
-            route_hops = [num_to_hop(n) for n in route]
-            route_back_hops = [num_to_hop(n) for n in route_back]
-
             self._pending_traceroute_result = {
-                'route': route_hops,
-                'route_back': route_back_hops,
+                'route': [num_to_hop(n) for n in route],
+                'route_back': [num_to_hop(n) for n in route_back],
                 'node_id': f"!{packet.get('to', 0):08x}"
             }
-            print(f"[TRACEROUTE] Received result: {len(route_hops)} hops forward, {len(route_back_hops)} hops back")
+            print(f"[TRACEROUTE] Result received: {len(route)} hops forward, {len(route_back)} hops back")
         except Exception as e:
-            print(f"[TRACEROUTE] Error parsing traceroute packet: {e}")
+            print(f"[TRACEROUTE] Error parsing packet: {e}")
 
     def _run_tcp(self):
         """Run TCP listener using the Python Meshtastic API (no subprocess)."""
@@ -2027,8 +2024,7 @@ async def run_traceroute(node_id, websocket):
                 if not mapper._serial_iface or not mapper._serial_iface.iface:
                     await websocket.send(json.dumps({
                         'type': 'traceroute_result',
-                        'node_id': node_id,
-                        'error': 'Not connected'
+                        'node_id': node_id, 'error': 'Not connected'
                     }))
                     return
 
@@ -2037,8 +2033,7 @@ async def run_traceroute(node_id, websocket):
                     None,
                     lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
                 )
-
-                # Wait up to 60s for result via _handle_traceroute_packet callback
+                print(f"[TRACEROUTE] Sent via serial Python API, waiting for response...")
                 for _ in range(60):
                     await asyncio.sleep(1)
                     if mapper._pending_traceroute_result:
@@ -2065,13 +2060,12 @@ async def run_traceroute(node_id, websocket):
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
                     'node_id': node_id,
-                    'error': 'Timeout - no response received'
+                    'error': 'Timeout - no traceroute response received'
                 }))
             except Exception as e:
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
-                    'node_id': node_id,
-                    'error': str(e)
+                    'node_id': node_id, 'error': str(e)
                 }))
             return
 
