@@ -308,7 +308,7 @@
             </div>
         </div>
         <div class="field-check">
-            <input type="checkbox" id="position.gps_enabled" onchange="markChanged(this)">
+            <input type="checkbox" id="position.gps_enabled" onchange="markChanged(this); toggleFixedPosition()">
             <label for="position.gps_enabled">GPS Enabled</label>
         </div>
         <div class="field-check">
@@ -317,7 +317,7 @@
         </div>
     </div>
     <div class="card">
-        <div class="card-title">📌 Fixed Position</div>
+        <div class="card-title" id="fixed-pos-title">📌 Fixed Position</div>
         <div class="alert alert-info">ℹ️ Set a fixed GPS position manually. Useful for stationary routers without GPS or indoors.</div>
         <div class="field-row">
             <div class="field">
@@ -586,6 +586,20 @@ function renderChannels(channels) {
     `).join('');
 }
 
+function toggleFixedPosition() {
+    const gpsEnabled = document.getElementById('position.gps_enabled').checked;
+    const fixedCard = document.getElementById('fixed-pos-title').closest('.card');
+    if (gpsEnabled) {
+        fixedCard.style.opacity = '0.4';
+        fixedCard.style.pointerEvents = 'none';
+        fixedCard.title = 'Disable GPS to use fixed position';
+    } else {
+        fixedCard.style.opacity = '1';
+        fixedCard.style.pointerEvents = 'auto';
+        fixedCard.title = '';
+    }
+}
+
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
     ws = new WebSocket(`ws://${location.hostname}:8765`);
@@ -630,11 +644,21 @@ function connectWS() {
             showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
         } else if (d.type === 'clear_position_result') {
             showAlert(d.success ? '✅ Fixed position cleared!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
+        } else if (d.type === 'connection_status') {
+            if (d.tracker) {
+                document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
+            }
+            if (d.status === 'connected' && Object.keys(originalConfig).length === 0) {
+                // Config not yet loaded - request it now
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN) {
+                        ws.send(JSON.stringify({type: 'get_config'}));
+                    }
+                }, 500);
+            }
         } else if (d.type === 'config_error') {
             showAlert('❌ Error loading config: ' + d.error, 'error');
             document.getElementById('changes-info').textContent = 'Error loading config';
-        } else if (d.type === 'connection_status' && d.tracker) {
-            document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
         }
     };
 }
@@ -711,6 +735,7 @@ function populateForm(config) {
 
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
+    toggleFixedPosition();
 }
 
 function setField(id, value) {
