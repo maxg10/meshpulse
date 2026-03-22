@@ -875,8 +875,11 @@ class ListenBasedMapper:
             node.writeConfig('bluetooth')
 
         if reboot:
-            node.reboot()
-            print(f"[CONFIG] Device reboot requested")
+            try:
+                node.reboot()
+                print(f"[CONFIG] Device reboot requested")
+            except (BrokenPipeError, OSError):
+                print(f"[CONFIG] Connection dropped during reboot (expected)")
 
         print(f"[CONFIG] Applied: {applied}")
         return applied
@@ -2599,7 +2602,18 @@ async def websocket_handler(websocket):
                                 'rebooting': reboot,
                                 'applied': result
                             }))
+                        except (BrokenPipeError, OSError) as e:
+                            # Device disconnected after reboot — this is expected
+                            print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': True,
+                                'applied': [],
+                                'rebooting': True,
+                                'warning': 'Device disconnected — config likely saved, device may be rebooting'
+                            }))
                         except Exception as e:
+                            print(f"[CONFIG] Error: {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': False,
