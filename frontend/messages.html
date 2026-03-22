@@ -7,24 +7,23 @@
     <link rel="stylesheet" href="styles.css?v=2.0">
     <style>
         * { box-sizing: border-box; }
-        body {
-            font-family: Arial, sans-serif;
-            background: #f3f4f6;
-            margin: 0;
-            padding-top: 44px;
-        }
+        body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
+        .ws-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+        .ws-connected { background: #22c55e; }
+        .ws-disconnected { background: #ef4444; }
         .page-container {
             max-width: 900px;
             margin: 0 auto;
-            padding: 10px 16px 16px;
-            height: calc(100vh - 44px);
+            padding: 54px 16px 16px;
+            height: 100vh;
+            box-sizing: border-box;
             display: flex;
             flex-direction: column;
         }
         .messages-card {
             background: white;
             border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             display: flex;
             flex-direction: column;
             flex: 1;
@@ -33,11 +32,13 @@
         }
         .messages-header {
             background: #1f2937;
-            color: white;
+            color: #f9fafb;
             padding: 10px 16px;
             display: flex;
             align-items: center;
             border-radius: 8px 8px 0 0;
+            font-weight: 600;
+            font-size: 14px;
             flex-shrink: 0;
         }
         .messages-header h2 { margin: 0; font-size: 15px; font-weight: 600; }
@@ -50,20 +51,34 @@
             flex-shrink: 0;
             background: white;
         }
+        .channel-tab {
+            padding: 3px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            background: #f3f4f6;
+            border: 1px solid #e5e7eb;
+            color: #374151;
+        }
+        .channel-tab.active { background: #1f2937; color: white; border-color: #1f2937; }
         #messages-list {
             flex: 1;
             overflow-y: auto;
             padding: 8px 12px;
         }
         .message-item {
-            padding: 6px 0;
+            padding: 8px 0;
             border-bottom: 1px solid #f3f4f6;
             font-size: 13px;
+            font-family: Arial, sans-serif;
         }
+        .message-item:last-child { border-bottom: none; }
         .message-item.message-dm {
             background: #fff7ed;
             border-left: 3px solid #f97316;
             padding-left: 8px;
+            margin-left: -8px;
+            border-radius: 0 4px 4px 0;
         }
         .msg-header {
             display: flex;
@@ -71,9 +86,9 @@
             align-items: center;
             margin-bottom: 2px;
         }
-        .msg-time { color: #9ca3af; font-size: 10px; }
-        .msg-sender { font-weight: 600; font-size: 12px; }
-        .msg-text { color: #374151; }
+        .msg-time { color: #9ca3af; font-size: 11px; }
+        .msg-sender { font-weight: 600; font-size: 12px; color: #1f2937; }
+        .msg-text { color: #374151; margin-top: 2px; }
         #send-area {
             border-top: 1px solid #e5e7eb;
             padding: 10px 12px;
@@ -116,12 +131,13 @@
             background: #2563eb;
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 6px;
             padding: 6px 14px;
             font-size: 13px;
             cursor: pointer;
             font-weight: 600;
         }
+        #send-btn:hover { background: #1d4ed8; }
         #send-btn:disabled { background: #9ca3af; cursor: not-allowed; }
         #send-status { font-size: 11px; color: #6b7280; margin-top: 4px; }
         .dm-btn {
@@ -142,6 +158,8 @@
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
+        <span style="color:#4b5563">·</span>
+        <span style="color:#6b7280">Tracker: <span id="tracker-label" style="color:#9ca3af">-</span></span>
     </div>
     <div class="topnav-links">
         <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
@@ -279,6 +297,9 @@ function connectWS() {
         } else if (data.type === 'connection_status') {
             if (data.tracker) {
                 trackerInfo = {...trackerInfo, ...data.tracker};
+                if (data.tracker.node_id) {
+                    document.getElementById('tracker-label').textContent = data.tracker.node_id;
+                }
                 if (data.tracker.channels) {
                     data.tracker.channels.forEach(ch => { channelNames[ch.index] = ch.name; });
                     updateChannelTabs();
