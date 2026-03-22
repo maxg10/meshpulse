@@ -633,9 +633,20 @@ function updateNetworkInfo(config) {
 
 function copyIP() {
     const ip = document.getElementById('net-current-ip').textContent;
-    navigator.clipboard.writeText(ip).then(() => {
+    const ta = document.createElement('textarea');
+    ta.value = ip;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+        document.execCommand('copy');
         showAlert('📋 IP copied: ' + ip, 'success');
-    });
+    } catch(e) {
+        showAlert('❌ Copy failed', 'error');
+    }
+    document.body.removeChild(ta);
 }
 
 function toggleStaticIP() {
@@ -834,17 +845,20 @@ function addChannel() {
 function copyChannelPsk(index) {
     const psk = channelPsks[index];
     if (!psk) return;
-    navigator.clipboard.writeText(psk).then(() => {
-        showAlert('📋 PSK copied!', 'success');
-    }).catch(() => {
-        const ta = document.createElement('textarea');
-        ta.value = psk;
-        document.body.appendChild(ta);
-        ta.select();
+    const ta = document.createElement('textarea');
+    ta.value = psk;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
         document.execCommand('copy');
-        document.body.removeChild(ta);
         showAlert('📋 PSK copied!', 'success');
-    });
+    } catch(e) {
+        showAlert('❌ Copy failed — select manually: ' + psk, 'error');
+    }
+    document.body.removeChild(ta);
 }
 
 function toggleFixedPosition() {
