@@ -2583,6 +2583,42 @@ async def websocket_handler(websocket):
                                 'success': False, 'error': str(e)
                             }))
 
+                elif data.get('type') == 'set_favorite':
+                    node_id = data.get('node_id', '').strip()
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                    elif mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if not iface:
+                                raise Exception('No active connection')
+                            iface.localNode.setFavorite(node_id)
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'set', 'node_id': node_id}))
+                        except Exception as e:
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+
+                elif data.get('type') == 'remove_favorite':
+                    node_id = data.get('node_id', '').strip()
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                    elif mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if not iface:
+                                raise Exception('No active connection')
+                            iface.localNode.removeFavorite(node_id)
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'remove', 'node_id': node_id}))
+                        except Exception as e:
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+
                 elif data.get('type') == 'clear_node_stats':
                     node_id = data.get('node_id', '').strip()
                     if node_id and mapper:

@@ -159,6 +159,7 @@
     <button class="tab" onclick="switchTab('network', this)">🌐 Network</button>
     <button class="tab" onclick="switchTab('bluetooth', this)">🔵 Bluetooth</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
+    <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
 </div>
 
 <!-- User tab -->
@@ -535,6 +536,27 @@
     </div>
 </div>
 
+<!-- Favorites tab -->
+<div id="tab-favorites" class="tab-content">
+    <div class="card">
+        <div class="card-title">⭐ Favorite Nodes</div>
+        <div class="alert alert-warning">
+            ⚠️ Favorites affect routing behavior on CLIENT_BASE nodes. Only favorite nodes you control. On ROUTER/ROUTER_LATE roles this is informational only.
+        </div>
+        <div class="field">
+            <label>Node ID <span class="tip" onmouseenter="showTip('Enter node ID in format !xxxxxxxx (e.g. !7b6c8272). You can find node IDs on the map by clicking a node.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Paste a node ID to add or remove from favorites on the device</div>
+            <div style="display:flex;gap:10px;margin-top:6px;">
+                <input type="text" id="favorite-node-id" placeholder="e.g. !7b6c8272"
+                    style="flex:1" oninput="updateFavoriteButtons()">
+                <button class="btn btn-primary" id="btn-set-favorite" onclick="setFavorite()" disabled>⭐ Set Favorite</button>
+                <button class="btn btn-secondary" id="btn-remove-favorite" onclick="removeFavorite()" disabled>✕ Remove Favorite</button>
+            </div>
+        </div>
+        <div id="favorite-result" style="margin-top:10px"></div>
+    </div>
+</div>
+
 <!-- Action bar -->
 <div class="action-bar">
     <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
@@ -631,6 +653,26 @@ function toggleFixedPosition() {
     }
 }
 
+// ── Favorites ────────────────────────────────────────────────────
+function updateFavoriteButtons() {
+    const val = document.getElementById('favorite-node-id').value.trim();
+    const valid = /^![0-9a-fA-F]{8}$/.test(val);
+    document.getElementById('btn-set-favorite').disabled = !valid;
+    document.getElementById('btn-remove-favorite').disabled = !valid;
+}
+
+function setFavorite() {
+    const nodeId = document.getElementById('favorite-node-id').value.trim();
+    ws.send(JSON.stringify({type: 'set_favorite', node_id: nodeId}));
+    showAlert('⭐ Setting favorite...', 'info');
+}
+
+function removeFavorite() {
+    const nodeId = document.getElementById('favorite-node-id').value.trim();
+    ws.send(JSON.stringify({type: 'remove_favorite', node_id: nodeId}));
+    showAlert('✕ Removing favorite...', 'info');
+}
+
 // ── Tooltips ─────────────────────────────────────────────────────
 const gTip = document.getElementById('g-tooltip');
 function showTip(text, e) {
@@ -688,6 +730,17 @@ function connectWS() {
                 }
             } else {
                 showAlert('❌ Error saving config: ' + d.error, 'error');
+            }
+        } else if (d.type === 'favorite_result') {
+            if (d.success) {
+                const msg = d.action === 'set'
+                    ? `✅ Node ${d.node_id} set as favorite on device`
+                    : `✅ Node ${d.node_id} removed from favorites on device`;
+                showAlert(msg, 'success');
+                const resultEl = document.getElementById('favorite-result');
+                if (resultEl) resultEl.innerHTML = '';
+            } else {
+                showAlert('❌ Error: ' + d.error, 'error');
             }
         } else if (d.type === 'fixed_position_result') {
             showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
