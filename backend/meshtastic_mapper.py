@@ -808,7 +808,10 @@ class ListenBasedMapper:
 
         if 'device' in changes:
             for key, val in changes['device'].items():
-                setattr(node.localConfig.device, key, val)
+                if key == 'role' or key == 'rebroadcast_mode':
+                    setattr(node.localConfig.device, key, int(val))
+                else:
+                    setattr(node.localConfig.device, key, val)
                 applied.append(f'device.{key}')
             node.writeConfig('device')
 
@@ -824,7 +827,10 @@ class ListenBasedMapper:
 
         if 'lora' in changes:
             for key, val in changes['lora'].items():
-                setattr(node.localConfig.lora, key, val)
+                if key in ('region', 'modem_preset'):
+                    setattr(node.localConfig.lora, key, int(val))
+                else:
+                    setattr(node.localConfig.lora, key, val)
                 applied.append(f'lora.{key}')
             node.writeConfig('lora')
 
@@ -838,14 +844,20 @@ class ListenBasedMapper:
         if 'network' in changes:
             for key, val in changes['network'].items():
                 if not key.startswith('ipv4_config'):
-                    setattr(node.localConfig.network, key, val)
+                    if key == 'address_mode':
+                        setattr(node.localConfig.network, key, int(val))
+                    else:
+                        setattr(node.localConfig.network, key, val)
                     applied.append(f'network.{key}')
             node.writeConfig('network')
 
         # Bluetooth config changes
         if 'bluetooth' in changes:
             for key, val in changes['bluetooth'].items():
-                setattr(node.localConfig.bluetooth, key, val)
+                if key == 'mode':
+                    setattr(node.localConfig.bluetooth, key, int(val))
+                else:
+                    setattr(node.localConfig.bluetooth, key, val)
                 applied.append(f'bluetooth.{key}')
             node.writeConfig('bluetooth')
 
