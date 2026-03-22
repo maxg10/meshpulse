@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 1.18
+#ver 1.19
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -1711,7 +1711,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.18")
+        print("Meshtastic Mapper - LISTEN MODE v1.19")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
