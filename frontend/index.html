@@ -1327,6 +1327,17 @@
                         iconAnchor: [7, 7]
                     }));
                     markers[n.id].setPopupContent(pop);
+                    // Re-attach click listener with fresh node reference
+                    markers[n.id].off('click');
+                    markers[n.id].on('click', function() {
+                        const showLOS = document.getElementById('show-los-panel').checked;
+                        const currentNode = allNodes.find(node => node.id === n.id) || n;
+                        if (showLOS && currentNode.hops === 0 && !currentNode.via_mqtt && !isOwnTracker(currentNode.id)) {
+                            showLOSPanel(currentNode);
+                        } else {
+                            this.openPopup();
+                        }
+                    });
                 }else{
                     markers[n.id] = L.marker([displayLat, displayLon], {
                         icon: L.divIcon({
@@ -1338,8 +1349,10 @@
                     markers[n.id].bindPopup(pop);
                     markers[n.id].on('click', function() {
                         const showLOS = document.getElementById('show-los-panel').checked;
-                        if (showLOS && n.hops === 0 && !n.via_mqtt && !isOwnTracker(n.id)) {
-                            showLOSPanel(n);
+                        // Always look up current node data at click time (not stale closure)
+                        const currentNode = allNodes.find(node => node.id === n.id) || n;
+                        if (showLOS && currentNode.hops === 0 && !currentNode.via_mqtt && !isOwnTracker(currentNode.id)) {
+                            showLOSPanel(currentNode);
                         } else {
                             this.openPopup();
                         }
