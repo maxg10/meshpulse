@@ -1030,8 +1030,18 @@ function connectWS() {
                 if (statusEl) { statusEl.textContent = '✗ error'; statusEl.style.color = '#dc2626'; }
             }
         } else if (d.type === 'config_error') {
-            showAlert('❌ Error loading config: ' + d.error, 'error');
-            document.getElementById('changes-info').textContent = 'Error loading config';
+            if (d.error && d.error.includes('not yet established')) {
+                // TCP not ready yet — retry silently after 3s
+                document.getElementById('changes-info').textContent = '⏳ Waiting for device connection...';
+                setTimeout(() => {
+                    if (ws && ws.readyState === WebSocket.OPEN && Object.keys(originalConfig).length === 0) {
+                        ws.send(JSON.stringify({type: 'get_config'}));
+                    }
+                }, 3000);
+            } else {
+                showAlert('❌ Error loading config: ' + d.error, 'error');
+                document.getElementById('changes-info').textContent = 'Error loading config';
+            }
         }
     };
 }
