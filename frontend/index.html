@@ -1327,6 +1327,8 @@
                         iconAnchor: [7, 7]
                     }));
                     markers[n.id].setPopupContent(pop);
+                    // Store node id for click handler to look up fresh data
+                    markers[n.id]._nodeId = n.id;
                 }else{
                     markers[n.id] = L.marker([displayLat, displayLon], {
                         icon: L.divIcon({
@@ -1335,11 +1337,14 @@
                             iconAnchor: [7, 7]
                         })
                     }).addTo(map);
+                    markers[n.id]._nodeId = n.id;
                     markers[n.id].bindPopup(pop);
                     markers[n.id].on('click', function() {
                         const showLOS = document.getElementById('show-los-panel').checked;
-                        if (showLOS && n.hops === 0 && !n.via_mqtt && !isOwnTracker(n.id)) {
-                            showLOSPanel(n);
+                        const nodeId = this._nodeId;
+                        const currentNode = allNodes.find(node => node.id === nodeId) || n;
+                        if (showLOS && currentNode.hops === 0 && !currentNode.via_mqtt && !isOwnTracker(currentNode.id)) {
+                            showLOSPanel(currentNode);
                         } else {
                             this.openPopup();
                         }
