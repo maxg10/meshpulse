@@ -529,8 +529,12 @@
 <!-- Channels tab -->
 <div id="tab-channels" class="tab-content">
     <div class="card">
-        <div class="card-title">📻 Channels</div>
-        <div class="alert alert-info">ℹ️ Channel configuration coming soon. Currently showing read-only channel info.</div>
+        <div class="card-title">📻 Channels
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="addChannel()">+ Add Channel</button>
+        </div>
+        <div class="alert alert-warning">
+            ⚠️ Changing PSK disconnects all users of that channel. Channel 0 is always PRIMARY and cannot be disabled.
+        </div>
         <div id="channels-list">
             <div class="loading">Loading channels...</div>
         </div>
@@ -632,20 +636,85 @@ function useCurrentPosition() {
 function renderChannels(channels) {
     const el = document.getElementById('channels-list');
     if (!channels || channels.length === 0) {
-        el.innerHTML = '<div style="color:#6b7280;font-size:12px">No channels found</div>';
+        el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px">No channels found.</div>';
         return;
     }
-    el.innerHTML = channels.map((ch, i) => `
-        <div style="padding:8px;border:1px solid #e5e7eb;border-radius:6px;margin-bottom:8px;">
-            <div style="font-weight:600;font-size:12px;color:#374151">
-                Ch ${i}: ${ch.name || 'Default'}
-                <span style="font-size:10px;color:#6b7280;font-weight:normal">
-                    ${ch.role === 1 ? '(Primary)' : ch.role === 2 ? '(Secondary)' : '(Disabled)'}
-                </span>
+    el.innerHTML = channels.map(ch => {
+        const isPrimary = ch.index === 0;
+        const roleOptions = [
+            {v:1, l:'PRIMARY'},
+            {v:2, l:'SECONDARY'},
+            {v:3, l:'DISABLED'}
+        ].map(o => `<option value="${o.v}"${ch.role===o.v?' selected':''}${isPrimary&&o.v!==1?' disabled':''}>${o.l}</option>`).join('');
+
+        const pskDisplay = ch.psk ? ch.psk.substring(0,24)+'...' : 'none (no encryption)';
+
+        return `
+        <div class="card" style="margin-bottom:10px;border:1px solid #e5e7eb">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                <span style="font-weight:700;font-size:13px">Ch ${ch.index}</span>
+                <span style="font-size:10px;padding:2px 7px;border-radius:10px;background:${ch.role===1?'#dbeafe':ch.role===3?'#f3f4f6':'#d1fae5'};color:${ch.role===1?'#1d4ed8':ch.role===3?'#9ca3af':'#065f46'}">${ch.role_name||'UNKNOWN'}</span>
             </div>
-            ${ch.psk ? `<div style="font-size:11px;color:#9ca3af;margin-top:2px">PSK: ${ch.psk.substring(0,8)}...</div>` : ''}
-        </div>
-    `).join('');
+            <div class="field-row">
+                <div class="field">
+                    <label>Name</label>
+                    <input type="text" id="ch-name-${ch.index}" value="${ch.name||''}" maxlength="11" placeholder="${isPrimary?'Primary channel':'Channel name'}" oninput="chMarkChanged(${ch.index})">
+                </div>
+                <div class="field">
+                    <label>Role</label>
+                    <select id="ch-role-${ch.index}" onchange="chMarkChanged(${ch.index})"${isPrimary?' disabled':''}>
+                        ${roleOptions}
+                    </select>
+                </div>
+            </div>
+            <div class="field">
+                <label>PSK (encryption key) <span class="tip" onmouseenter="showTip('Current PSK shown as Base64. Select an option to change it, or leave as-is to keep current key. Changing PSK will disconnect all other users!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
+                    <code style="font-size:10px;background:#f3f4f6;padding:2px 6px;border-radius:3px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ch.psk}">${pskDisplay}</code>
+                    <select id="ch-psk-action-${ch.index}" onchange="chMarkChanged(${ch.index})">
+                        <option value="">Keep current PSK</option>
+                        <option value="default">Set to default (AQ==)</option>
+                        <option value="random">Generate random AES256</option>
+                        <option value="none">Remove encryption</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display:flex;gap:8px;margin-top:10px">
+                <button class="btn btn-primary" id="ch-save-btn-${ch.index}" onclick="saveChannel(${ch.index})" disabled>💾 Save Ch ${ch.index}</button>
+                <span id="ch-status-${ch.index}" style="font-size:11px;color:#6b7280;align-self:center"></span>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+function chMarkChanged(index) {
+    document.getElementById(`ch-save-btn-${index}`).disabled = false;
+    document.getElementById(`ch-status-${index}`).textContent = '● unsaved changes';
+    document.getElementById(`ch-status-${index}`).style.color = '#f59e0b';
+}
+
+function saveChannel(index) {
+    const name = document.getElementById(`ch-name-${index}`).value.trim();
+    const roleEl = document.getElementById(`ch-role-${index}`);
+    const role = roleEl ? parseInt(roleEl.value) : 1;
+    const pskAction = document.getElementById(`ch-psk-action-${index}`).value;
+
+    if (!confirm(`Save changes to Channel ${index}?${pskAction && pskAction !== '' ? '\n⚠️ PSK will be changed — other users will be disconnected!' : ''}`)) return;
+
+    ws.send(JSON.stringify({
+        type: 'save_channel',
+        index: index,
+        name: name,
+        role: role,
+        psk: pskAction || null
+    }));
+    document.getElementById(`ch-save-btn-${index}`).disabled = true;
+    document.getElementById(`ch-status-${index}`).textContent = 'Saving...';
+    document.getElementById(`ch-status-${index}`).style.color = '#6b7280';
+}
+
+function addChannel() {
+    showAlert('ℹ️ To add a channel, edit an existing DISABLED slot and set role to SECONDARY.', 'info');
 }
 
 function toggleFixedPosition() {
@@ -800,6 +869,16 @@ function connectWS() {
                         ws.send(JSON.stringify({type: 'get_config'}));
                     }
                 }, 500);
+            }
+        } else if (d.type === 'channel_save_result') {
+            const statusEl = document.getElementById(`ch-status-${d.index}`);
+            if (d.success) {
+                showAlert(`✅ Channel ${d.index} saved successfully!`, 'success');
+                if (statusEl) { statusEl.textContent = '✓ saved'; statusEl.style.color = '#16a34a'; }
+                ws.send(JSON.stringify({type: 'get_config'}));
+            } else {
+                showAlert('❌ Error saving channel: ' + d.error, 'error');
+                if (statusEl) { statusEl.textContent = '✗ error'; statusEl.style.color = '#dc2626'; }
             }
         } else if (d.type === 'config_error') {
             showAlert('❌ Error loading config: ' + d.error, 'error');

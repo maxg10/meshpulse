@@ -16,6 +16,7 @@ import os
 import asyncio
 import websockets
 import threading
+import base64
 import sqlite3
 import meshtastic
 import meshtastic.tcp_interface
@@ -701,12 +702,15 @@ class ListenBasedMapper:
 
         try:
             # Channels
+            from meshtastic.protobuf import channel_pb2
             channels = []
             for ch in node.channels:
                 channels.append({
+                    'index': ch.index,
                     'name': ch.settings.name,
                     'role': ch.role,
-                    'psk': ch.settings.psk.hex() if ch.settings.psk else '',
+                    'role_name': channel_pb2.Channel.Role.Name(ch.role),
+                    'psk': base64.b64encode(ch.settings.psk).decode('utf-8') if ch.settings.psk else '',
                 })
             config['channels'] = channels
         except Exception as e:
@@ -2666,6 +2670,60 @@ async def websocket_handler(websocket):
                                 pass
                         except Exception as e:
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+
+                elif data.get('type') == 'save_channel':
+                    try:
+                        iface = None
+                        if mapper and mapper.connection_type == 'serial' and mapper._serial_iface:
+                            iface = mapper._serial_iface.iface
+                        elif mapper and mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                            iface = mapper._tcp_iface
+                        if not iface:
+                            raise Exception('No active connection')
+
+                        from meshtastic.protobuf import channel_pb2
+                        import meshtastic.util
+
+                        ch_index = int(data.get('index', 0))
+                        ch_name = data.get('name', '')
+                        ch_role = int(data.get('role', 1))
+                        ch_psk = data.get('psk', None)
+
+                        node = iface.localNode
+                        channel = node.channels[ch_index]
+
+                        channel.settings.name = ch_name
+
+                        if ch_index == 0:
+                            channel.role = channel_pb2.Channel.Role.PRIMARY
+                        elif ch_role == 3:
+                            channel.role = channel_pb2.Channel.Role.DISABLED
+                        else:
+                            channel.role = channel_pb2.Channel.Role.SECONDARY
+
+                        if ch_psk is not None:
+                            if ch_psk == 'none':
+                                channel.settings.psk = b''
+                            elif ch_psk == 'default':
+                                channel.settings.psk = base64.b64decode('AQ==')
+                            elif ch_psk == 'random':
+                                channel.settings.psk = meshtastic.util.genPSK256()
+                            elif ch_psk.startswith('base64:'):
+                                channel.settings.psk = base64.b64decode(ch_psk[7:])
+
+                        node.writeChannel(ch_index)
+                        print(f"[CONFIG] Channel {ch_index} saved: name={ch_name!r} role={ch_role} psk={'changed' if ch_psk else 'unchanged'}")
+                        await websocket.send(json.dumps({
+                            'type': 'channel_save_result',
+                            'success': True,
+                            'index': ch_index
+                        }))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'channel_save_result',
+                            'success': False,
+                            'error': str(e)
+                        }))
 
                 elif data.get('type') == 'clear_node_stats':
                     node_id = data.get('node_id', '').strip()
