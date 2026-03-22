@@ -30,7 +30,7 @@ body{font-family:Arial,sans-serif}
     vertical-align:middle;font-weight:normal;
 }
 #map{height:100vh;width:100%;margin-top:44px}
-#stats{position:absolute;top:54px;right:10px;background:rgba(255,255,255,.95);
+#stats{position:fixed;top:54px;right:10px;background:rgba(255,255,255,.95);
        padding:12px;border-radius:6px;z-index:1000;font-size:13px;
        box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px}
 #stats{cursor:pointer}
@@ -52,7 +52,7 @@ body{font-family:Arial,sans-serif}
 .marker.red{background:#ef4444}
 .marker.relay{border-style:dashed}
 
-#no-gps-panel{position:absolute;top:370px;right:10px;background:rgba(255,255,255,.95);
+#no-gps-panel{position:fixed;top:auto;right:10px;background:rgba(255,255,255,.95);
        padding:10px;border-radius:6px;z-index:1000;font-size:12px;font-family:Arial,sans-serif;
        box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px;max-width:300px;max-height:300px;overflow-y:auto}
 #no-gps-panel h4{margin:0 0 8px;font-size:13px}

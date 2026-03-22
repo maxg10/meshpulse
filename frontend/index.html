@@ -1632,7 +1632,11 @@
             const bottom = stats.getBoundingClientRect().bottom;
             noGps.style.top = (bottom + 10) + 'px';
         }
-        new ResizeObserver(repositionNoGpsPanel).observe(document.getElementById('stats'));
+        const _statsResizeObs = new ResizeObserver(repositionNoGpsPanel);
+        _statsResizeObs.observe(document.getElementById('stats'));
+        // Run immediately on load
+        setTimeout(repositionNoGpsPanel, 100);
+        window.addEventListener('resize', repositionNoGpsPanel);
 
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
