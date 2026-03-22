@@ -494,11 +494,14 @@
                     const senderName = senderNode?.name || msg.from_name || msg.from_id;
                     const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
                     const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
+                    const dmBtn = msg.from_id !== trackerInfo.node_id
+                        ? `<button onclick="openDM('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" style="font-size:9px;padding:1px 4px;margin-left:4px;cursor:pointer;background:#f3f4f6;border:1px solid #d1d5db;border-radius:3px;color:#374151;vertical-align:middle" title="Send DM">DM</button>`
+                        : '';
                     return `
                     <div class="${itemClass}">
                         <div class="msg-header">
                             <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                            <span class="msg-sender">${senderName}${dmLabel}</span>
+                            <span class="msg-sender">${senderName}${dmLabel}</span>${dmBtn}
                         </div>
                         <div class="msg-text">${msg.text}</div>
                     </div>`;
