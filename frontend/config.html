@@ -167,13 +167,13 @@
         <div class="card-title">👤 User Settings</div>
         <div class="field-row">
             <div class="field">
-                <label>Long Name</label>
+                <label>Long Name <span class="tip" onmouseenter="showTip('Your full display name shown to other nodes. Max 40 characters. Changing this triggers a nodeinfo broadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Your full display name (1-40 chars)</div>
                 <input type="text" id="user.long_name" maxlength="40"
                     oninput="markChanged(this)" placeholder="Loading...">
             </div>
             <div class="field">
-                <label>Short Name</label>
+                <label>Short Name <span class="tip" onmouseenter="showTip('2-4 character abbreviation shown on maps and small displays. Changing this triggers a nodeinfo broadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Abbreviated name (2-4 chars)</div>
                 <input type="text" id="user.short_name" maxlength="4"
                     oninput="markChanged(this)" placeholder="Loading...">
@@ -306,7 +306,7 @@
                     oninput="markChanged(this)">
             </div>
             <div class="field">
-                <label>GPS Update Interval (seconds)</label>
+                <label>GPS Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often the GPS module acquires a new fix internally. Default: 0 (use GPS module default, ~30s). 0 = let firmware decide. Higher values save battery on stationary nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">How often to update GPS fix internally</div>
                 <input type="number" id="position.gps_update_interval" min="0" max="86400"
                     oninput="markChanged(this)">
@@ -314,13 +314,13 @@
         </div>
         <div class="field-row">
             <div class="field">
-                <label>Smart Broadcast Min Distance (meters)</label>
+                <label>Smart Broadcast Min Distance (meters) <span class="tip" onmouseenter="showTip('Minimum distance (meters) the node must move before smart broadcast triggers a position update. Default: 100m. Only used when Smart Position Broadcast is enabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Minimum distance moved before smart broadcast triggers</div>
                 <input type="number" id="position.broadcast_smart_minimum_distance" min="0" max="10000"
                     oninput="markChanged(this)">
             </div>
             <div class="field">
-                <label>Smart Broadcast Min Interval (seconds)</label>
+                <label>Smart Broadcast Min Interval (seconds) <span class="tip" onmouseenter="showTip('Minimum time (seconds) between smart position broadcasts regardless of movement. Default: 30s. Prevents flooding the mesh when moving fast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Minimum interval between smart broadcasts</div>
                 <input type="number" id="position.broadcast_smart_minimum_interval_secs" min="0" max="86400"
                     oninput="markChanged(this)">
@@ -381,7 +381,7 @@
                     oninput="markChanged(this)">
             </div>
             <div class="field">
-                <label>Power Update Interval (seconds)</label>
+                <label>Power Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often power sensor readings are broadcast. Default: 0 (disabled). Minimum recommended: 1800s.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Power monitoring interval (if sensor available)</div>
                 <input type="number" id="telemetry.power_update_interval" min="0" max="86400"
                     oninput="markChanged(this)">
@@ -389,24 +389,24 @@
         </div>
         <div class="field-check">
             <input type="checkbox" id="telemetry.device_telemetry_enabled" onchange="markChanged(this)">
-            <label for="telemetry.device_telemetry_enabled">Device Telemetry Enabled</label>
+            <label for="telemetry.device_telemetry_enabled">Device Telemetry Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting device metrics (battery level, voltage, CPU usage). Recommended to keep enabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
         <div class="field-check">
             <input type="checkbox" id="telemetry.power_measurement_enabled" onchange="markChanged(this)">
-            <label for="telemetry.power_measurement_enabled">Power Measurement Enabled</label>
+            <label for="telemetry.power_measurement_enabled">Power Measurement Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting power/current sensor data. Requires INA219 or compatible power sensor module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
     </div>
     <div class="card">
         <div class="card-title">🌡️ Environment Telemetry</div>
         <div class="field-row">
             <div class="field">
-                <label>Environment Update Interval (seconds)</label>
+                <label>Environment Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often environment sensors (temp, humidity, pressure) are broadcast. Default: 0 (disabled). Minimum recommended: 1800s. Requires environment sensor hardware.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Temperature/humidity/pressure sensor interval</div>
                 <input type="number" id="telemetry.environment_update_interval" min="0" max="86400"
                     oninput="markChanged(this)">
             </div>
             <div class="field">
-                <label>Health Update Interval (seconds)</label>
+                <label>Health Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often health sensor readings are broadcast. Default: 0 (disabled).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Health sensor interval (if available)</div>
                 <input type="number" id="telemetry.health_update_interval" min="0" max="86400"
                     oninput="markChanged(this)">
@@ -414,11 +414,11 @@
         </div>
         <div class="field-check">
             <input type="checkbox" id="telemetry.environment_measurement_enabled" onchange="markChanged(this)">
-            <label for="telemetry.environment_measurement_enabled">Environment Measurement Enabled</label>
+            <label for="telemetry.environment_measurement_enabled">Environment Measurement Enabled <span class="tip" onmouseenter="showTip('Enable broadcasting environment sensor data (temperature, humidity, barometric pressure). Requires compatible sensor module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
         <div class="field-check">
             <input type="checkbox" id="telemetry.environment_screen_enabled" onchange="markChanged(this)">
-            <label for="telemetry.environment_screen_enabled">Show Environment on Screen</label>
+            <label for="telemetry.environment_screen_enabled">Show Environment on Screen <span class="tip" onmouseenter="showTip('Show environment sensor readings on the device screen.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
         <div class="field-check">
             <input type="checkbox" id="telemetry.health_measurement_enabled" onchange="markChanged(this)">
@@ -439,13 +439,13 @@
         <div id="wifi-fields" style="opacity:0.4;pointer-events:none;">
         <div class="field-row">
             <div class="field">
-                <label>WiFi SSID</label>
+                <label>WiFi SSID <span class="tip" onmouseenter="showTip('Name of the WiFi network to connect to. Leave empty to disable WiFi. Device reboot required after changing WiFi settings.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Network name to connect to</div>
                 <input type="text" id="network.wifi_ssid" maxlength="32"
                     oninput="markChanged(this)" placeholder="Your WiFi network name">
             </div>
             <div class="field">
-                <label>WiFi Password</label>
+                <label>WiFi Password <span class="tip" onmouseenter="showTip('WiFi password. Leave empty for open networks. Stored on device — make sure you trust this network.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Network password</div>
                 <input type="password" id="network.wifi_psk" maxlength="64"
                     oninput="markChanged(this)" placeholder="Password">
@@ -456,7 +456,7 @@
     <div class="card" id="ip-card" style="opacity:0.4;pointer-events:none;">
         <div class="card-title">🔌 IP Address Settings</div>
         <div class="field">
-            <label>Address Mode</label>
+            <label>Address Mode <span class="tip" onmouseenter="showTip('DHCP: automatically assigned IP (recommended). Static: manually configured IP address.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
             <div class="desc">How to obtain IP address</div>
             <select id="network.address_mode" onchange="markChanged(this); toggleStaticIP()">
                 <option value="0">DHCP (automatic)</option>
@@ -490,7 +490,7 @@
             </div>
         </div>
         <div class="field">
-            <label>NTP Server</label>
+            <label>NTP Server <span class="tip" onmouseenter="showTip('Time synchronization server. Default: 0.pool.ntp.org. Used to keep device clock accurate. Requires WiFi or Ethernet connection.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
             <div class="desc">Time synchronization server</div>
             <input type="text" id="network.ntp_server" placeholder="0.pool.ntp.org"
                 oninput="markChanged(this)">
@@ -504,7 +504,7 @@
         <div class="card-title">🔵 Bluetooth Settings</div>
         <div class="field-check">
             <input type="checkbox" id="bluetooth.enabled" onchange="markChanged(this)">
-            <label for="bluetooth.enabled">Bluetooth Enabled</label>
+            <label for="bluetooth.enabled">Bluetooth Enabled <span class="tip" onmouseenter="showTip('Enable Bluetooth for pairing with phone apps (e.g. Meshtastic iOS/Android). Disable to save power on headless nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
         <div class="field">
             <label>Pairing Mode <span class="tip" onmouseenter="showTip('Random PIN: most secure, new PIN each restart. Fixed PIN: convenient, same PIN always. No PIN: insecure, anyone can connect.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
@@ -516,7 +516,7 @@
             </select>
         </div>
         <div class="field">
-            <label>Fixed PIN</label>
+            <label>Fixed PIN <span class="tip" onmouseenter="showTip('6-digit PIN used when Pairing Mode is set to Fixed PIN. Default: 123456. Change this for security — default PIN is publicly known!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
             <div class="desc">6-digit PIN when using Fixed PIN mode</div>
             <input type="number" id="bluetooth.fixed_pin" min="0" max="999999"
                 oninput="markChanged(this)" placeholder="123456">
