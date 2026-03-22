@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Meshtastic Config</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <link rel="stylesheet" href="styles.css?v=1.19">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            background: #111827;
+            color: #1f2937;
+            margin: 0; padding: 16px;
+            padding-top: 60px;
+        }
+        .card {
+            background: rgba(255,255,255,0.95);
+            border-radius: 8px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+            margin-bottom: 14px;
+        }
+        .card-title {
+            font-size: 13px; font-weight: bold; color: #374151;
+            margin: 0 0 14px 0; padding-bottom: 8px;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .ws-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+        .ws-connected { background: #22c55e; }
+        .ws-disconnected { background: #ef4444; }
+
+        /* Tabs */
+        .tabs { display: flex; gap: 4px; margin-bottom: 16px; flex-wrap: wrap; }
+        .tab {
+            padding: 8px 16px; border-radius: 6px; cursor: pointer;
+            font-size: 13px; font-weight: 500; border: none;
+            background: rgba(255,255,255,0.1); color: #9ca3af;
+            transition: all 0.15s;
+        }
+        .tab:hover { background: rgba(255,255,255,0.2); color: #f9fafb; }
+        .tab.active { background: #2563eb; color: #fff; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        /* Form fields */
+        .field { margin-bottom: 14px; }
+        .field label {
+            display: block; font-size: 12px; font-weight: 600;
+            color: #374151; margin-bottom: 4px;
+        }
+        .field .desc {
+            font-size: 11px; color: #6b7280; margin-bottom: 4px;
+        }
+        .field input[type="text"],
+        .field input[type="number"],
+        .field select {
+            width: 100%; padding: 7px 10px; border: 1px solid #d1d5db;
+            border-radius: 5px; font-size: 13px; color: #1f2937;
+            background: #fff; transition: border 0.15s;
+        }
+        .field input:focus, .field select:focus {
+            outline: none; border-color: #3b82f6;
+            box-shadow: 0 0 0 2px rgba(59,130,246,0.15);
+        }
+        .field input.changed, .field select.changed {
+            border-color: #f59e0b; background: #fffbeb;
+        }
+        .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .field input[type="checkbox"] { width: auto; margin-right: 6px; }
+        .field-check { display: flex; align-items: center; margin-bottom: 14px; }
+        .field-check label { font-size: 13px; color: #374151; cursor: pointer; }
+
+        /* Action bar */
+        .action-bar {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: #1f2937; padding: 12px 16px;
+            display: flex; align-items: center; gap: 10px;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.4); z-index: 1000;
+        }
+        .btn {
+            padding: 8px 20px; border-radius: 6px; border: none;
+            font-size: 13px; font-weight: 600; cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-primary { background: #2563eb; color: #fff; }
+        .btn-primary:hover { background: #1d4ed8; }
+        .btn-primary:disabled { background: #6b7280; cursor: not-allowed; }
+        .btn-secondary { background: #374151; color: #d1d5db; }
+        .btn-secondary:hover { background: #4b5563; }
+        .btn-danger { background: #dc2626; color: #fff; }
+        .btn-danger:hover { background: #b91c1c; }
+        .changes-info { color: #9ca3af; font-size: 12px; flex: 1; }
+        .changes-pending { color: #f59e0b; }
+
+        /* Status messages */
+        .alert {
+            padding: 10px 14px; border-radius: 6px; font-size: 12px;
+            margin-bottom: 14px;
+        }
+        .alert-info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+        .alert-success { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+        .alert-error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+        .alert-warning { background: #fffbeb; color: #92400e; border: 1px solid #fcd34d; }
+
+        /* Loading state */
+        .loading { text-align: center; padding: 40px; color: #9ca3af; font-size: 13px; }
+
+        @media (max-width: 600px) {
+            .field-row { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav id="topnav">
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v1.19 — Config</span></div>
+    <div class="topnav-status">
+        <span class="ws-dot ws-disconnected" id="ws-dot"></span>
+        <span id="ws-label">Connecting...</span>
+        <span style="color:#4b5563">·</span>
+        <span style="color:#6b7280">Tracker: <span id="tracker-label" style="color:#9ca3af">-</span></span>
+    </div>
+    <div class="topnav-links">
+        <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
+        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshtastic/config.html" class="topnav-link active">⚙️ Config</a>
+    </div>
+</nav>
+
+<div id="status-bar"></div>
+
+<div class="tabs">
+    <button class="tab active" onclick="switchTab('user')">👤 User</button>
+    <button class="tab" onclick="switchTab('device')">📱 Device</button>
+    <button class="tab" onclick="switchTab('lora')">📡 LoRa</button>
+    <button class="tab" onclick="switchTab('position')">📍 Position</button>
+    <button class="tab" onclick="switchTab('telemetry')">🔋 Telemetry</button>
+</div>
+
+<!-- User tab -->
+<div id="tab-user" class="tab-content active">
+    <div class="card">
+        <div class="card-title">👤 User Settings</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Long Name</label>
+                <div class="desc">Your full display name (1-40 chars)</div>
+                <input type="text" id="user.long_name" maxlength="40"
+                    oninput="markChanged(this)" placeholder="Loading...">
+            </div>
+            <div class="field">
+                <label>Short Name</label>
+                <div class="desc">Abbreviated name (2-4 chars)</div>
+                <input type="text" id="user.short_name" maxlength="4"
+                    oninput="markChanged(this)" placeholder="Loading...">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Device tab -->
+<div id="tab-device" class="tab-content">
+    <div class="card">
+        <div class="card-title">📱 Device Settings</div>
+        <div class="field">
+            <label>Role</label>
+            <div class="desc">How this node participates in the mesh</div>
+            <select id="device.role" onchange="markChanged(this)">
+                <option value="0">CLIENT</option>
+                <option value="1">CLIENT_MUTE</option>
+                <option value="2">ROUTER</option>
+                <option value="3">CLIENT_BASE</option>
+                <option value="4">ROUTER_LATE</option>
+                <option value="5">TRACKER</option>
+                <option value="6">LOST_AND_FOUND</option>
+                <option value="7">SENSOR</option>
+                <option value="8">REPEATER</option>
+                <option value="9">TAK</option>
+                <option value="10">TAK_TRACKER</option>
+                <option value="11">ROUTER_LATE</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>NodeInfo Broadcast Interval (seconds)</label>
+            <div class="desc">How often to broadcast node info. Default: 900s (15 min)</div>
+            <input type="number" id="device.node_info_broadcast_secs" min="0" max="86400"
+                oninput="markChanged(this)">
+        </div>
+    </div>
+</div>
+
+<!-- LoRa tab -->
+<div id="tab-lora" class="tab-content">
+    <div class="card">
+        <div class="card-title">📡 LoRa Settings</div>
+        <div class="alert alert-warning">⚠️ Changing LoRa settings may disconnect you from the mesh. Make sure all nodes use the same settings.</div>
+        <div class="field-row">
+            <div class="field">
+                <label>Region</label>
+                <div class="desc">Your regulatory region</div>
+                <select id="lora.region" onchange="markChanged(this)">
+                    <option value="0">Unset</option>
+                    <option value="1">US</option>
+                    <option value="2">EU_433</option>
+                    <option value="3">EU_868</option>
+                    <option value="4">CN</option>
+                    <option value="5">JP</option>
+                    <option value="6">ANZ</option>
+                    <option value="7">KR</option>
+                    <option value="8">TW</option>
+                    <option value="9">RU</option>
+                    <option value="10">IN</option>
+                    <option value="11">NZ_865</option>
+                    <option value="12">TH</option>
+                    <option value="13">LORA_24</option>
+                    <option value="14">UA_433</option>
+                    <option value="15">UA_868</option>
+                    <option value="16">MY_433</option>
+                    <option value="17">MY_919</option>
+                    <option value="18">SG_923</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Hop Limit</label>
+                <div class="desc">Max hops (1-7). Default: 3</div>
+                <input type="number" id="lora.hop_limit" min="1" max="7"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field">
+            <label>Modem Preset</label>
+            <div class="desc">LoRa modem configuration preset</div>
+            <select id="lora.modem_preset" onchange="markChanged(this)">
+                <option value="0">LONG_FAST</option>
+                <option value="1">LONG_SLOW</option>
+                <option value="2">VERY_LONG_SLOW</option>
+                <option value="3">MEDIUM_SLOW</option>
+                <option value="4">MEDIUM_FAST</option>
+                <option value="5">SHORT_SLOW</option>
+                <option value="6">SHORT_FAST</option>
+                <option value="7">LONG_MODERATE</option>
+            </select>
+        </div>
+        <div class="field">
+            <label>TX Power (dBm, 0 = max allowed)</label>
+            <div class="desc">Transmit power. 0 = use regional maximum</div>
+            <input type="number" id="lora.tx_power" min="0" max="30"
+                oninput="markChanged(this)">
+        </div>
+    </div>
+</div>
+
+<!-- Position tab -->
+<div id="tab-position" class="tab-content">
+    <div class="card">
+        <div class="card-title">📍 Position Settings</div>
+        <div class="field">
+            <label>Position Broadcast Interval (seconds)</label>
+            <div class="desc">How often to broadcast GPS position. 0 = disabled. Recommended: ≥1800s for stationary nodes</div>
+            <input type="number" id="position.position_broadcast_secs" min="0" max="86400"
+                oninput="markChanged(this)">
+        </div>
+        <div class="field">
+            <label>GPS Update Interval (seconds)</label>
+            <div class="desc">How often to update GPS fix internally</div>
+            <input type="number" id="position.gps_update_interval" min="0" max="86400"
+                oninput="markChanged(this)">
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="position.gps_enabled"
+                onchange="markChanged(this)">
+            <label for="position.gps_enabled">GPS Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="position.position_broadcast_smart_enabled"
+                onchange="markChanged(this)">
+            <label for="position.position_broadcast_smart_enabled">Smart Position Broadcast (only send when moved)</label>
+        </div>
+    </div>
+</div>
+
+<!-- Telemetry tab -->
+<div id="tab-telemetry" class="tab-content">
+    <div class="card">
+        <div class="card-title">🔋 Telemetry Settings</div>
+        <div class="field">
+            <label>Device Telemetry Interval (seconds)</label>
+            <div class="desc">How often to send battery/metrics. Recommended: ≥1800s (30 min)</div>
+            <input type="number" id="telemetry.device_update_interval" min="0" max="86400"
+                oninput="markChanged(this)">
+        </div>
+        <div class="field">
+            <label>Environment Telemetry Interval (seconds)</label>
+            <div class="desc">How often to send environment sensor data (if available)</div>
+            <input type="number" id="telemetry.environment_update_interval" min="0" max="86400"
+                oninput="markChanged(this)">
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry.environment_measurement_enabled"
+                onchange="markChanged(this)">
+            <label for="telemetry.environment_measurement_enabled">Environment Measurement Enabled</label>
+        </div>
+    </div>
+</div>
+
+<!-- Action bar -->
+<div class="action-bar">
+    <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
+    <button class="btn btn-primary" id="save-btn" onclick="saveConfig()" disabled>💾 Save Changes</button>
+    <button class="btn btn-danger" id="reboot-btn" onclick="rebootDevice()">🔄 Reboot</button>
+    <span class="changes-info" id="changes-info">Loading config...</span>
+</div>
+
+<div style="height:60px"></div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────
+let ws = null;
+let originalConfig = {};
+let pendingChanges = {};
+
+// ── WebSocket ────────────────────────────────────────────────────
+function connectWS() {
+    ws = new WebSocket(`ws://${location.hostname}:8765`);
+    ws.onopen = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-connected';
+        document.getElementById('ws-label').textContent = 'Connected';
+        ws.send(JSON.stringify({type: 'get_config'}));
+    };
+    ws.onclose = () => {
+        document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
+        document.getElementById('ws-label').textContent = 'Disconnected – reconnecting…';
+        setTimeout(connectWS, 3000);
+    };
+    ws.onerror = () => ws.close();
+    ws.onmessage = e => {
+        const d = JSON.parse(e.data);
+        if (d.type === 'config_data') {
+            originalConfig = d.config;
+            pendingChanges = {};
+            populateForm(d.config);
+            updateChangesInfo();
+        } else if (d.type === 'config_saved') {
+            if (d.success) {
+                showAlert(d.rebooting ? '✅ Config saved! Device is rebooting...' : '✅ Config saved successfully!', 'success');
+                pendingChanges = {};
+                // Clear changed highlights
+                document.querySelectorAll('.changed').forEach(el => el.classList.remove('changed'));
+                updateChangesInfo();
+                if (!d.rebooting) {
+                    ws.send(JSON.stringify({type: 'get_config'}));
+                }
+            } else {
+                showAlert('❌ Error saving config: ' + d.error, 'error');
+            }
+        } else if (d.type === 'config_error') {
+            showAlert('❌ Error loading config: ' + d.error, 'error');
+            document.getElementById('changes-info').textContent = 'Error loading config';
+        } else if (d.type === 'connection_status' && d.tracker) {
+            document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
+        }
+    };
+}
+
+// ── Form population ──────────────────────────────────────────────
+function populateForm(config) {
+    // User
+    setField('user.long_name', config.user?.long_name || '');
+    setField('user.short_name', config.user?.short_name || '');
+
+    // Device
+    setField('device.role', config.device?.role ?? 0);
+    setField('device.node_info_broadcast_secs', config.device?.node_info_broadcast_secs ?? 900);
+
+    // LoRa
+    setField('lora.region', config.lora?.region ?? 0);
+    setField('lora.hop_limit', config.lora?.hop_limit ?? 3);
+    setField('lora.modem_preset', config.lora?.modem_preset ?? 0);
+    setField('lora.tx_power', config.lora?.tx_power ?? 0);
+
+    // Position
+    setField('position.position_broadcast_secs', config.position?.position_broadcast_secs ?? 0);
+    setField('position.gps_update_interval', config.position?.gps_update_interval ?? 0);
+    setField('position.gps_enabled', config.position?.gps_enabled ?? true);
+    setField('position.position_broadcast_smart_enabled', config.position?.position_broadcast_smart_enabled ?? false);
+
+    // Telemetry
+    setField('telemetry.device_update_interval', config.telemetry?.device_update_interval ?? 1800);
+    setField('telemetry.environment_update_interval', config.telemetry?.environment_update_interval ?? 0);
+    setField('telemetry.environment_measurement_enabled', config.telemetry?.environment_measurement_enabled ?? false);
+
+    document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
+    document.getElementById('save-btn').disabled = true;
+}
+
+function setField(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === 'checkbox') {
+        el.checked = !!value;
+    } else {
+        el.value = value;
+    }
+    el.classList.remove('changed');
+}
+
+// ── Change tracking ──────────────────────────────────────────────
+function markChanged(el) {
+    const [section, key] = el.id.split('.');
+    const value = el.type === 'checkbox' ? el.checked :
+                  el.type === 'number' ? parseInt(el.value) || 0 : el.value;
+
+    // Check if back to original
+    const orig = originalConfig[section]?.[key];
+    const isChanged = orig !== undefined ? String(orig) !== String(value) : true;
+
+    if (isChanged) {
+        el.classList.add('changed');
+        if (!pendingChanges[section]) pendingChanges[section] = {};
+        pendingChanges[section][key] = value;
+    } else {
+        el.classList.remove('changed');
+        if (pendingChanges[section]) {
+            delete pendingChanges[section][key];
+            if (Object.keys(pendingChanges[section]).length === 0) {
+                delete pendingChanges[section];
+            }
+        }
+    }
+    updateChangesInfo();
+}
+
+function updateChangesInfo() {
+    const total = Object.values(pendingChanges).reduce((sum, s) => sum + Object.keys(s).length, 0);
+    const info = document.getElementById('changes-info');
+    const btn = document.getElementById('save-btn');
+    if (total === 0) {
+        info.textContent = 'No pending changes';
+        info.className = 'changes-info';
+        btn.disabled = true;
+    } else {
+        info.textContent = `⚠️ ${total} pending change${total > 1 ? 's' : ''} — click Save to apply`;
+        info.className = 'changes-info changes-pending';
+        btn.disabled = false;
+    }
+}
+
+// ── Save / Revert / Reboot ───────────────────────────────────────
+function saveConfig() {
+    if (Object.keys(pendingChanges).length === 0) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showAlert('❌ Not connected to device', 'error');
+        return;
+    }
+    const needsReboot = 'lora' in pendingChanges || 'device' in pendingChanges;
+    if (needsReboot) {
+        if (!confirm('⚠️ Some changes require a device reboot to take effect. Reboot after saving?')) return;
+    }
+    ws.send(JSON.stringify({
+        type: 'set_config',
+        changes: pendingChanges,
+        reboot: needsReboot
+    }));
+    showAlert('💾 Saving config...', 'info');
+}
+
+function revertChanges() {
+    pendingChanges = {};
+    populateForm(originalConfig);
+    showAlert('↩ Changes reverted', 'info');
+}
+
+function rebootDevice() {
+    if (!confirm('🔄 Reboot the device now?')) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showAlert('❌ Not connected to device', 'error');
+        return;
+    }
+    ws.send(JSON.stringify({type: 'set_config', changes: {}, reboot: true}));
+    showAlert('🔄 Rebooting device...', 'warning');
+}
+
+// ── Tab switching ────────────────────────────────────────────────
+function switchTab(name) {
+    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(el => el.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+}
+
+// ── Alert helper ─────────────────────────────────────────────────
+function showAlert(msg, type) {
+    const bar = document.getElementById('status-bar');
+    bar.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:12px">${msg}</div>`;
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => { bar.innerHTML = ''; }, 4000);
+    }
+}
+
+connectWS();
+</script>
+</body>
+</html>
