@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v1.20 (Standalone Messages Page)
+**Current Version:** v2.0 (Config Editor, Messages Page, Favorites, Channel PSK)
 
 ## Running & Deployment
 
@@ -162,6 +162,8 @@ meshtastic-network-mapper/
 ├── frontend/
 │   ├── index.html                # Main web interface with inline JS
 │   ├── stats.html                # Network Statistics page (standalone)
+│   ├── config.html               # Device configuration page (standalone)
+│   ├── messages.html             # Messages page (standalone)
 │   ├── styles.css                # Separated CSS styles
 │   └── favicon.ico               # Browser icon
 ├── systemd/
@@ -175,6 +177,42 @@ meshtastic-network-mapper/
 ├── LICENSE                       # MIT License
 └── .gitignore                    # Git ignore rules
 ```
+
+## Recent Changes (v2.0)
+
+**Added:**
+- `frontend/config.html` — standalone device configuration page with tabs: Device, LoRa, Position, Telemetry, Network, Bluetooth, Channels, Favorites
+- `frontend/messages.html` — standalone messages page (moved from index.html inline panel)
+- Full channel editor in Channels tab — editable name, role (PRIMARY/SECONDARY/DISABLED), PSK (keep/default/random/none/custom hex or base64)
+- `channelPsks{}` module-level object — stores PSKs to avoid special chars in onclick attributes
+- `copyChannelPsk(index)` — clipboard copy via textarea+execCommand (works on HTTP/Safari)
+- `get_messages` WebSocket handler — returns messages + channel names from device
+- `save_channel` WebSocket handler — sets name, role, PSK on a channel index and calls `node.writeChannel()`
+- `TCPMeshtasticInterface` proxies: `localNode`, `nodes`, `getMyNodeInfo()` properties forwarding to `self.interface`
+- TCP readiness check in `get_device_config()` and `apply_device_config()` — raises clear error if `iface.interface is None`
+- Device TCP status indicator (`#device-status`) in config navbar — ✅ when config loaded, ⏳ when waiting
+- `updateDeviceStatus(ready)` function in config.html
+- Network info card in Network tab — shows connection type + IP with copy button
+- `_configRetryInterval` global retry (every 4s) — auto-retries `get_config` when TCP not yet connected
+- Unread badge on Messages nav link across all pages, synced via `BroadcastChannel`
+- Deduplication: `_dedup_nodes()` method + cleanup after every live packet + dedup on load
+
+**Fixed:**
+- Nodes no longer appear in both GPS map and No GPS panel simultaneously (three-layer dedup)
+- ROUTER_LATE role correctly mapped to value 11 (firmware 2.7+)
+- Enum fields (`role`, `rebroadcast_mode`, `region`, `modem_preset`, `mode`, `address_mode`) cast to `int()` before `setattr`
+- `BrokenPipeError`/`OSError` after device reboot treated as success (not shown as error)
+- PSK copy button works on HTTP/Safari — uses textarea + `execCommand('copy')` instead of `navigator.clipboard`
+- Config auto-retries silently when TCP connection not yet established
+- `config_error` handler ignores "not yet established"/"No active connection" errors, shows waiting text
+- `ws.onclose` resets `originalConfig = {}` and calls `updateDeviceStatus(false)`
+- `channel_save_result`: success reloads config; error shows alert
+
+**Changed:**
+- Version bumped to v2.0 (`#ver 2.0`, `MAPPER_VERSION = '2.0'`, `styles.css?v=2.0`)
+- `import base64` and `from meshtastic.protobuf import config_pb2` added to backend
+- `get_device_config()` now returns channels with `index`, `role_name`, PSK as base64, and `current_ip`/`connection_type` in network section
+- Messages panel removed from `index.html`; `new_message` WS handler now increments localStorage unread count
 
 ## Recent Changes (v1.19)
 
