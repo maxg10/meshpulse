@@ -606,6 +606,7 @@
 let ws = null;
 let originalConfig = {};
 let pendingChanges = {};
+let channelPsks = {};
 
 // ── Fixed position helpers ───────────────────────────────────────
 function updateNetworkInfo(config) {
@@ -689,6 +690,7 @@ function renderChannels(channels) {
         el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px">No channels found.</div>';
         return;
     }
+    channels.forEach(ch => { channelPsks[ch.index] = ch.psk || ''; });
     el.innerHTML = channels.map(ch => {
         const isPrimary = ch.index === 0;
         const roleOptions = [
@@ -721,7 +723,7 @@ function renderChannels(channels) {
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
                     ${ch.psk ? `
                         <span style="font-family:monospace;font-size:11px;word-break:break-all">${ch.psk}</span>
-                        <button onclick="navigator.clipboard.writeText('${ch.psk}').then(()=>showAlert('📋 PSK copied!','success'))"
+                        <button onclick="copyChannelPsk(${ch.index})"
                             class="btn btn-secondary" style="font-size:10px;padding:1px 6px;margin-left:4px;flex-shrink:0">📋</button>
                     ` : '<span style="color:#9ca3af">none (no encryption)</span>'}
                     <select id="ch-psk-action-${ch.index}" onchange="chPskActionChange(${ch.index}); chMarkChanged(${ch.index})">
@@ -827,6 +829,22 @@ function saveChannel(index) {
 
 function addChannel() {
     showAlert('ℹ️ To add a channel, edit an existing DISABLED slot and set role to SECONDARY.', 'info');
+}
+
+function copyChannelPsk(index) {
+    const psk = channelPsks[index];
+    if (!psk) return;
+    navigator.clipboard.writeText(psk).then(() => {
+        showAlert('📋 PSK copied!', 'success');
+    }).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = psk;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showAlert('📋 PSK copied!', 'success');
+    });
 }
 
 function toggleFixedPosition() {
