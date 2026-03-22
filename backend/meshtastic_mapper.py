@@ -676,6 +676,85 @@ class ListenBasedMapper:
             config['telemetry'] = {'error': str(e)}
 
         try:
+            # Network config
+            n = node.localConfig.network
+            config['network'] = {
+                'wifi_enabled': n.wifi_enabled,
+                'wifi_ssid': n.wifi_ssid,
+                'wifi_psk': n.wifi_psk,
+                'address_mode': n.address_mode,
+                'ntp_server': n.ntp_server,
+            }
+        except Exception as e:
+            config['network'] = {'error': str(e)}
+
+        try:
+            # Bluetooth config
+            b = node.localConfig.bluetooth
+            config['bluetooth'] = {
+                'enabled': b.enabled,
+                'mode': b.mode,
+                'fixed_pin': b.fixed_pin,
+            }
+        except Exception as e:
+            config['bluetooth'] = {'error': str(e)}
+
+        try:
+            # Channels
+            channels = []
+            for ch in node.channels:
+                channels.append({
+                    'name': ch.settings.name,
+                    'role': ch.role,
+                    'psk': ch.settings.psk.hex() if ch.settings.psk else '',
+                })
+            config['channels'] = channels
+        except Exception as e:
+            config['channels'] = []
+
+        try:
+            # Extra device fields
+            d = node.localConfig.device
+            config['device']['rebroadcast_mode'] = d.rebroadcast_mode
+            config['device']['serial_enabled'] = d.serial_enabled
+            config['device']['led_heartbeat_disabled'] = d.led_heartbeat_disabled
+        except:
+            pass
+
+        try:
+            # Extra position fields
+            p = node.localConfig.position
+            config['position']['broadcast_smart_minimum_distance'] = p.broadcast_smart_minimum_distance
+            config['position']['broadcast_smart_minimum_interval_secs'] = p.broadcast_smart_minimum_interval_secs
+        except:
+            pass
+
+        try:
+            # Extra telemetry fields
+            t = node.moduleConfig.telemetry
+            config['telemetry']['device_telemetry_enabled'] = t.device_telemetry_enabled
+            config['telemetry']['power_measurement_enabled'] = t.power_measurement_enabled
+            config['telemetry']['power_update_interval'] = t.power_update_interval
+            config['telemetry']['environment_screen_enabled'] = t.environment_screen_enabled
+            config['telemetry']['health_measurement_enabled'] = t.health_measurement_enabled
+            config['telemetry']['health_update_interval'] = t.health_update_interval
+        except:
+            pass
+
+        try:
+            # Current position for fixed position pre-fill
+            my_info = iface.getMyNodeInfo()
+            pos = my_info.get('position', {})
+            if pos:
+                config['current_position'] = {
+                    'lat': pos.get('latitude', 0),
+                    'lon': pos.get('longitude', 0),
+                    'alt': pos.get('altitude', 0),
+                }
+        except:
+            pass
+
+        try:
             u = iface.getMyNodeInfo().get('user', {})
             config['user'] = {
                 'long_name': u.get('longName', ''),
@@ -736,6 +815,21 @@ class ListenBasedMapper:
                 setattr(node.moduleConfig.telemetry, key, val)
                 applied.append(f'telemetry.{key}')
             node.writeModuleConfig('telemetry')
+
+        # Network config changes
+        if 'network' in changes:
+            for key, val in changes['network'].items():
+                if not key.startswith('ipv4_config'):
+                    setattr(node.localConfig.network, key, val)
+                    applied.append(f'network.{key}')
+            node.writeConfig('network')
+
+        # Bluetooth config changes
+        if 'bluetooth' in changes:
+            for key, val in changes['bluetooth'].items():
+                setattr(node.localConfig.bluetooth, key, val)
+                applied.append(f'bluetooth.{key}')
+            node.writeConfig('bluetooth')
 
         if reboot:
             node.reboot()
@@ -2442,6 +2536,51 @@ async def websocket_handler(websocket):
                                 'type': 'config_saved',
                                 'success': False,
                                 'error': str(e)
+                            }))
+
+                elif data.get('type') == 'set_fixed_position':
+                    if mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                lat = data.get('lat', 0)
+                                lon = data.get('lon', 0)
+                                alt = data.get('alt', 0)
+                                iface.localNode.setPosition(lat, lon, alt)
+                                await websocket.send(json.dumps({
+                                    'type': 'fixed_position_result',
+                                    'success': True
+                                }))
+                                print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'fixed_position_result',
+                                'success': False, 'error': str(e)
+                            }))
+
+                elif data.get('type') == 'clear_fixed_position':
+                    if mapper:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface
+                            if iface:
+                                iface.localNode.removePosition()
+                                await websocket.send(json.dumps({
+                                    'type': 'clear_position_result',
+                                    'success': True
+                                }))
+                                print(f"[CONFIG] Fixed position cleared")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_position_result',
+                                'success': False, 'error': str(e)
                             }))
 
                 elif data.get('type') == 'clear_node_stats':
