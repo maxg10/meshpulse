@@ -22,6 +22,7 @@ import meshtastic
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
+from meshtastic.protobuf import config_pb2
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -81,6 +82,17 @@ class TCPMeshtasticInterface:
                 raise Exception("Connection timeout")
 
         iface_ref[0] = self.interface
+
+    @property
+    def localNode(self):
+        return self.interface.localNode
+
+    @property
+    def nodes(self):
+        return self.interface.nodes
+
+    def getMyNodeInfo(self):
+        return self.interface.getMyNodeInfo()
 
     def disconnect(self):
         """Unsubscribe and close the interface."""
@@ -665,6 +677,7 @@ class ListenBasedMapper:
             l = node.localConfig.lora
             config['lora'] = {
                 'region': l.region,
+                'region_name': config_pb2.Config.LoRaConfig.RegionCode.Name(l.region) if l.region else 'UNSET',
                 'hop_limit': l.hop_limit,
                 'modem_preset': l.modem_preset,
                 'tx_power': l.tx_power,
