@@ -697,6 +697,13 @@ class ListenBasedMapper:
             config['network'] = {'error': str(e)}
 
         try:
+            # Add connection info to network config
+            config['network']['current_ip'] = self.config.get('host', None) if self.connection_type == 'tcp' else None
+            config['network']['connection_type'] = self.connection_type
+        except:
+            pass
+
+        try:
             # Bluetooth config
             b = node.localConfig.bluetooth
             config['bluetooth'] = {

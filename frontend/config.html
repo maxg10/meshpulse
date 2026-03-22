@@ -431,6 +431,27 @@
 
 <!-- Network tab -->
 <div id="tab-network" class="tab-content">
+    <div class="card" id="network-info-card" style="display:none;margin-bottom:12px">
+        <div class="card-title">📡 Current Connection</div>
+        <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+            <div>
+                <div style="font-size:11px;color:#6b7280">Connection Type</div>
+                <div style="font-weight:600;font-size:13px" id="net-connection-type">-</div>
+            </div>
+            <div id="net-ip-block" style="display:none">
+                <div style="font-size:11px;color:#6b7280">Device IP Address</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <code style="font-weight:600;font-size:14px;background:#f3f4f6;padding:2px 8px;border-radius:4px" id="net-current-ip">-</code>
+                    <button class="btn btn-secondary" style="font-size:11px;padding:2px 8px"
+                        onclick="copyIP()" title="Copy IP">📋 Copy</button>
+                </div>
+            </div>
+            <div id="net-serial-block" style="display:none">
+                <div style="font-size:11px;color:#6b7280">Serial Port</div>
+                <div style="font-weight:600;font-size:13px" id="net-serial-port">-</div>
+            </div>
+        </div>
+    </div>
     <div class="card">
         <div class="card-title">🌐 WiFi Settings</div>
         <div class="alert alert-warning">⚠️ WiFi settings only apply to devices with WiFi support (Heltec, T-Beam, etc.)</div>
@@ -587,6 +608,35 @@ let originalConfig = {};
 let pendingChanges = {};
 
 // ── Fixed position helpers ───────────────────────────────────────
+function updateNetworkInfo(config) {
+    const card = document.getElementById('network-info-card');
+    const connType = config.network?.connection_type;
+    const ip = config.network?.current_ip;
+
+    if (!connType) return;
+    card.style.display = 'block';
+
+    document.getElementById('net-connection-type').textContent =
+        connType === 'tcp' ? '🌐 TCP (WiFi)' : '🔌 USB Serial';
+
+    if (connType === 'tcp' && ip) {
+        document.getElementById('net-ip-block').style.display = 'block';
+        document.getElementById('net-serial-block').style.display = 'none';
+        document.getElementById('net-current-ip').textContent = ip;
+    } else if (connType === 'serial') {
+        document.getElementById('net-ip-block').style.display = 'none';
+        document.getElementById('net-serial-block').style.display = 'block';
+        document.getElementById('net-serial-port').textContent = '-';
+    }
+}
+
+function copyIP() {
+    const ip = document.getElementById('net-current-ip').textContent;
+    navigator.clipboard.writeText(ip).then(() => {
+        showAlert('📋 IP copied: ' + ip, 'success');
+    });
+}
+
 function toggleStaticIP() {
     const mode = document.getElementById('network.address_mode').value;
     document.getElementById('static-ip-fields').style.display = mode === '1' ? 'block' : 'none';
@@ -1016,6 +1066,8 @@ function populateForm(config) {
     if (config.channels) {
         renderChannels(config.channels);
     }
+
+    updateNetworkInfo(config);
 
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
