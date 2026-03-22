@@ -1566,12 +1566,11 @@ class ListenBasedMapper:
         try:
             decoded = packet.get('decoded', {})
             route_discovery = decoded.get('routeDiscovery', {})
-            route = route_discovery.get('route', [])
-            route_back = route_discovery.get('routeBack', [])
-
+            route_nums = route_discovery.get('route', [])
+            route_back_nums = route_discovery.get('routeBack', [])
             all_known = {**self.nodes, **self.nodes_no_position}
 
-            def num_to_hop(num):
+            def num_to_hop(num, snr=None):
                 hex_id = f"!{num:08x}"
                 node = all_known.get(hex_id, {})
                 return {
@@ -1579,15 +1578,29 @@ class ListenBasedMapper:
                     'name': node.get('name', hex_id),
                     'lat': node.get('lat'),
                     'lon': node.get('lon'),
-                    'snr': None
+                    'snr': snr
                 }
 
+            # Build full route: our node + intermediate hops + destination
+            from_num = packet.get('from', 0)
+            to_num = packet.get('to', 0)
+
+            full_route = [num_to_hop(from_num)]
+            for num in route_nums:
+                full_route.append(num_to_hop(num))
+            full_route.append(num_to_hop(to_num))
+
+            full_route_back = [num_to_hop(to_num)]
+            for num in route_back_nums:
+                full_route_back.append(num_to_hop(num))
+            full_route_back.append(num_to_hop(from_num))
+
             self._pending_traceroute_result = {
-                'route': [num_to_hop(n) for n in route],
-                'route_back': [num_to_hop(n) for n in route_back],
-                'node_id': f"!{packet.get('to', 0):08x}"
+                'route': full_route,
+                'route_back': full_route_back,
+                'node_id': f"!{to_num:08x}"
             }
-            print(f"[TRACEROUTE] Result received: {len(route)} hops forward, {len(route_back)} hops back")
+            print(f"[TRACEROUTE] Result received: {len(route_nums)} intermediate hops forward, {len(route_back_nums)} back")
         except Exception as e:
             print(f"[TRACEROUTE] Error parsing packet: {e}")
 
@@ -2029,11 +2042,15 @@ async def run_traceroute(node_id, websocket):
                     return
 
                 mapper._pending_traceroute_result = None
+                print(f"[TRACEROUTE] Sending traceroute via serial Python API...")
+                # Run in executor - callback may fire during this call
                 await loop.run_in_executor(
                     None,
                     lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
                 )
-                print(f"[TRACEROUTE] Sent via serial Python API, waiting for response...")
+                print(f"[TRACEROUTE] Sent, waiting for response (result may already be ready)...")
+                # Check immediately before waiting loop
+                await asyncio.sleep(0.1)
                 for _ in range(60):
                     await asyncio.sleep(1)
                     if mapper._pending_traceroute_result:
