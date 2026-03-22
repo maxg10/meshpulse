@@ -1007,7 +1007,11 @@ class ListenBasedMapper:
                         'via_mqtt': via_mqtt,
                         'source': 'live'
                     }
-                    
+                    # Remove from no-position dict if node now has GPS
+                    if node_id in self.nodes_no_position:
+                        del self.nodes_no_position[node_id]
+                        print(f"[GPS] {node_id} moved from no-GPS to GPS list")
+
                     marker = "✚" if is_new else "↻"
                     print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f}")
 
@@ -1141,6 +1145,10 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops}{' MQTT' if via_mqtt else ''}")
             
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
@@ -1376,6 +1384,10 @@ class ListenBasedMapper:
                     'via_mqtt': via_mqtt,
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
                 self._update_message_names(node_id, name)
@@ -1462,6 +1474,10 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 }
+                # Remove from no-position dict if node now has GPS
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+                    print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
 
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
