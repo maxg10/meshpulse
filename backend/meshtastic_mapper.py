@@ -269,9 +269,14 @@ class StatsDB:
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
             top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
-                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum
+                AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum,
+                (SELECT relay_node_id FROM packets p2
+                 WHERE p2.from_id = packets.from_id AND p2.portnum = packets.portnum
+                 AND p2.ts > ? AND p2.relay_node_id IS NOT NULL
+                 AND p2.relay_node_id NOT LIKE 'relay_%'
+                 ORDER BY p2.ts DESC LIMIT 1) as last_relay
                 FROM packets WHERE ts > ? AND via_mqtt = 0
-                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h,)).fetchall()
+                GROUP BY from_id, portnum ORDER BY cnt DESC LIMIT 30''', (since_24h, since_24h)).fetchall()
             active_node_count = c.execute('''SELECT COUNT(DISTINCT from_id) as cnt
                 FROM packets WHERE ts > ? AND via_mqtt = 0''', (since_24h,)).fetchone()['cnt']
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
@@ -661,7 +666,15 @@ class ListenBasedMapper:
             our_num = int(self.local_node_id.replace('!', ''), 16)
             our_last_byte = our_num & 0xFF
             relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
-            relay_node_id = f"relay_{relay_node_raw}"
+            # Try to find full node ID by matching last byte
+            relay_node_id = f"relay_{relay_node_raw:02x}"
+            for nid in {**self.nodes, **self.nodes_no_position}:
+                try:
+                    if int(nid.replace('!',''), 16) & 0xFF == relay_node_raw:
+                        relay_node_id = nid
+                        break
+                except:
+                    pass
 
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)

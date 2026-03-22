@@ -296,7 +296,7 @@
         </div>
         <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Last Pkt</th><th></th><th></th></tr></thead>
+            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Avg SNR</th><th>Type</th><th>Via</th><th>Last Pkt</th><th></th><th></th></tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -597,6 +597,9 @@ function renderAll(data) {
         rssi.map(r => r.bucket >= -90 ? 'rgba(16,185,129,0.7)' : r.bucket >= -110 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)'));
 
     // Top senders table
+    const nodesMap = {};
+    Object.entries(data.nodes||{}).forEach(([id,n]) => { nodesMap[id] = n.name||id; });
+
     const tbody1 = document.querySelector('#top-senders-table tbody');
     tbody1.innerHTML = (data.top_senders||[]).slice(0,15).map(s => {
         const tip = getNodeSuggestion(s);
@@ -607,6 +610,7 @@ function renderAll(data) {
             <td>${s.cnt}</td>
             <td>${s.avg_snr!=null ? Number(s.avg_snr).toFixed(1)+' dB' : '-'}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
+            <td style="font-size:10px;color:#6b7280;max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${s.last_relay||'direct'}">${s.last_relay && !s.last_relay.startsWith('relay_') ? (nodesMap[s.last_relay]||s.last_relay) : (s.last_relay ? '?' : '—')}</td>
             <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
             <td>${tipBtn}</td>
             <td><button onclick="clearNodeStats('${s.from_id}', '${(s.from_name||s.from_id).replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
