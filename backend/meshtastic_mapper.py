@@ -385,6 +385,7 @@ class ListenBasedMapper:
         self.host = host
         self.current_process = None
         self._serial_iface = None
+        self._tcp_iface = None
         self._pending_traceroute_result = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
@@ -617,6 +618,132 @@ class ListenBasedMapper:
                 if node_id not in self.nodes and node_id not in self.nodes_no_position:
                     self.known_names.pop(node_id, None)
     
+    def get_device_config(self):
+        """Read current config from connected device via Python API."""
+        iface = None
+        if self.connection_type == 'serial' and self._serial_iface:
+            iface = self._serial_iface.iface
+        elif self.connection_type == 'tcp' and self._tcp_iface:
+            iface = self._tcp_iface
+
+        if not iface:
+            raise Exception('No active connection to device')
+
+        node = iface.localNode
+        config = {}
+
+        try:
+            d = node.localConfig.device
+            config['device'] = {
+                'role': d.role,
+                'node_info_broadcast_secs': d.node_info_broadcast_secs,
+                'serial_enabled': d.serial_enabled,
+            }
+        except Exception as e:
+            config['device'] = {'error': str(e)}
+
+        try:
+            p = node.localConfig.position
+            config['position'] = {
+                'position_broadcast_secs': p.position_broadcast_secs,
+                'gps_enabled': p.gps_mode != 0,
+                'gps_update_interval': p.gps_update_interval,
+                'position_broadcast_smart_enabled': p.position_broadcast_smart_enabled,
+            }
+        except Exception as e:
+            config['position'] = {'error': str(e)}
+
+        try:
+            l = node.localConfig.lora
+            config['lora'] = {
+                'region': l.region,
+                'hop_limit': l.hop_limit,
+                'modem_preset': l.modem_preset,
+                'tx_power': l.tx_power,
+                'use_preset': l.use_preset,
+            }
+        except Exception as e:
+            config['lora'] = {'error': str(e)}
+
+        try:
+            t = node.moduleConfig.telemetry
+            config['telemetry'] = {
+                'device_update_interval': t.device_update_interval,
+                'environment_update_interval': t.environment_update_interval,
+                'environment_measurement_enabled': t.environment_measurement_enabled,
+            }
+        except Exception as e:
+            config['telemetry'] = {'error': str(e)}
+
+        try:
+            u = iface.getMyNodeInfo().get('user', {})
+            config['user'] = {
+                'long_name': u.get('longName', ''),
+                'short_name': u.get('shortName', ''),
+            }
+        except Exception as e:
+            config['user'] = {'error': str(e)}
+
+        return config
+
+    def apply_device_config(self, changes, reboot=False):
+        """Apply config changes to device via Python API."""
+        iface = None
+        if self.connection_type == 'serial' and self._serial_iface:
+            iface = self._serial_iface.iface
+        elif self.connection_type == 'tcp' and self._tcp_iface:
+            iface = self._tcp_iface
+
+        if not iface:
+            raise Exception('No active connection to device')
+
+        node = iface.localNode
+        applied = []
+
+        if 'user' in changes:
+            u = changes['user']
+            if 'long_name' in u:
+                node.setOwner(longName=u['long_name'], shortName=u.get('short_name'))
+                applied.append('user.long_name')
+            elif 'short_name' in u:
+                node.setOwner(shortName=u['short_name'])
+                applied.append('user.short_name')
+
+        if 'device' in changes:
+            for key, val in changes['device'].items():
+                setattr(node.localConfig.device, key, val)
+                applied.append(f'device.{key}')
+            node.writeConfig('device')
+
+        if 'position' in changes:
+            for key, val in changes['position'].items():
+                if key == 'gps_enabled':
+                    node.localConfig.position.gps_mode = 1 if val else 0
+                    applied.append('position.gps_mode')
+                else:
+                    setattr(node.localConfig.position, key, val)
+                    applied.append(f'position.{key}')
+            node.writeConfig('position')
+
+        if 'lora' in changes:
+            for key, val in changes['lora'].items():
+                setattr(node.localConfig.lora, key, val)
+                applied.append(f'lora.{key}')
+            node.writeConfig('lora')
+
+        if 'telemetry' in changes:
+            for key, val in changes['telemetry'].items():
+                setattr(node.moduleConfig.telemetry, key, val)
+                applied.append(f'telemetry.{key}')
+            node.writeModuleConfig('telemetry')
+
+        if reboot:
+            node.reboot()
+            print(f"[CONFIG] Device reboot requested")
+
+        print(f"[CONFIG] Applied: {applied}")
+        return applied
+
     def _watchdog_loop(self):
         """Restart meshtastic --listen subprocess if no packets received for WATCHDOG_TIMEOUT seconds."""
         WATCHDOG_TIMEOUT = 600  # 10 minutes of silence = restart subprocess
@@ -1640,6 +1767,7 @@ class ListenBasedMapper:
             try:
                 print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
                 tcp_iface = TCPMeshtasticInterface(self.host)
+                self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
 
@@ -2283,6 +2411,39 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'get_config':
+                    if mapper:
+                        try:
+                            config = mapper.get_device_config()
+                            await websocket.send(json.dumps({
+                                'type': 'config_data',
+                                'config': config
+                            }))
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'config_error',
+                                'error': str(e)
+                            }))
+
+                elif data.get('type') == 'set_config':
+                    if mapper:
+                        changes = data.get('changes', {})
+                        reboot = data.get('reboot', False)
+                        try:
+                            result = mapper.apply_device_config(changes, reboot)
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': True,
+                                'rebooting': reboot,
+                                'applied': result
+                            }))
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': False,
+                                'error': str(e)
+                            }))
+
                 elif data.get('type') == 'clear_node_stats':
                     node_id = data.get('node_id', '').strip()
                     if node_id and mapper:
