@@ -1828,6 +1828,38 @@ class ListenBasedMapper:
                         if node_id:
                             self.local_node_id = node_id
                             print(f"[INFO] Local node ID: {node_id}")
+                        # Read own tracker position from NodeDB at startup
+                        try:
+                            pos = node_info.get('position', {})
+                            lat = pos.get('latitude')
+                            lon = pos.get('longitude')
+                            alt = pos.get('altitude', 0)
+                            if lat and lon and not (lat == 0 and lon == 0):
+                                self.tracker_info['lat'] = round(lat, 6)
+                                self.tracker_info['lon'] = round(lon, 6)
+                                self.tracker_info['alt'] = alt or 0
+                                if self.local_node_id and self.local_node_id not in self.nodes:
+                                    self.nodes[self.local_node_id] = {
+                                        'id': self.local_node_id,
+                                        'name': node_info.get('user', {}).get('longName', self.local_node_id),
+                                        'lat': round(lat, 6),
+                                        'lon': round(lon, 6),
+                                        'alt': alt or 0,
+                                        'snr': 0,
+                                        'role': node_info.get('user', {}).get('role', 'ROUTER'),
+                                        'hops': 0,
+                                        'ts': int(time.time()),
+                                        'seen_at': int(time.time()),
+                                        'via_mqtt': False,
+                                        'source': 'live'
+                                    }
+                                    if self.local_node_id in self.nodes_no_position:
+                                        del self.nodes_no_position[self.local_node_id]
+                                print(f"[INFO] Tracker position loaded from NodeDB: {lat:.4f},{lon:.4f}")
+                            else:
+                                print(f"[INFO] Tracker has no position in NodeDB")
+                        except Exception as e:
+                            print(f"[INFO] Could not read tracker position from NodeDB: {e}")
                     asyncio.run(self.broadcast_connection_status('connected', 'serial'))
                     self._last_radio_packet_time = time.time()
 
@@ -1978,6 +2010,40 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
+
+                # Read own tracker position from NodeDB at startup
+                try:
+                    my_info = tcp_iface.getMyNodeInfo()
+                    pos = my_info.get('position', {})
+                    lat = pos.get('latitude')
+                    lon = pos.get('longitude')
+                    alt = pos.get('altitude', 0)
+                    if lat and lon and not (lat == 0 and lon == 0):
+                        self.tracker_info['lat'] = round(lat, 6)
+                        self.tracker_info['lon'] = round(lon, 6)
+                        self.tracker_info['alt'] = alt or 0
+                        if self.local_node_id and self.local_node_id not in self.nodes:
+                            self.nodes[self.local_node_id] = {
+                                'id': self.local_node_id,
+                                'name': my_info.get('user', {}).get('longName', self.local_node_id),
+                                'lat': round(lat, 6),
+                                'lon': round(lon, 6),
+                                'alt': alt or 0,
+                                'snr': 0,
+                                'role': my_info.get('user', {}).get('role', 'ROUTER'),
+                                'hops': 0,
+                                'ts': int(time.time()),
+                                'seen_at': int(time.time()),
+                                'via_mqtt': False,
+                                'source': 'live'
+                            }
+                            if self.local_node_id in self.nodes_no_position:
+                                del self.nodes_no_position[self.local_node_id]
+                        print(f"[INFO] Tracker position loaded from NodeDB: {lat:.4f},{lon:.4f}")
+                    else:
+                        print(f"[INFO] Tracker has no position in NodeDB")
+                except Exception as e:
+                    print(f"[INFO] Could not read tracker position from NodeDB: {e}")
 
                 last_save = time.time()
                 first_save_done = False
