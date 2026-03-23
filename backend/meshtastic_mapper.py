@@ -3243,17 +3243,25 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}))
                         return
                     try:
-                        if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
-                            loop = asyncio.get_event_loop()
-                            await loop.run_in_executor(None, lambda: mapper._serial_iface.iface.sendPosition(destinationId=node_id, wantResponse=True))
-                        elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
-                            loop = asyncio.get_event_loop()
-                            await loop.run_in_executor(None, lambda: mapper._tcp_iface.iface.sendPosition(destinationId=node_id, wantResponse=True))
+                        port = mapper.port or '/dev/ttyACM0'
+                        host = mapper.host
+                        conn_type = mapper.connection_type
+
+                        import subprocess
+                        if conn_type == 'serial':
+                            cmd = ['meshtastic', '--port', port, '--request-position', '--dest', node_id]
                         else:
-                            await websocket.send(json.dumps({'type': 'error', 'message': 'Not connected'}))
-                            return
-                        print(f"[POS] Requested position from {node_id}")
-                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+                            cmd = ['meshtastic', '--host', host, '--request-position', '--dest', node_id]
+
+                        loop = asyncio.get_event_loop()
+                        result = await loop.run_in_executor(None, lambda: subprocess.run(
+                            cmd, capture_output=True, text=True, timeout=15
+                        ))
+                        if result.returncode == 0:
+                            print(f"[POS] Requested position from {node_id}")
+                            await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+                        else:
+                            raise Exception(result.stderr or 'CLI error')
                     except Exception as e:
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
