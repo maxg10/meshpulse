@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.4">
+    <link rel="stylesheet" href="styles.css?v=2.0.5">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.4 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.5 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -324,7 +324,7 @@
     <div class="topo-legend">
         <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" fill="#3b82f6" rx="2"/></svg> Your node</span>
         <span><svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="#059669" opacity="0.8"/></svg> Heard node</span>
-        <span><svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#6b7280" stroke-width="2"/></svg> Relayed through router</span>
+        <span><svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#eab308" stroke-width="2"/></svg> Direct radio link (SNR)</span>
         <span style="color:#6b7280">🟢 SNR ≥5dB · 🟡 SNR ≥-5dB · 🔴 SNR &lt;-5dB · Enable Neighbor Info in Config for accurate topology</span>
     </div>
 </div>

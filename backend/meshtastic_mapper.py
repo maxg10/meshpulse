@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 2.0.4
+#ver 2.0.5
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -24,7 +24,7 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
-VERSION = '2.0.4'
+VERSION = '2.0.5'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -692,8 +692,10 @@ class ListenBasedMapper:
 
                     return nodes if (existing_count > 0 or existing_no_pos > 0) else {}
         except Exception as e:
+            import traceback
             print(f"[LOAD] Starting fresh (no existing data): {e}")
-    
+            traceback.print_exc()
+
         return {}
     
     def clean_old_nodes_from_dict(self, nodes_dict):
@@ -707,7 +709,9 @@ class ListenBasedMapper:
                 removed.append(node_id)
                 del nodes_dict[node_id]
                 # Broadcast deletion to WebSocket clients
-                asyncio.run(self.broadcast_node_deleted(node_id))
+                # Broadcast deletion to WebSocket clients (only if nodes is already initialized)
+                if hasattr(self, 'nodes'):
+                    asyncio.run(self.broadcast_node_deleted(node_id))
 
         if removed:
             hours = self.max_age // 3600
@@ -1355,7 +1359,11 @@ class ListenBasedMapper:
                 # New node from position packet (minimal info)
                 self.nodes[node_id] = {
                     'id': node_id,
-                    'name': node_id,  # Will be updated when nodeinfo arrives
+                    'name': (
+                        self.nodes_no_position.get(node_id, {}).get('name') or
+                        self.known_names.get(node_id) or
+                        node_id
+                    ),  # Will be updated when nodeinfo arrives
                     'lat': round(lat, 6),
                     'lon': round(lon, 6),
                     'alt': 0,
@@ -1690,7 +1698,11 @@ class ListenBasedMapper:
             else:
                 self.nodes[node_id] = {
                     'id': node_id,
-                    'name': node_id,
+                    'name': (
+                        self.nodes_no_position.get(node_id, {}).get('name') or
+                        self.known_names.get(node_id) or
+                        node_id
+                    ),
                     'lat': round(lat, 6),
                     'lon': round(lon, 6),
                     'alt': pos.get('altitude', 0),
