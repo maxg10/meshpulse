@@ -2221,6 +2221,7 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
+                self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup
                 try:
@@ -2301,6 +2302,12 @@ class ListenBasedMapper:
                         self.clean_old_nodes()
                         self.save_nodes()
                         last_clean = time.time()
+
+                    # Health check — if no packet received for 90s after connection, assume disconnect
+                    silence = time.time() - self._last_radio_packet_time
+                    if silence > 90 and first_save_done:
+                        print(f"[TCP] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
+                        raise Exception("TCP silent disconnect detected")
 
                     time.sleep(1)
 
@@ -3275,6 +3282,24 @@ async def websocket_handler(websocket):
                     except Exception as e:
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
+
+                elif data.get('type') == 'ping_device':
+                    try:
+                        is_connected = False
+                        if mapper:
+                            if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
+                                is_connected = True
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.interface:
+                                is_connected = True
+                        await websocket.send(json.dumps({
+                            'type': 'pong_device',
+                            'connected': is_connected
+                        }))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'pong_device',
+                            'connected': False
+                        }))
 
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")

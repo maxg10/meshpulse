@@ -1217,7 +1217,7 @@
             let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
             
             filteredNodes.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
+                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
                 else clients++;
                 if (isOwnTracker(n.id)) {
                     // own tracker - don't count in direct/relay stats
@@ -1225,8 +1225,13 @@
                 else relay++;
                 if (n.snr) { snrSum += n.snr; snrCount++; }
             });
-            
-            document.getElementById('cnt').textContent = filteredNodes.length;
+
+            // Also count routers/repeaters in No GPS list
+            allNodesNoGps.forEach(n => {
+                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+            });
+
+            document.getElementById('cnt').textContent = `${filteredNodes.length + allNodesNoGps.length} (${filteredNodes.length}+${allNodesNoGps.length})`;
             document.getElementById('routers').textContent = routers;
             document.getElementById('clients').textContent = clients;
             document.getElementById('direct').textContent = direct;

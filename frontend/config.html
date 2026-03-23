@@ -971,11 +971,29 @@ function updateDeviceStatus(ready) {
     const el = document.getElementById('device-status');
     if (!el) return;
     if (ready) {
-        el.textContent = '✅ Device ready';
-        el.style.color = '#22c55e';
+        el.innerHTML = '✅ Device ready';
+        el.style.color = '#16a34a';
     } else {
-        el.textContent = '⏳ Waiting for device...';
-        el.style.color = '#eab308';
+        el.innerHTML = '⚠️ Device disconnected';
+        el.style.color = '#dc2626';
+    }
+}
+
+let _heartbeatInterval = null;
+
+function startDeviceHeartbeat() {
+    if (_heartbeatInterval) clearInterval(_heartbeatInterval);
+    _heartbeatInterval = setInterval(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping_device' }));
+        }
+    }, 15000); // every 15s
+}
+
+function stopDeviceHeartbeat() {
+    if (_heartbeatInterval) {
+        clearInterval(_heartbeatInterval);
+        _heartbeatInterval = null;
     }
 }
 
@@ -986,11 +1004,13 @@ function connectWS() {
         document.getElementById('ws-label').textContent = 'Connected';
         updateDeviceStatus(false);
         ws.send(JSON.stringify({type: 'get_config'}));
+        startDeviceHeartbeat();
         // retry handled by global startConfigRetry()
     };
     ws.onclose = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-disconnected';
         document.getElementById('ws-label').textContent = 'Disconnected – reconnecting…';
+        stopDeviceHeartbeat();
         updateDeviceStatus(false);
         originalConfig = {};
         setTimeout(connectWS, 3000);
@@ -1063,6 +1083,13 @@ function connectWS() {
                 showAlert('❌ Error loading config: ' + d.error, 'error');
                 document.getElementById('changes-info').textContent = 'Error loading config';
             }
+        } else if (d.type === 'pong_device') {
+            if (!d.connected) {
+                updateDeviceStatus(false);
+                const statusEl = document.getElementById('device-status-text');
+                if (statusEl) statusEl.textContent = '⚠️ Device disconnected';
+            }
+            // If connected — don't update status here, let connection_status handle it
         }
     };
 }
