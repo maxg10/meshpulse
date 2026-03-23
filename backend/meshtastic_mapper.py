@@ -271,6 +271,37 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def update_node_name(self, node_id, name):
+        """Update from_name for all packets from this node where name was unknown (= node_id)."""
+        if not name or name == node_id:
+            return
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''UPDATE packets SET from_name = ?
+                           WHERE from_id = ? AND (from_name = ? OR from_name IS NULL)''',
+                        (name, node_id, node_id))
+            conn.execute('''UPDATE anomalies SET node_name = ?
+                           WHERE node_id = ? AND (node_name = ? OR node_name IS NULL)''',
+                        (name, node_id, node_id))
+            conn.commit()
+            conn.close()
+
+    def backfill_names(self, nodes_dict):
+        """Update from_name for nodes where name = node_id (unknown at time of logging)."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            for node_id, node in nodes_dict.items():
+                name = node.get('name')
+                if name and name != node_id:
+                    conn.execute('''UPDATE packets SET from_name = ?
+                        WHERE from_id = ? AND from_name = ?''',
+                        (name, node_id, node_id))
+                    conn.execute('''UPDATE anomalies SET node_name = ?
+                        WHERE node_id = ? AND node_name = ?''',
+                        (name, node_id, node_id))
+            conn.commit()
+            conn.close()
+
     def get_stats_summary(self, local_node_id=None):
         """Get stats summary for the last 24h plus 7-day trend."""
         now = int(time.time())
@@ -283,7 +314,7 @@ class StatsDB:
 
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
-            top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
+            top_senders = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt,
                 AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum,
                 (SELECT relay_node_id FROM packets p2
                  WHERE p2.from_id = packets.from_id AND p2.portnum = packets.portnum
@@ -302,7 +333,7 @@ class StatsDB:
                 (local_node_id or '').lstrip('!'),
                 '!' + (local_node_id or '').lstrip('!')
             ]
-            relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
+            relayed_nodes = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
                 AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
@@ -312,7 +343,7 @@ class StatsDB:
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
-            topology = c.execute('''SELECT from_id, from_name, COUNT(*) as relay_count
+            topology = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as relay_count
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
                 GROUP BY from_id''', (since_24h,)).fetchall()
 
@@ -367,7 +398,7 @@ class StatsDB:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
-            nodes_data = c.execute('''SELECT DISTINCT from_id, from_name, COUNT(*) as packet_count
+            nodes_data = c.execute('''SELECT DISTINCT from_id, MAX(from_name) as from_name, COUNT(*) as packet_count
                 FROM packets WHERE ts > ? GROUP BY from_id''', (since,)).fetchall()
             conn.close()
             return [dict(r) for r in nodes_data]
@@ -926,6 +957,29 @@ class ListenBasedMapper:
             for msg in ch_msgs:
                 if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
                     msg['from_name'] = name
+        self.stats_db.update_node_name(node_id, name)
+
+    def _refresh_all_message_names(self):
+        """Update from_name in all stored messages using current known_names and nodes."""
+        updated = 0
+        all_names = {}
+        for nid, node in self.nodes.items():
+            if node.get('name') and node['name'] != nid:
+                all_names[nid] = node['name']
+        for nid, node in self.nodes_no_position.items():
+            if node.get('name') and node['name'] != nid:
+                all_names[nid] = node['name']
+        all_names.update(self.known_names)
+
+        for ch_msgs in self.messages.values():
+            for msg in ch_msgs:
+                from_id = msg.get('from_id')
+                if from_id and from_id in all_names:
+                    if msg.get('from_name') == from_id:
+                        msg['from_name'] = all_names[from_id]
+                        updated += 1
+        if updated:
+            print(f"[MSGS] Refreshed {updated} message names from known nodes")
 
     def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
         """Log packet to stats DB and detect anomalies."""
@@ -940,15 +994,29 @@ class ListenBasedMapper:
         relay_node_id = None
         if relay_node_raw is not None and self.local_node_id:
             our_num = int(self.local_node_id.replace('!', ''), 16)
-            our_last_byte = our_num & 0xFF
-            relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
-            # Try to find full node ID by matching last byte
-            relay_node_id = f"relay_{relay_node_raw:02x}"
+            if relay_node_raw > 0xFF:
+                # Full node number (Python API)
+                is_our_relay = (relay_node_raw == our_num)
+                is_not_self = (from_id != self.local_node_id)
+                relayed_by_us = is_our_relay and is_not_self
+                relay_node_id = f"!{relay_node_raw:08x}"
+            else:
+                # Last byte only (legacy CLI mode)
+                our_last_byte = our_num & 0xFF
+                relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
+                relay_node_id = f"relay_{relay_node_raw:02x}"
+            # Try to resolve full node ID from known nodes
             for nid in {**self.nodes, **self.nodes_no_position}:
                 try:
-                    if int(nid.replace('!',''), 16) & 0xFF == relay_node_raw:
-                        relay_node_id = nid
-                        break
+                    nid_num = int(nid.replace('!', ''), 16)
+                    if relay_node_raw > 0xFF:
+                        if nid_num == relay_node_raw:
+                            relay_node_id = nid
+                            break
+                    else:
+                        if nid_num & 0xFF == relay_node_raw:
+                            relay_node_id = nid
+                            break
                 except:
                     pass
 
@@ -1871,6 +1939,13 @@ class ListenBasedMapper:
                 )
                 print(f"[SERIAL] Connected successfully")
 
+                # Backfill names in stats DB from loaded nodes
+                all_known = {**self.nodes, **self.nodes_no_position}
+                if all_known:
+                    self.stats_db.backfill_names(all_known)
+                    print(f"[STATS] Backfilled names for {len(all_known)} nodes")
+                self._refresh_all_message_names()
+
                 last_save = time.time()
                 first_save_done = False
 
@@ -2046,6 +2121,13 @@ class ListenBasedMapper:
                         print(f"[INFO] Tracker has no position in NodeDB")
                 except Exception as e:
                     print(f"[INFO] Could not read tracker position from NodeDB: {e}")
+
+                # Backfill names in stats DB from loaded nodes
+                all_known = {**self.nodes, **self.nodes_no_position}
+                if all_known:
+                    self.stats_db.backfill_names(all_known)
+                    print(f"[STATS] Backfilled names for {len(all_known)} nodes")
+                self._refresh_all_message_names()
 
                 last_save = time.time()
                 first_save_done = False
@@ -2684,6 +2766,24 @@ async def websocket_handler(websocket):
                                     geo['farthest_node_name'] = direct_dists[0][2]
                                     geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
                         stats['geo'] = geo
+                        # Enrich with current node names (override stale DB names)
+                        all_current_names = {}
+                        for nid, node in mapper.nodes.items():
+                            if node.get('name') and node['name'] != nid:
+                                all_current_names[nid] = node['name']
+                        for nid, node in mapper.nodes_no_position.items():
+                            if node.get('name') and node['name'] != nid:
+                                all_current_names[nid] = node['name']
+                        all_current_names.update(mapper.known_names)
+                        for sender in stats.get('top_senders', []):
+                            if sender['from_id'] in all_current_names:
+                                sender['from_name'] = all_current_names[sender['from_id']]
+                        for node in stats.get('relayed_nodes', []):
+                            if node['from_id'] in all_current_names:
+                                node['from_name'] = all_current_names[node['from_id']]
+                        for anomaly in stats.get('anomalies', []):
+                            if anomaly.get('node_id') in all_current_names:
+                                anomaly['node_name'] = all_current_names[anomaly['node_id']]
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))

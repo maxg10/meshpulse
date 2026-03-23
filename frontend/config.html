@@ -1117,7 +1117,7 @@ function populateForm(config) {
     if (config.current_position) {
         document.getElementById('fixed.lat').value = config.current_position.lat || '';
         document.getElementById('fixed.lon').value = config.current_position.lon || '';
-        document.getElementById('fixed.alt').value = config.current_position.alt || '';
+        document.getElementById('fixed.alt').value = config.current_position.alt ?? '';
         updateFixedBtn();
     }
 
