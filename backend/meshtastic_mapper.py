@@ -2221,6 +2221,7 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
+                self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup
                 try:
@@ -2301,6 +2302,12 @@ class ListenBasedMapper:
                         self.clean_old_nodes()
                         self.save_nodes()
                         last_clean = time.time()
+
+                    # Health check — if no packet received for 90s after connection, assume disconnect
+                    silence = time.time() - self._last_radio_packet_time
+                    if silence > 90 and first_save_done:
+                        print(f"[TCP] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
+                        raise Exception("TCP silent disconnect detected")
 
                     time.sleep(1)
 
