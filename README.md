@@ -479,6 +479,19 @@ Pull requests welcome! Areas for improvement:
 - [ ] WebSocket authentication (currently assumes trusted LAN)
 
 
+## Author
+
+**Mariusz "Max" Gieparda**
+
+📧 [mgieparda@yahoo.com](mailto:mgieparda@yahoo.com)
+🐙 [github.com/maxg10](https://github.com/maxg10)
+📦 [github.com/maxg10/meshtastic-network-mapper](https://github.com/maxg10/meshtastic-network-mapper)
+
+Built with ❤️ for the Meshtastic community in Poland 🇵🇱
+
+*Feel free to reach out with questions, bug reports, or feature requests!*
+
+
 ## License
 
 MIT License - See [LICENSE](LICENSE) file
