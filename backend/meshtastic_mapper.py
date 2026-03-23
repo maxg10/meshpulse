@@ -286,6 +286,22 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def backfill_names(self, nodes_dict):
+        """Update from_name for nodes where name = node_id (unknown at time of logging)."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            for node_id, node in nodes_dict.items():
+                name = node.get('name')
+                if name and name != node_id:
+                    conn.execute('''UPDATE packets SET from_name = ?
+                        WHERE from_id = ? AND from_name = ?''',
+                        (name, node_id, node_id))
+                    conn.execute('''UPDATE anomalies SET node_name = ?
+                        WHERE node_id = ? AND node_name = ?''',
+                        (name, node_id, node_id))
+            conn.commit()
+            conn.close()
+
     def get_stats_summary(self, local_node_id=None):
         """Get stats summary for the last 24h plus 7-day trend."""
         now = int(time.time())
@@ -956,15 +972,27 @@ class ListenBasedMapper:
         relay_node_id = None
         if relay_node_raw is not None and self.local_node_id:
             our_num = int(self.local_node_id.replace('!', ''), 16)
-            our_last_byte = our_num & 0xFF
-            relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
-            # Try to find full node ID by matching last byte
-            relay_node_id = f"relay_{relay_node_raw:02x}"
+            if relay_node_raw > 0xFF:
+                # Full node number (Python API)
+                relayed_by_us = (relay_node_raw == our_num) and (from_id != self.local_node_id)
+                relay_node_id = f"!{relay_node_raw:08x}"
+            else:
+                # Last byte only (legacy CLI mode)
+                our_last_byte = our_num & 0xFF
+                relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
+                relay_node_id = f"relay_{relay_node_raw:02x}"
+            # Try to resolve full node ID from known nodes
             for nid in {**self.nodes, **self.nodes_no_position}:
                 try:
-                    if int(nid.replace('!',''), 16) & 0xFF == relay_node_raw:
-                        relay_node_id = nid
-                        break
+                    nid_num = int(nid.replace('!', ''), 16)
+                    if relay_node_raw > 0xFF:
+                        if nid_num == relay_node_raw:
+                            relay_node_id = nid
+                            break
+                    else:
+                        if nid_num & 0xFF == relay_node_raw:
+                            relay_node_id = nid
+                            break
                 except:
                     pass
 
@@ -1887,6 +1915,12 @@ class ListenBasedMapper:
                 )
                 print(f"[SERIAL] Connected successfully")
 
+                # Backfill names in stats DB from loaded nodes
+                all_known = {**self.nodes, **self.nodes_no_position}
+                if all_known:
+                    self.stats_db.backfill_names(all_known)
+                    print(f"[STATS] Backfilled names for {len(all_known)} nodes")
+
                 last_save = time.time()
                 first_save_done = False
 
@@ -2062,6 +2096,12 @@ class ListenBasedMapper:
                         print(f"[INFO] Tracker has no position in NodeDB")
                 except Exception as e:
                     print(f"[INFO] Could not read tracker position from NodeDB: {e}")
+
+                # Backfill names in stats DB from loaded nodes
+                all_known = {**self.nodes, **self.nodes_no_position}
+                if all_known:
+                    self.stats_db.backfill_names(all_known)
+                    print(f"[STATS] Backfilled names for {len(all_known)} nodes")
 
                 last_save = time.time()
                 first_save_done = False
