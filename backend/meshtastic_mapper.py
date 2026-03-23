@@ -1900,6 +1900,7 @@ class ListenBasedMapper:
                             print(f"[INFO] Local node ID: {node_id}")
                         # Read own tracker position from NodeDB at startup
                         try:
+                            self.tracker_info['long_name'] = node_info.get('user', {}).get('longName', '')
                             pos = node_info.get('position', {})
                             lat = pos.get('latitude')
                             lon = pos.get('longitude')
@@ -2095,6 +2096,7 @@ class ListenBasedMapper:
                     lat = pos.get('latitude')
                     lon = pos.get('longitude')
                     alt = pos.get('altitude', 0)
+                    self.tracker_info['long_name'] = my_info.get('user', {}).get('longName', '')
                     if lat and lon and not (lat == 0 and lon == 0):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)

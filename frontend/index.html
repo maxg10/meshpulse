@@ -1223,8 +1223,13 @@
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
-            const trackerNode = allNodes.find(n => isOwnTracker(n.id));
-            document.getElementById('tracker-name').textContent = trackerNode?.name || '-';
+            const trackerNode = allNodes.find(n => isOwnTracker(n.id))
+                || allNodesNoGps.find(n => isOwnTracker(n.id));
+            const trackerName = trackerNode?.name
+                || trackerInfo.long_name
+                || trackerInfo.node_id
+                || '-';
+            document.getElementById('tracker-name').textContent = trackerName;
             // Update connection section from tracker info (but not if user is changing it)
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';
