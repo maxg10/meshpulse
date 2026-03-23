@@ -3243,26 +3243,35 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}))
                         return
                     try:
-                        port = mapper.port or '/dev/ttyACM0'
-                        host = mapper.host
-                        conn_type = mapper.connection_type
-
-                        import subprocess, shutil
-                        meshtastic_bin = shutil.which('meshtastic') or '/home/maxg/.local/bin/meshtastic'
-                        if conn_type == 'serial':
-                            cmd = [meshtastic_bin, '--port', port, '--request-position', '--dest', node_id]
-                        else:
-                            cmd = [meshtastic_bin, '--host', host, '--request-position', '--dest', node_id]
+                        from meshtastic.protobuf import mesh_pb2, portnums_pb2
 
                         loop = asyncio.get_event_loop()
-                        result = await loop.run_in_executor(None, lambda: subprocess.run(
-                            cmd, capture_output=True, text=True, timeout=15
-                        ))
-                        if result.returncode == 0:
-                            print(f"[POS] Requested position from {node_id}")
-                            await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
-                        else:
-                            raise Exception(result.stderr or 'CLI error')
+
+                        def _do_request():
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
+                                iface = mapper._tcp_iface.iface
+
+                            if not iface:
+                                raise Exception("Not connected")
+
+                            # Send empty position packet with wantResponse=True
+                            # This requests the destination node to send back its position
+                            pos = mesh_pb2.Position()
+                            iface.sendData(
+                                pos.SerializeToString(),
+                                destinationId=node_id,
+                                portNum=portnums_pb2.PortNum.POSITION_APP,
+                                wantAck=False,
+                                wantResponse=True
+                            )
+
+                        await loop.run_in_executor(None, _do_request)
+                        print(f"[POS] Requested position from {node_id}")
+                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+
                     except Exception as e:
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
