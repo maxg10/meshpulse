@@ -1359,7 +1359,11 @@ class ListenBasedMapper:
                 # New node from position packet (minimal info)
                 self.nodes[node_id] = {
                     'id': node_id,
-                    'name': node_id,  # Will be updated when nodeinfo arrives
+                    'name': (
+                        self.nodes_no_position.get(node_id, {}).get('name') or
+                        self.known_names.get(node_id) or
+                        node_id
+                    ),  # Will be updated when nodeinfo arrives
                     'lat': round(lat, 6),
                     'lon': round(lon, 6),
                     'alt': 0,
@@ -1694,7 +1698,11 @@ class ListenBasedMapper:
             else:
                 self.nodes[node_id] = {
                     'id': node_id,
-                    'name': node_id,
+                    'name': (
+                        self.nodes_no_position.get(node_id, {}).get('name') or
+                        self.known_names.get(node_id) or
+                        node_id
+                    ),
                     'lat': round(lat, 6),
                     'lon': round(lon, 6),
                     'alt': pos.get('altitude', 0),
