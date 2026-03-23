@@ -842,7 +842,6 @@ function renderAnomalies(anomalies) {
     const grouped = Object.values(groups).sort((a, b) => b.latest_ts - a.latest_ts);
     el.innerHTML = grouped.slice(0,20).map(a => {
         const desc = getAnomalyDescription(a);
-        const fix  = getAnomalySuggestion(a.anomaly_type);
         const countBadge = a.count > 1 ? `<span class="count-badge">×${a.count}</span>` : '';
         const sevClass = a.severity==='error' ? 'error' : a.severity==='info' ? 'info' : '';
         const badgeClass = a.severity==='error' ? 'badge-red' : a.severity==='info' ? 'badge-info-sev' : 'badge-warn';
@@ -855,7 +854,6 @@ function renderAnomalies(anomalies) {
             ${countBadge}
             <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
             <div style="color:#374151;margin-top:4px">${desc}</div>
-            ${fix ? `<div style="color:#6b7280;font-size:10px;margin-top:2px">💡 ${fix}</div>` : ''}
         </div>`;
     }).join('');
 }
