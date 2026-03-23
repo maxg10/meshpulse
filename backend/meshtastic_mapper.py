@@ -2071,14 +2071,10 @@ class ListenBasedMapper:
 
                     # Health check — detect silent serial disconnect
                     if serial_iface and serial_iface.iface:
-                        try:
-                            iface = serial_iface.iface
-                            stream = getattr(iface, '_stream', None) or getattr(iface, 'stream', None)
-                            if stream is not None and not stream.is_open:
-                                raise Exception("Serial port closed unexpectedly")
-                        except Exception as e:
-                            print(f"[SERIAL] Health check failed: {e} — triggering reconnect")
-                            raise Exception(f"Serial disconnected: {e}")
+                        stream = getattr(serial_iface.iface, 'stream', None)
+                        if stream is not None and hasattr(stream, 'is_open') and not stream.is_open:
+                            print(f"[SERIAL] Health check: stream closed — triggering reconnect")
+                            raise Exception("Serial port closed unexpectedly")
 
                     time.sleep(1)
 
