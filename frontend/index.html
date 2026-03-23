@@ -345,6 +345,18 @@
                                 // Second reload after first SAVE (includes uptime and nodes)
                                 setTimeout(() => fetchNodesJSON(0), 15000);
                             }
+                            // Update tracker name when trackerInfo arrives
+                            if (data.tracker && data.tracker.node_id) {
+                                const nameEl = document.getElementById('tracker-name');
+                                if (nameEl && nameEl.textContent === data.tracker.node_id) {
+                                    // Name not yet resolved — update now
+                                    const trackerNode = allNodes.find(n => isOwnTracker(n.id))
+                                        || allNodesNoGps.find(n => isOwnTracker(n.id));
+                                    nameEl.textContent = trackerNode?.name
+                                        || data.tracker.long_name
+                                        || data.tracker.node_id;
+                                }
+                            }
                             // Sync select after status confirmed by backend
                             if (data.connection_type) {
                                 document.getElementById('connection-type').value = data.connection_type;
