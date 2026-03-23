@@ -3251,8 +3251,8 @@ async def websocket_handler(websocket):
                             iface = None
                             if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
                                 iface = mapper._serial_iface.iface
-                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
-                                iface = mapper._tcp_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.interface:
+                                iface = mapper._tcp_iface.interface
 
                             if not iface:
                                 raise Exception("Not connected")
