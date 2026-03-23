@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 2.0.1
+#ver 2.0.2
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -24,7 +24,7 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
-VERSION = '2.0.1'
+VERSION = '2.0.2'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
