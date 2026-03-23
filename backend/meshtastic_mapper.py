@@ -692,8 +692,10 @@ class ListenBasedMapper:
 
                     return nodes if (existing_count > 0 or existing_no_pos > 0) else {}
         except Exception as e:
+            import traceback
             print(f"[LOAD] Starting fresh (no existing data): {e}")
-    
+            traceback.print_exc()
+
         return {}
     
     def clean_old_nodes_from_dict(self, nodes_dict):
@@ -707,7 +709,9 @@ class ListenBasedMapper:
                 removed.append(node_id)
                 del nodes_dict[node_id]
                 # Broadcast deletion to WebSocket clients
-                asyncio.run(self.broadcast_node_deleted(node_id))
+                # Broadcast deletion to WebSocket clients (only if nodes is already initialized)
+                if hasattr(self, 'nodes'):
+                    asyncio.run(self.broadcast_node_deleted(node_id))
 
         if removed:
             hours = self.max_age // 3600
