@@ -1437,6 +1437,10 @@ class ListenBasedMapper:
                 if node_id in self.nodes_no_position:
                     del self.nodes_no_position[node_id]
                     print(f"[GPS] {node_id} moved from no-GPS to GPS list")
+                if node_id == self.local_node_id:
+                    self.tracker_info['lat'] = round(lat, 6)
+                    self.tracker_info['lon'] = round(lon, 6)
+                    self.tracker_info['alt'] = alt or 0
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
                 self._update_message_names(node_id, name)
@@ -1528,6 +1532,11 @@ class ListenBasedMapper:
                     del self.nodes_no_position[node_id]
                     print(f"[GPS] {node_id} moved from no-GPS to GPS list")
                 print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+
+            if node_id == self.local_node_id:
+                self.tracker_info['lat'] = round(lat, 6)
+                self.tracker_info['lon'] = round(lon, 6)
+                self.tracker_info['alt'] = pos.get('altitude', 0)
 
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
@@ -1740,17 +1749,44 @@ class ListenBasedMapper:
         try:
             self._dedup_nodes()
             max_dist, farthest_id = self.get_max_distance()
-            
+
+            nodes_list = list(self.nodes.values())
+            nodes_no_pos_list = list(self.nodes_no_position.values())
+
+            # Add own tracker to nodes list if not already present
+            if self.local_node_id and self.local_node_id not in self.nodes and self.local_node_id not in self.nodes_no_position:
+                tracker_entry = {
+                    'id': self.local_node_id,
+                    'name': self.tracker_info.get('long_name') or self.tracker_info.get('node_id', self.local_node_id),
+                    'role': self.tracker_info.get('role', 'ROUTER'),
+                    'ts': int(time.time()),
+                    'seen_at': int(time.time()),
+                    'source': 'live',
+                    'via_mqtt': False,
+                    'hops': 0,
+                    'snr': 0,
+                }
+                lat = self.tracker_info.get('lat')
+                lon = self.tracker_info.get('lon')
+                alt = self.tracker_info.get('alt', 0)
+                if lat and lon:
+                    tracker_entry['lat'] = lat
+                    tracker_entry['lon'] = lon
+                    tracker_entry['alt'] = alt or 0
+                    nodes_list.append(tracker_entry)
+                else:
+                    nodes_no_pos_list.append(tracker_entry)
+
             data = {
                 'ts': int(time.time()),
                 'updated': datetime.now().isoformat(),
-                'cnt': len(self.nodes),
-                'cnt_no_pos': len(self.nodes_no_position),
+                'cnt': len(nodes_list),
+                'cnt_no_pos': len(nodes_no_pos_list),
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
                 'tracker': getattr(self, 'tracker_info', {}),
-                'nodes': list(self.nodes.values()),
-                'nodes_no_pos': list(self.nodes_no_position.values()),
+                'nodes': nodes_list,
+                'nodes_no_pos': nodes_no_pos_list,
                 'messages': self.messages,
                 'known_names': self.known_names
             }
