@@ -2069,6 +2069,15 @@ class ListenBasedMapper:
                         self.save_nodes()
                         last_clean = time.time()
 
+                    # Health check — detect silent serial disconnect
+                    if serial_iface and serial_iface.iface:
+                        try:
+                            if not serial_iface.iface._stream or not serial_iface.iface._stream.is_open:
+                                raise Exception("Serial port closed unexpectedly")
+                        except Exception as e:
+                            print(f"[SERIAL] Health check failed: {e} — triggering reconnect")
+                            raise Exception(f"Serial disconnected: {e}")
+
                     time.sleep(1)
 
             except KeyboardInterrupt:
