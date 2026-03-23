@@ -959,6 +959,28 @@ class ListenBasedMapper:
                     msg['from_name'] = name
         self.stats_db.update_node_name(node_id, name)
 
+    def _refresh_all_message_names(self):
+        """Update from_name in all stored messages using current known_names and nodes."""
+        updated = 0
+        all_names = {}
+        for nid, node in self.nodes.items():
+            if node.get('name') and node['name'] != nid:
+                all_names[nid] = node['name']
+        for nid, node in self.nodes_no_position.items():
+            if node.get('name') and node['name'] != nid:
+                all_names[nid] = node['name']
+        all_names.update(self.known_names)
+
+        for ch_msgs in self.messages.values():
+            for msg in ch_msgs:
+                from_id = msg.get('from_id')
+                if from_id and from_id in all_names:
+                    if msg.get('from_name') == from_id:
+                        msg['from_name'] = all_names[from_id]
+                        updated += 1
+        if updated:
+            print(f"[MSGS] Refreshed {updated} message names from known nodes")
+
     def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
         """Log packet to stats DB and detect anomalies."""
         from_name = (
@@ -1920,6 +1942,7 @@ class ListenBasedMapper:
                 if all_known:
                     self.stats_db.backfill_names(all_known)
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
+                self._refresh_all_message_names()
 
                 last_save = time.time()
                 first_save_done = False
@@ -2102,6 +2125,7 @@ class ListenBasedMapper:
                 if all_known:
                     self.stats_db.backfill_names(all_known)
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
+                self._refresh_all_message_names()
 
                 last_save = time.time()
                 first_save_done = False
