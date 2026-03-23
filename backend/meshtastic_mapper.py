@@ -2041,6 +2041,7 @@ class ListenBasedMapper:
                     on_connection_established=on_connection_established
                 )
                 print(f"[SERIAL] Connected successfully")
+                self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
                 all_known = {**self.nodes, **self.nodes_no_position}
@@ -2069,12 +2070,11 @@ class ListenBasedMapper:
                         self.save_nodes()
                         last_clean = time.time()
 
-                    # Health check — detect silent serial disconnect
-                    if serial_iface and serial_iface.iface:
-                        stream = getattr(serial_iface.iface, 'stream', None)
-                        if stream is not None and hasattr(stream, 'is_open') and not stream.is_open:
-                            print(f"[SERIAL] Health check: stream closed — triggering reconnect")
-                            raise Exception("Serial port closed unexpectedly")
+                    # Health check — if no packet received for 60s after connection, assume disconnect
+                    silence = time.time() - self._last_radio_packet_time
+                    if silence > 60 and first_save_done:
+                        print(f"[SERIAL] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
+                        raise Exception("Serial silent disconnect detected")
 
                     time.sleep(1)
 
