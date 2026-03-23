@@ -834,6 +834,18 @@
             }
         });
 
+        function requestPosition(nodeId) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                alert('WebSocket not connected');
+                return;
+            }
+            ws.send(JSON.stringify({ type: 'request_position', node_id: nodeId }));
+            // Visual feedback
+            const btns = document.querySelectorAll(`button[onclick*="${nodeId}"]`);
+            btns.forEach(b => { if (b.textContent.includes('POS')) { b.textContent = '⏳ POS'; b.disabled = true; } });
+            setTimeout(() => updateDisplay(), 3000);
+        }
+
         function startTraceroute(nodeId) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 alert('WebSocket not connected');
@@ -1281,6 +1293,7 @@
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="window.location.href='/meshtastic/messages.html';event.stopPropagation();" class="dm-btn">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;">🔍 TR</button>
+                            <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
                         </div>
                     </div>`;
                 }).join('');

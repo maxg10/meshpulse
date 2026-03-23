@@ -3237,6 +3237,27 @@ async def websocket_handler(websocket):
                             'channel_names': channel_names
                         }))
 
+                elif data.get('type') == 'request_position':
+                    node_id = data.get('node_id')
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}))
+                        return
+                    try:
+                        if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
+                            loop = asyncio.get_event_loop()
+                            await loop.run_in_executor(None, lambda: mapper._serial_iface.iface.requestPosition(node_id))
+                        elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
+                            loop = asyncio.get_event_loop()
+                            await loop.run_in_executor(None, lambda: mapper._tcp_iface.iface.requestPosition(node_id))
+                        else:
+                            await websocket.send(json.dumps({'type': 'error', 'message': 'Not connected'}))
+                            return
+                        print(f"[POS] Requested position from {node_id}")
+                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+                    except Exception as e:
+                        print(f"[POS] Error requesting position from {node_id}: {e}")
+                        await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
