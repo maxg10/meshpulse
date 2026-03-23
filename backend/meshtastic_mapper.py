@@ -663,7 +663,16 @@ class ListenBasedMapper:
 
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
-                    
+
+                        # Restore names from known_names cache if node name = node_id
+                        known = data.get('known_names', {})
+                        for node_id, node in nodes.items():
+                            if node.get('name') == node_id and node_id in known:
+                                node['name'] = known[node_id]
+                        for node_id, node in nodes_no_pos.items():
+                            if node.get('name') == node_id and node_id in known:
+                                node['name'] = known[node_id]
+
                         loaded_msgs = data.get('messages', {})
                         if isinstance(loaded_msgs, list):
                             self._loaded_messages = {0: loaded_msgs} if loaded_msgs else {}
@@ -804,7 +813,7 @@ class ListenBasedMapper:
             config['bluetooth'] = {'error': str(e)}
 
         try:
-            ni = node.moduleConfig.neighborInfo
+            ni = node.moduleConfig.neighbor_info
             config['neighborinfo'] = {
                 'neighbor_info_enabled': ni.enabled,
                 'update_interval': ni.update_interval,
@@ -965,10 +974,10 @@ class ListenBasedMapper:
         if 'neighborinfo' in changes:
             for key, val in changes['neighborinfo'].items():
                 if key == 'neighbor_info_enabled':
-                    node.moduleConfig.neighborInfo.enabled = bool(val)
+                    node.moduleConfig.neighbor_info.enabled = bool(val)
                 elif key == 'update_interval':
-                    node.moduleConfig.neighborInfo.update_interval = int(val)
-            node.writeConfig('neighborInfo')
+                    node.moduleConfig.neighbor_info.update_interval = int(val)
+            node.writeConfig('neighbor_info')
             applied.append('neighborinfo')
 
         if reboot:
@@ -1837,7 +1846,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
 
     async def broadcast_node_deleted(self, node_id):
@@ -1852,7 +1861,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
     async def broadcast_message(self, message_data):
@@ -1867,7 +1876,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
 
     async def broadcast_stats_update(self):
@@ -1884,7 +1893,7 @@ class ListenBasedMapper:
             'timestamp': int(time.time())
         })
 
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
 
     async def broadcast_connection_status(self, status, message=''):
         """Broadcast connection status to all connected WebSocket clients"""
@@ -1900,7 +1909,7 @@ class ListenBasedMapper:
             'tracker': getattr(self, 'tracker_info', {}),
             'timestamp': int(time.time())
         })
-        websockets.broadcast(connected_clients, msg)
+        websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
     def _dedup_nodes(self):
@@ -2041,6 +2050,7 @@ class ListenBasedMapper:
                     on_connection_established=on_connection_established
                 )
                 print(f"[SERIAL] Connected successfully")
+                self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
                 all_known = {**self.nodes, **self.nodes_no_position}
@@ -2048,6 +2058,19 @@ class ListenBasedMapper:
                     self.stats_db.backfill_names(all_known)
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
                 self._refresh_all_message_names()
+
+                # Also refresh node names in memory from known_names
+                refreshed = 0
+                for node_id, node in self.nodes.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                for node_id, node in self.nodes_no_position.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                if refreshed:
+                    print(f"[LOAD] Refreshed {refreshed} node names from known_names cache")
 
                 last_save = time.time()
                 first_save_done = False
@@ -2068,6 +2091,12 @@ class ListenBasedMapper:
                         self.clean_old_nodes()
                         self.save_nodes()
                         last_clean = time.time()
+
+                    # Health check — if no packet received for 60s after connection, assume disconnect
+                    silence = time.time() - self._last_radio_packet_time
+                    if silence > 60 and first_save_done:
+                        print(f"[SERIAL] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
+                        raise Exception("Serial silent disconnect detected")
 
                     time.sleep(1)
 
@@ -2239,6 +2268,19 @@ class ListenBasedMapper:
                     self.stats_db.backfill_names(all_known)
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
                 self._refresh_all_message_names()
+
+                # Also refresh node names in memory from known_names
+                refreshed = 0
+                for node_id, node in self.nodes.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                for node_id, node in self.nodes_no_position.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                if refreshed:
+                    print(f"[LOAD] Refreshed {refreshed} node names from known_names cache")
 
                 last_save = time.time()
                 first_save_done = False
