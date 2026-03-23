@@ -718,10 +718,11 @@ class ListenBasedMapper:
             print(f"[CLEAN] Removed {len(removed)} old nodes (>{hours}h old)")
             for node_id in removed[:5]:  # Show first 5
                 print(f"  - {node_id}")
-            # Remove expired nodes from name cache if no longer in either node dict
-            for node_id in removed:
-                if node_id not in self.nodes and node_id not in self.nodes_no_position:
-                    self.known_names.pop(node_id, None)
+            # Remove expired nodes from name cache — only if fully initialized
+            if hasattr(self, 'nodes') and hasattr(self, 'nodes_no_position') and hasattr(self, 'known_names'):
+                for node_id in removed:
+                    if node_id not in self.nodes and node_id not in self.nodes_no_position:
+                        self.known_names.pop(node_id, None)
     
     def get_device_config(self):
         """Read current config from connected device via Python API."""
