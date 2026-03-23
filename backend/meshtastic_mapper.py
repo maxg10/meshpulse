@@ -3283,6 +3283,24 @@ async def websocket_handler(websocket):
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
 
+                elif data.get('type') == 'ping_device':
+                    try:
+                        is_connected = False
+                        if mapper:
+                            if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
+                                is_connected = True
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.interface:
+                                is_connected = True
+                        await websocket.send(json.dumps({
+                            'type': 'pong_device',
+                            'connected': is_connected
+                        }))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'pong_device',
+                            'connected': False
+                        }))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
