@@ -2742,7 +2742,7 @@ async def websocket_handler(websocket):
                                 lat = data.get('lat', 0)
                                 lon = data.get('lon', 0)
                                 alt = data.get('alt', 0)
-                                iface.localNode.setPosition(lat, lon, alt)
+                                iface.localNode.setFixedPosition(lat, lon, alt)
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': True
@@ -2763,7 +2763,7 @@ async def websocket_handler(websocket):
                             elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
                                 iface = mapper._tcp_iface
                             if iface:
-                                iface.localNode.removePosition()
+                                iface.localNode.removeFixedPosition()
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': True
