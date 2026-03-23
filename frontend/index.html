@@ -36,7 +36,7 @@
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A'){this.classList.toggle('open');document.getElementById('stats-title').textContent=this.classList.contains('open')?'📶 Mesh Info ▼':'📶 Mesh Info ▶';}">
         <h3 id="stats-title">📶 Mesh Info ▼</h3>
         <div id="stats-content">
-        <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
+        <b>Nodes:</b> <span id="cnt">0</span> <small style="color:#9ca3af" id="cnt-detail"></small> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
@@ -1217,7 +1217,7 @@
             let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
             
             filteredNodes.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE') routers++;
+                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
                 else clients++;
                 if (isOwnTracker(n.id)) {
                     // own tracker - don't count in direct/relay stats
@@ -1225,8 +1225,14 @@
                 else relay++;
                 if (n.snr) { snrSum += n.snr; snrCount++; }
             });
-            
-            document.getElementById('cnt').textContent = filteredNodes.length;
+
+            // Also count routers/repeaters in No GPS list
+            allNodesNoGps.forEach(n => {
+                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+            });
+
+            document.getElementById('cnt').textContent = filteredNodes.length + allNodesNoGps.length;
+            document.getElementById('cnt-detail').textContent = `(${filteredNodes.length} GPS + ${allNodesNoGps.length} no-GPS)`;
             document.getElementById('routers').textContent = routers;
             document.getElementById('clients').textContent = clients;
             document.getElementById('direct').textContent = direct;
