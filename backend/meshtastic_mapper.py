@@ -3237,6 +3237,45 @@ async def websocket_handler(websocket):
                             'channel_names': channel_names
                         }))
 
+                elif data.get('type') == 'request_position':
+                    node_id = data.get('node_id')
+                    if not node_id:
+                        await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}))
+                        return
+                    try:
+                        from meshtastic.protobuf import mesh_pb2, portnums_pb2
+
+                        loop = asyncio.get_event_loop()
+
+                        def _do_request():
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
+                                iface = mapper._tcp_iface.iface
+
+                            if not iface:
+                                raise Exception("Not connected")
+
+                            # Send empty position packet with wantResponse=True
+                            # This requests the destination node to send back its position
+                            pos = mesh_pb2.Position()
+                            iface.sendData(
+                                pos.SerializeToString(),
+                                destinationId=node_id,
+                                portNum=portnums_pb2.PortNum.POSITION_APP,
+                                wantAck=False,
+                                wantResponse=True
+                            )
+
+                        await loop.run_in_executor(None, _do_request)
+                        print(f"[POS] Requested position from {node_id}")
+                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+
+                    except Exception as e:
+                        print(f"[POS] Error requesting position from {node_id}: {e}")
+                        await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
