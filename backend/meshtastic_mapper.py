@@ -804,7 +804,7 @@ class ListenBasedMapper:
             config['bluetooth'] = {'error': str(e)}
 
         try:
-            ni = node.moduleConfig.neighborInfo
+            ni = node.moduleConfig.neighbor_info
             config['neighborinfo'] = {
                 'neighbor_info_enabled': ni.enabled,
                 'update_interval': ni.update_interval,
@@ -965,10 +965,10 @@ class ListenBasedMapper:
         if 'neighborinfo' in changes:
             for key, val in changes['neighborinfo'].items():
                 if key == 'neighbor_info_enabled':
-                    node.moduleConfig.neighborInfo.enabled = bool(val)
+                    node.moduleConfig.neighbor_info.enabled = bool(val)
                 elif key == 'update_interval':
-                    node.moduleConfig.neighborInfo.update_interval = int(val)
-            node.writeConfig('neighborInfo')
+                    node.moduleConfig.neighbor_info.update_interval = int(val)
+            node.writeConfig('neighbor_info')
             applied.append('neighborinfo')
 
         if reboot:
