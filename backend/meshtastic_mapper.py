@@ -24,6 +24,8 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
+VERSION = '2.0.1'
+
 # Global set of connected WebSocket clients
 connected_clients = set()
 
@@ -2113,7 +2115,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print("Meshtastic Mapper - LISTEN MODE v1.19")
+        print(f"Meshtastic Mapper - LISTEN MODE v{VERSION}")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
