@@ -1000,8 +1000,6 @@ class ListenBasedMapper:
                 is_not_self = (from_id != self.local_node_id)
                 relayed_by_us = is_our_relay and is_not_self
                 relay_node_id = f"!{relay_node_raw:08x}"
-                if is_our_relay:
-                    print(f"[RELAY] raw={relay_node_raw} our={our_num} match={is_our_relay} not_self={is_not_self} from={from_id} → relayed_by_us={relayed_by_us}")
             else:
                 # Last byte only (legacy CLI mode)
                 our_last_byte = our_num & 0xFF
