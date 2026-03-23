@@ -271,6 +271,21 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def update_node_name(self, node_id, name):
+        """Update from_name for all packets from this node where name was unknown (= node_id)."""
+        if not name or name == node_id:
+            return
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''UPDATE packets SET from_name = ?
+                           WHERE from_id = ? AND (from_name = ? OR from_name IS NULL)''',
+                        (name, node_id, node_id))
+            conn.execute('''UPDATE anomalies SET node_name = ?
+                           WHERE node_id = ? AND (node_name = ? OR node_name IS NULL)''',
+                        (name, node_id, node_id))
+            conn.commit()
+            conn.close()
+
     def get_stats_summary(self, local_node_id=None):
         """Get stats summary for the last 24h plus 7-day trend."""
         now = int(time.time())
@@ -926,6 +941,7 @@ class ListenBasedMapper:
             for msg in ch_msgs:
                 if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
                     msg['from_name'] = name
+        self.stats_db.update_node_name(node_id, name)
 
     def log_packet_to_stats(self, from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw):
         """Log packet to stats DB and detect anomalies."""
