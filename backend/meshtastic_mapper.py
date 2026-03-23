@@ -3247,11 +3247,12 @@ async def websocket_handler(websocket):
                         host = mapper.host
                         conn_type = mapper.connection_type
 
-                        import subprocess
+                        import subprocess, shutil
+                        meshtastic_bin = shutil.which('meshtastic') or '/home/maxg/.local/bin/meshtastic'
                         if conn_type == 'serial':
-                            cmd = ['meshtastic', '--port', port, '--request-position', '--dest', node_id]
+                            cmd = [meshtastic_bin, '--port', port, '--request-position', '--dest', node_id]
                         else:
-                            cmd = ['meshtastic', '--host', host, '--request-position', '--dest', node_id]
+                            cmd = [meshtastic_bin, '--host', host, '--request-position', '--dest', node_id]
 
                         loop = asyncio.get_event_loop()
                         result = await loop.run_in_executor(None, lambda: subprocess.run(

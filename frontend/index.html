@@ -1291,8 +1291,8 @@
                         <div class="meta">${n.id} | ${n.role}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
-                            <button onclick="window.location.href='/meshtastic/messages.html';event.stopPropagation();" class="dm-btn">✉️ DM</button>
-                            <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;">🔍 TR</button>
+                            <button onclick="window.location.href='/meshtastic/messages.html';event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
+                            <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
                             <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
                         </div>
                     </div>`;
