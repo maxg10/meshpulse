@@ -1837,7 +1837,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
 
     async def broadcast_node_deleted(self, node_id):
@@ -1852,7 +1852,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
     async def broadcast_message(self, message_data):
@@ -1867,7 +1867,7 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
 
     async def broadcast_stats_update(self):
@@ -1884,7 +1884,7 @@ class ListenBasedMapper:
             'timestamp': int(time.time())
         })
 
-        websockets.broadcast(connected_clients, message)
+        websockets.broadcast(set(connected_clients), message)
 
     async def broadcast_connection_status(self, status, message=''):
         """Broadcast connection status to all connected WebSocket clients"""
@@ -1900,7 +1900,7 @@ class ListenBasedMapper:
             'tracker': getattr(self, 'tracker_info', {}),
             'timestamp': int(time.time())
         })
-        websockets.broadcast(connected_clients, msg)
+        websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
     def _dedup_nodes(self):
@@ -2072,7 +2072,9 @@ class ListenBasedMapper:
                     # Health check — detect silent serial disconnect
                     if serial_iface and serial_iface.iface:
                         try:
-                            if not serial_iface.iface._stream or not serial_iface.iface._stream.is_open:
+                            iface = serial_iface.iface
+                            stream = getattr(iface, '_stream', None) or getattr(iface, 'stream', None)
+                            if stream is not None and not stream.is_open:
                                 raise Exception("Serial port closed unexpectedly")
                         except Exception as e:
                             print(f"[SERIAL] Health check failed: {e} — triggering reconnect")
