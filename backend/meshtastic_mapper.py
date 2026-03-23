@@ -314,7 +314,7 @@ class StatsDB:
 
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
-            top_senders = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt,
+            top_senders = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt,
                 AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum,
                 (SELECT relay_node_id FROM packets p2
                  WHERE p2.from_id = packets.from_id AND p2.portnum = packets.portnum
@@ -333,7 +333,7 @@ class StatsDB:
                 (local_node_id or '').lstrip('!'),
                 '!' + (local_node_id or '').lstrip('!')
             ]
-            relayed_nodes = c.execute('''SELECT from_id, from_name, COUNT(*) as cnt
+            relayed_nodes = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
                 AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
@@ -343,7 +343,7 @@ class StatsDB:
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
-            topology = c.execute('''SELECT from_id, from_name, COUNT(*) as relay_count
+            topology = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as relay_count
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
                 GROUP BY from_id''', (since_24h,)).fetchall()
 
@@ -398,7 +398,7 @@ class StatsDB:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
-            nodes_data = c.execute('''SELECT DISTINCT from_id, from_name, COUNT(*) as packet_count
+            nodes_data = c.execute('''SELECT DISTINCT from_id, MAX(from_name) as from_name, COUNT(*) as packet_count
                 FROM packets WHERE ts > ? GROUP BY from_id''', (since,)).fetchall()
             conn.close()
             return [dict(r) for r in nodes_data]
@@ -2766,6 +2766,24 @@ async def websocket_handler(websocket):
                                     geo['farthest_node_name'] = direct_dists[0][2]
                                     geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
                         stats['geo'] = geo
+                        # Enrich with current node names (override stale DB names)
+                        all_current_names = {}
+                        for nid, node in mapper.nodes.items():
+                            if node.get('name') and node['name'] != nid:
+                                all_current_names[nid] = node['name']
+                        for nid, node in mapper.nodes_no_position.items():
+                            if node.get('name') and node['name'] != nid:
+                                all_current_names[nid] = node['name']
+                        all_current_names.update(mapper.known_names)
+                        for sender in stats.get('top_senders', []):
+                            if sender['from_id'] in all_current_names:
+                                sender['from_name'] = all_current_names[sender['from_id']]
+                        for node in stats.get('relayed_nodes', []):
+                            if node['from_id'] in all_current_names:
+                                node['from_name'] = all_current_names[node['from_id']]
+                        for anomaly in stats.get('anomalies', []):
+                            if anomaly.get('node_id') in all_current_names:
+                                anomaly['node_name'] = all_current_names[anomaly['node_id']]
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
