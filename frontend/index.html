@@ -8,12 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.0.2">
+    <link rel="stylesheet" href="styles.css?v=2.0.3">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.2 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.3 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -157,8 +157,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.0.2 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.0.2';
+        // Meshtastic Mapper v2.0.3 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.0.3';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -344,6 +344,18 @@
                                 setTimeout(() => fetchNodesJSON(0), 500);
                                 // Second reload after first SAVE (includes uptime and nodes)
                                 setTimeout(() => fetchNodesJSON(0), 15000);
+                            }
+                            // Update tracker name when trackerInfo arrives
+                            if (data.tracker && data.tracker.node_id) {
+                                const nameEl = document.getElementById('tracker-name');
+                                if (nameEl && nameEl.textContent === data.tracker.node_id) {
+                                    // Name not yet resolved — update now
+                                    const trackerNode = allNodes.find(n => isOwnTracker(n.id))
+                                        || allNodesNoGps.find(n => isOwnTracker(n.id));
+                                    nameEl.textContent = trackerNode?.name
+                                        || data.tracker.long_name
+                                        || data.tracker.node_id;
+                                }
                             }
                             // Sync select after status confirmed by backend
                             if (data.connection_type) {
@@ -1223,8 +1235,12 @@
             document.getElementById('tracker-model').textContent = trackerInfo.hw_model || '-';
             document.getElementById('tracker-fw').textContent = trackerInfo.firmware || '-';
             document.getElementById('tracker-id').textContent = trackerInfo.node_id || '-';
-            const trackerNode = allNodes.find(n => isOwnTracker(n.id));
-            document.getElementById('tracker-name').textContent = trackerNode?.name || '-';
+            const trackerNode = allNodes.find(n => isOwnTracker(n.id))
+                || allNodesNoGps.find(n => isOwnTracker(n.id));
+            const trackerName = trackerNode?.name && trackerNode.name !== trackerInfo.node_id
+                ? trackerNode.name
+                : (trackerInfo.long_name || trackerInfo.node_id || '-');
+            document.getElementById('tracker-name').textContent = trackerName;
             // Update connection section from tracker info (but not if user is changing it)
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';

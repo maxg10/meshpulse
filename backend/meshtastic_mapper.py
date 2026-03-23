@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 2.0.2
+#ver 2.0.3
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -24,7 +24,7 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
-VERSION = '2.0.2'
+VERSION = '2.0.3'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -1900,6 +1900,7 @@ class ListenBasedMapper:
                             print(f"[INFO] Local node ID: {node_id}")
                         # Read own tracker position from NodeDB at startup
                         try:
+                            self.tracker_info['long_name'] = node_info.get('user', {}).get('longName', '')
                             pos = node_info.get('position', {})
                             lat = pos.get('latitude')
                             lon = pos.get('longitude')
@@ -1909,9 +1910,14 @@ class ListenBasedMapper:
                                 self.tracker_info['lon'] = round(lon, 6)
                                 self.tracker_info['alt'] = alt or 0
                                 if self.local_node_id and self.local_node_id not in self.nodes:
+                                    tracker_long_name = (
+                                        node_info.get('user', {}).get('longName') or
+                                        self.tracker_info.get('long_name') or
+                                        self.local_node_id
+                                    )
                                     self.nodes[self.local_node_id] = {
                                         'id': self.local_node_id,
-                                        'name': node_info.get('user', {}).get('longName', self.local_node_id),
+                                        'name': tracker_long_name,
                                         'lat': round(lat, 6),
                                         'lon': round(lon, 6),
                                         'alt': alt or 0,
@@ -2095,14 +2101,20 @@ class ListenBasedMapper:
                     lat = pos.get('latitude')
                     lon = pos.get('longitude')
                     alt = pos.get('altitude', 0)
+                    self.tracker_info['long_name'] = my_info.get('user', {}).get('longName', '')
                     if lat and lon and not (lat == 0 and lon == 0):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)
                         self.tracker_info['alt'] = alt or 0
                         if self.local_node_id and self.local_node_id not in self.nodes:
+                            tracker_long_name = (
+                                my_info.get('user', {}).get('longName') or
+                                self.tracker_info.get('long_name') or
+                                self.local_node_id
+                            )
                             self.nodes[self.local_node_id] = {
                                 'id': self.local_node_id,
-                                'name': my_info.get('user', {}).get('longName', self.local_node_id),
+                                'name': tracker_long_name,
                                 'lat': round(lat, 6),
                                 'lon': round(lon, 6),
                                 'alt': alt or 0,
