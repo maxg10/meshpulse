@@ -3245,10 +3245,10 @@ async def websocket_handler(websocket):
                     try:
                         if mapper.connection_type == 'serial' and mapper._serial_iface and mapper._serial_iface.iface:
                             loop = asyncio.get_event_loop()
-                            await loop.run_in_executor(None, lambda: mapper._serial_iface.iface.requestPosition(node_id))
+                            await loop.run_in_executor(None, lambda: mapper._serial_iface.iface.sendPosition(destinationId=node_id, wantResponse=True))
                         elif mapper.connection_type == 'tcp' and mapper._tcp_iface and mapper._tcp_iface.iface:
                             loop = asyncio.get_event_loop()
-                            await loop.run_in_executor(None, lambda: mapper._tcp_iface.iface.requestPosition(node_id))
+                            await loop.run_in_executor(None, lambda: mapper._tcp_iface.iface.sendPosition(destinationId=node_id, wantResponse=True))
                         else:
                             await websocket.send(json.dumps({'type': 'error', 'message': 'Not connected'}))
                             return
