@@ -1910,9 +1910,14 @@ class ListenBasedMapper:
                                 self.tracker_info['lon'] = round(lon, 6)
                                 self.tracker_info['alt'] = alt or 0
                                 if self.local_node_id and self.local_node_id not in self.nodes:
+                                    tracker_long_name = (
+                                        node_info.get('user', {}).get('longName') or
+                                        self.tracker_info.get('long_name') or
+                                        self.local_node_id
+                                    )
                                     self.nodes[self.local_node_id] = {
                                         'id': self.local_node_id,
-                                        'name': node_info.get('user', {}).get('longName', self.local_node_id),
+                                        'name': tracker_long_name,
                                         'lat': round(lat, 6),
                                         'lon': round(lon, 6),
                                         'alt': alt or 0,
@@ -2102,9 +2107,14 @@ class ListenBasedMapper:
                         self.tracker_info['lon'] = round(lon, 6)
                         self.tracker_info['alt'] = alt or 0
                         if self.local_node_id and self.local_node_id not in self.nodes:
+                            tracker_long_name = (
+                                my_info.get('user', {}).get('longName') or
+                                self.tracker_info.get('long_name') or
+                                self.local_node_id
+                            )
                             self.nodes[self.local_node_id] = {
                                 'id': self.local_node_id,
-                                'name': my_info.get('user', {}).get('longName', self.local_node_id),
+                                'name': tracker_long_name,
                                 'lat': round(lat, 6),
                                 'lon': round(lon, 6),
                                 'alt': alt or 0,
