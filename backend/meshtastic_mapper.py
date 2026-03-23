@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 2.0.3
+#ver 2.0.4
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -24,7 +24,7 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
-VERSION = '2.0.3'
+VERSION = '2.0.4'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -228,6 +228,17 @@ class StatsDB:
                 details TEXT,
                 severity TEXT DEFAULT 'warning'
             )''')
+            c.execute('''CREATE TABLE IF NOT EXISTS neighbors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts INTEGER NOT NULL,
+    from_id TEXT NOT NULL,
+    from_name TEXT,
+    neighbor_id TEXT NOT NULL,
+    neighbor_name TEXT,
+    snr REAL
+)''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_ts ON neighbors(ts)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_from ON neighbors(from_id)')
             conn.commit()
             conn.close()
 
@@ -259,6 +270,7 @@ class StatsDB:
             conn.execute('DELETE FROM packets WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
             conn.commit()
             conn.close()
 
@@ -285,6 +297,33 @@ class StatsDB:
                         (name, node_id, node_id))
             conn.commit()
             conn.close()
+
+    def log_neighbor_info(self, from_id, from_name, neighbors):
+        """Store neighbor info packet data."""
+        now = int(time.time())
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM neighbors WHERE from_id = ?', (from_id,))
+            for neighbor in neighbors:
+                conn.execute('''INSERT INTO neighbors (ts, from_id, from_name, neighbor_id, neighbor_name, snr)
+                    VALUES (?,?,?,?,?,?)''',
+                    (now, from_id, from_name, neighbor['id'], neighbor.get('name', neighbor['id']), neighbor.get('snr')))
+            conn.commit()
+            conn.close()
+
+    def get_neighbor_graph(self):
+        """Get neighbor graph for topology visualization. Only returns data from last 6 hours."""
+        since = int(time.time()) - 21600
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            edges = c.execute('''SELECT from_id, from_name, neighbor_id, neighbor_name, snr, MAX(ts) as last_seen
+                FROM neighbors WHERE ts > ?
+                GROUP BY from_id, neighbor_id
+                ORDER BY last_seen DESC''', (since,)).fetchall()
+            conn.close()
+            return [dict(e) for e in edges]
 
     def backfill_names(self, nodes_dict):
         """Update from_name for nodes where name = node_id (unknown at time of logging)."""
@@ -765,6 +804,15 @@ class ListenBasedMapper:
             config['bluetooth'] = {'error': str(e)}
 
         try:
+            ni = node.moduleConfig.neighborInfo
+            config['neighborinfo'] = {
+                'neighbor_info_enabled': ni.enabled,
+                'update_interval': ni.update_interval,
+            }
+        except:
+            config['neighborinfo'] = {'neighbor_info_enabled': False, 'update_interval': 14400}
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -914,6 +962,15 @@ class ListenBasedMapper:
                 applied.append(f'bluetooth.{key}')
             node.writeConfig('bluetooth')
 
+        if 'neighborinfo' in changes:
+            for key, val in changes['neighborinfo'].items():
+                if key == 'neighbor_info_enabled':
+                    node.moduleConfig.neighborInfo.enabled = bool(val)
+                elif key == 'update_interval':
+                    node.moduleConfig.neighborInfo.update_interval = int(val)
+            node.writeConfig('neighborInfo')
+            applied.append('neighborinfo')
+
         if reboot:
             try:
                 node.reboot()
@@ -949,6 +1006,44 @@ class ListenBasedMapper:
         """Clean old nodes from self.nodes and self.nodes_no_position"""
         self.clean_old_nodes_from_dict(self.nodes)
         self.clean_old_nodes_from_dict(self.nodes_no_position)
+
+    def _parse_neighbor_info(self, packet):
+        """Parse NEIGHBORINFO_APP packet."""
+        try:
+            from_id = packet.get('fromId')
+            if not from_id:
+                return
+            from_name = (
+                self.nodes.get(from_id, {}).get('name') or
+                self.nodes_no_position.get(from_id, {}).get('name') or
+                self.known_names.get(from_id) or
+                from_id
+            )
+            decoded = packet.get('decoded', {})
+            neighbor_info = decoded.get('neighborinfo', {})
+            neighbors_raw = neighbor_info.get('neighbors', [])
+            neighbors = []
+            for n in neighbors_raw:
+                neighbor_num = n.get('nodeId')
+                if not neighbor_num:
+                    continue
+                neighbor_id = f"!{neighbor_num:08x}" if isinstance(neighbor_num, int) else str(neighbor_num)
+                neighbor_name = (
+                    self.nodes.get(neighbor_id, {}).get('name') or
+                    self.nodes_no_position.get(neighbor_id, {}).get('name') or
+                    self.known_names.get(neighbor_id) or
+                    neighbor_id
+                )
+                neighbors.append({
+                    'id': neighbor_id,
+                    'name': neighbor_name,
+                    'snr': n.get('snr', 0) / 4.0
+                })
+            if neighbors:
+                self.stats_db.log_neighbor_info(from_id, from_name, neighbors)
+                print(f"[NEIGHBOR] {from_name} ({from_id}): {len(neighbors)} neighbors")
+        except Exception as e:
+            print(f"[NEIGHBOR] Parse error: {e}")
 
     def _update_message_names(self, node_id, name):
         """Update from_name in stored messages when a node's name becomes known"""
@@ -1461,6 +1556,8 @@ class ListenBasedMapper:
             self.parse_text_from_packet(packet)
         elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
             self._handle_traceroute_packet(packet)
+        elif portnum in ('NEIGHBORINFO_APP',):
+            self._parse_neighbor_info(packet)
 
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
@@ -2020,6 +2117,8 @@ class ListenBasedMapper:
                 self.parse_text_from_packet(packet)
             elif portnum in ('TRACEROUTE_APP', portnums_pb2.PortNum.Value('TRACEROUTE_APP')):
                 self._handle_traceroute_packet(packet)
+            elif portnum in ('NEIGHBORINFO_APP',):
+                self._parse_neighbor_info(packet)
             self._last_radio_packet_time = time.time()
         except Exception as e:
             print(f"[SERIAL] Packet routing error: {e}")
@@ -2796,6 +2895,7 @@ async def websocket_handler(websocket):
                         for anomaly in stats.get('anomalies', []):
                             if anomaly.get('node_id') in all_current_names:
                                 anomaly['node_name'] = all_current_names[anomaly['node_id']]
+                        stats['neighbor_graph'] = mapper.stats_db.get_neighbor_graph()
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
                     else:
                         await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))

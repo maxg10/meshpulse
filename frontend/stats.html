@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.3">
+    <link rel="stylesheet" href="styles.css?v=2.0.4">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.3 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.4 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -317,7 +317,7 @@
 <div class="full-width card">
     <div class="card-title">
         🕸️ Network Topology (24h)
-        <span class="info-icon" data-tip="Visual map of nodes heard by your tracker. Blue square = your node. Green circles = other nodes. Larger circle = more packets sent. Lines = relayed through your router.">ⓘ</span>
+        <span class="info-icon" data-tip="Network topology based on Neighbor Info packets (enable in Config → Telemetry). Shows direct radio links with SNR quality. Falls back to relay-based view if no neighbor data available.">ⓘ</span>
         <button class="topo-refresh-btn" onclick="refreshTopology()">🔄 Refresh layout</button>
     </div>
     <svg id="topology-svg"></svg>
@@ -325,7 +325,7 @@
         <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" fill="#3b82f6" rx="2"/></svg> Your node</span>
         <span><svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="#059669" opacity="0.8"/></svg> Heard node</span>
         <span><svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#6b7280" stroke-width="2"/></svg> Relayed through router</span>
-        <span style="color:#6b7280">Node size = packet volume &nbsp;·&nbsp; Scroll to zoom &nbsp;·&nbsp; Drag to pan</span>
+        <span style="color:#6b7280">🟢 SNR ≥5dB · 🟡 SNR ≥-5dB · 🔴 SNR &lt;-5dB · Enable Neighbor Info in Config for accurate topology</span>
     </div>
 </div>
 
@@ -528,6 +528,7 @@ function formatLastSeen(ts) {
 
 // ── Render all ───────────────────────────────────────────────────
 function renderAll(data) {
+    window._lastStatsData = data;
     // Data window
     setDataWindows(data.data_window_minutes || 0);
 
@@ -700,7 +701,104 @@ function renderHealthScore(rs, data) {
 }
 
 // ── Topology ─────────────────────────────────────────────────────
-function renderTopology(nodes, relayed, localId) {
+function renderTopology(topSenders, topologyData, localNodeId) {
+    const svg = document.getElementById('topology-svg');
+    if (!svg) return;
+    const neighborGraph = window._lastStatsData?.neighbor_graph || [];
+    if (neighborGraph.length > 0) {
+        renderNeighborTopology(neighborGraph, localNodeId);
+    } else {
+        renderRelayTopology(topSenders, topologyData, localNodeId);
+    }
+}
+
+function renderNeighborTopology(edges, localNodeId) {
+    const svg = document.getElementById('topology-svg');
+    const W = svg.clientWidth || 900;
+    const H = 380;
+    svg.innerHTML = '';
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+
+    if (!edges || edges.length === 0) {
+        svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#9ca3af" font-size="13">No neighbor data yet. Enable Neighbor Info module in Config → Telemetry.</text>`;
+        return;
+    }
+
+    const nodeMap = {};
+    const nodesMap = window._lastStatsData?.nodes || {};
+
+    edges.forEach(e => {
+        if (!nodeMap[e.from_id]) nodeMap[e.from_id] = { id: e.from_id, name: nodesMap[e.from_id]?.name || e.from_name || e.from_id };
+        if (!nodeMap[e.neighbor_id]) nodeMap[e.neighbor_id] = { id: e.neighbor_id, name: nodesMap[e.neighbor_id]?.name || e.neighbor_name || e.neighbor_id };
+    });
+
+    const nodes = Object.values(nodeMap);
+    const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.35;
+    nodes.forEach((n, i) => {
+        const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
+        n.x = cx + r * Math.cos(angle);
+        n.y = cy + r * Math.sin(angle);
+        if (n.id === localNodeId) { n.x = cx; n.y = cy; }
+    });
+
+    const ns = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const ls = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+
+    edges.forEach(e => {
+        const from = nodeMap[e.from_id];
+        const to = nodeMap[e.neighbor_id];
+        if (!from || !to) return;
+        const snr = e.snr ?? 0;
+        const color = snr >= 5 ? '#22c55e' : snr >= -5 ? '#eab308' : '#ef4444';
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
+        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('stroke', color);
+        line.setAttribute('stroke-width', '1.5');
+        line.setAttribute('stroke-opacity', '0.6');
+        ls.appendChild(line);
+        const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        lbl.setAttribute('x', mx); lbl.setAttribute('y', my);
+        lbl.setAttribute('text-anchor', 'middle');
+        lbl.setAttribute('font-size', '9');
+        lbl.setAttribute('fill', color);
+        lbl.textContent = snr.toFixed(1) + 'dB';
+        ls.appendChild(lbl);
+    });
+
+    nodes.forEach(n => {
+        const isLocal = n.id === localNodeId;
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('transform', `translate(${n.x},${n.y})`);
+        if (isLocal) {
+            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            rect.setAttribute('x', -8); rect.setAttribute('y', -8);
+            rect.setAttribute('width', 16); rect.setAttribute('height', 16);
+            rect.setAttribute('fill', '#3b82f6'); rect.setAttribute('rx', 2);
+            g.appendChild(rect);
+        } else {
+            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            circle.setAttribute('r', 7);
+            circle.setAttribute('fill', '#059669');
+            circle.setAttribute('opacity', '0.85');
+            g.appendChild(circle);
+        }
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('dy', 20);
+        text.setAttribute('font-size', '9');
+        text.setAttribute('fill', '#374151');
+        text.textContent = (n.name || n.id).substring(0, 12);
+        g.appendChild(text);
+        ns.appendChild(g);
+    });
+
+    svg.appendChild(ls);
+    svg.appendChild(ns);
+}
+
+function renderRelayTopology(nodes, relayed, localId) {
     const w = document.getElementById('topology-svg').clientWidth || 800;
     const h = 380;
 
@@ -842,7 +940,6 @@ function renderAnomalies(anomalies) {
     const grouped = Object.values(groups).sort((a, b) => b.latest_ts - a.latest_ts);
     el.innerHTML = grouped.slice(0,20).map(a => {
         const desc = getAnomalyDescription(a);
-        const fix  = getAnomalySuggestion(a.anomaly_type);
         const countBadge = a.count > 1 ? `<span class="count-badge">×${a.count}</span>` : '';
         const sevClass = a.severity==='error' ? 'error' : a.severity==='info' ? 'info' : '';
         const badgeClass = a.severity==='error' ? 'badge-red' : a.severity==='info' ? 'badge-info-sev' : 'badge-warn';
@@ -855,7 +952,6 @@ function renderAnomalies(anomalies) {
             ${countBadge}
             <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
             <div style="color:#374151;margin-top:4px">${desc}</div>
-            ${fix ? `<div style="color:#6b7280;font-size:10px;margin-top:2px">💡 ${fix}</div>` : ''}
         </div>`;
     }).join('');
 }

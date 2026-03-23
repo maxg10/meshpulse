@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.3">
+    <link rel="stylesheet" href="styles.css?v=2.0.4">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -134,7 +134,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.3 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.4 — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -428,6 +428,24 @@
         <div class="field-check">
             <input type="checkbox" id="telemetry.health_measurement_enabled" onchange="markChanged(this)">
             <label for="telemetry.health_measurement_enabled">Health Measurement Enabled <span class="tip" onmouseenter="showTip('Enables health sensors like pulse oximeter (MAX30102) or motion sensor (BMI270). Only useful if your device has these sensors attached.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-title">🕸️ Neighbor Info</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ Neighbor Info broadcasts your direct neighbors and link quality (SNR) to the mesh.
+            Enables accurate Network Topology visualization in Stats. Requires firmware 2.2.0+.
+            Interval cannot be less than 4 hours (14400s).
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="neighborinfo.neighbor_info_enabled" onchange="markChanged(this)">
+            <label for="neighborinfo.neighbor_info_enabled">Neighbor Info Enabled</label>
+        </div>
+        <div class="field">
+            <label>Update Interval (seconds)</label>
+            <div class="desc">Minimum: 14400s (4 hours)</div>
+            <input type="number" id="neighborinfo.update_interval" min="14400" max="86400"
+                oninput="markChanged(this)">
         </div>
     </div>
 </div>
@@ -1112,6 +1130,10 @@ function populateForm(config) {
     setField('telemetry.environment_screen_enabled', config.telemetry?.environment_screen_enabled ?? false);
     setField('telemetry.health_measurement_enabled', config.telemetry?.health_measurement_enabled ?? false);
     setField('telemetry.health_update_interval', config.telemetry?.health_update_interval ?? 0);
+
+    // Neighborinfo
+    setField('neighborinfo.neighbor_info_enabled', config.neighborinfo?.neighbor_info_enabled ?? false);
+    setField('neighborinfo.update_interval', config.neighborinfo?.update_interval ?? 14400);
 
     // Fixed position - pre-fill from current node position
     if (config.current_position) {
