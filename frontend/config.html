@@ -218,11 +218,12 @@
                 <label>Rebroadcast Mode <span class="tip" onmouseenter="showTip('ALL: rebroadcast everything. LOCAL_ONLY: only rebroadcast to local nodes. KNOWN_ONLY: only rebroadcast to known nodes. NONE: no rebroadcast.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">Controls which packets are rebroadcast</div>
                 <select id="device.rebroadcast_mode" onchange="markChanged(this)">
-                    <option value="0">ALL</option>
+                    <option value="0">ALL (rebroadcast everything)</option>
                     <option value="1">ALL_SKIP_DECODING</option>
-                    <option value="2">LOCAL_ONLY</option>
-                    <option value="3">KNOWN_ONLY</option>
-                    <option value="4">NONE</option>
+                    <option value="2">LOCAL_ONLY (only direct neighbors)</option>
+                    <option value="3">KNOWN_ONLY (only known nodes)</option>
+                    <option value="4">NONE (no rebroadcast)</option>
+                    <option value="5">KNOWN_ONLY v2</option>
                 </select>
             </div>
         </div>
