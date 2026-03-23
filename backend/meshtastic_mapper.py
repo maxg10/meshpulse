@@ -663,7 +663,16 @@ class ListenBasedMapper:
 
                         # Store no-GPS nodes
                         self.nodes_no_position = nodes_no_pos
-                    
+
+                        # Restore names from known_names cache if node name = node_id
+                        known = data.get('known_names', {})
+                        for node_id, node in nodes.items():
+                            if node.get('name') == node_id and node_id in known:
+                                node['name'] = known[node_id]
+                        for node_id, node in nodes_no_pos.items():
+                            if node.get('name') == node_id and node_id in known:
+                                node['name'] = known[node_id]
+
                         loaded_msgs = data.get('messages', {})
                         if isinstance(loaded_msgs, list):
                             self._loaded_messages = {0: loaded_msgs} if loaded_msgs else {}
@@ -2050,6 +2059,19 @@ class ListenBasedMapper:
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
                 self._refresh_all_message_names()
 
+                # Also refresh node names in memory from known_names
+                refreshed = 0
+                for node_id, node in self.nodes.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                for node_id, node in self.nodes_no_position.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                if refreshed:
+                    print(f"[LOAD] Refreshed {refreshed} node names from known_names cache")
+
                 last_save = time.time()
                 first_save_done = False
 
@@ -2246,6 +2268,19 @@ class ListenBasedMapper:
                     self.stats_db.backfill_names(all_known)
                     print(f"[STATS] Backfilled names for {len(all_known)} nodes")
                 self._refresh_all_message_names()
+
+                # Also refresh node names in memory from known_names
+                refreshed = 0
+                for node_id, node in self.nodes.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                for node_id, node in self.nodes_no_position.items():
+                    if node.get('name') == node_id and node_id in self.known_names:
+                        node['name'] = self.known_names[node_id]
+                        refreshed += 1
+                if refreshed:
+                    print(f"[LOAD] Refreshed {refreshed} node names from known_names cache")
 
                 last_save = time.time()
                 first_save_done = False
