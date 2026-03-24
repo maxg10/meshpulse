@@ -151,7 +151,7 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.5 — NeighborInfo Topology
+## What's New in v2.0.6 — NeighborInfo Topology
 
 **Config page (new):**
 - 📱 Full device configuration via web UI — Device, LoRa, Position, Telemetry, Network, Bluetooth
