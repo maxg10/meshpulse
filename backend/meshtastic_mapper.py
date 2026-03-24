@@ -2967,7 +2967,12 @@ async def websocket_handler(websocket):
                     if mapper:
                         stats = mapper.stats_db.get_stats_summary(mapper.local_node_id)
                         stats['local_node_id'] = mapper.local_node_id
-                        stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
+                        # Send only id->name mapping, not full node data (saves ~100KB per stats request)
+                        all_nodes = {**mapper.nodes, **mapper.nodes_no_position}
+                        stats['nodes'] = {
+                            nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
+                            for nid, n in all_nodes.items()
+                        }
                         stats['tracker_info'] = getattr(mapper, 'tracker_info', {})
                         # Geographic stats: farthest node, avg distance of direct nodes
                         geo = {'farthest_node_id': None, 'farthest_node_name': None,
