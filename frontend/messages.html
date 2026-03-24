@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Messages</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.6">
+    <link rel="stylesheet" href="styles.css?v=2.0.7">
     <style>
         * { box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
@@ -154,7 +154,7 @@
 <body>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.6 — Messages</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.7 — Messages</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -199,6 +199,16 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────
+function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 let ws = null;
 let allMessages = {};
 let activeChannel = 0;
@@ -372,15 +382,15 @@ function updateMessagesDisplay() {
             const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
             const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
             const dmBtn = msg.from_id !== trackerInfo.node_id
-                ? `<button onclick="selectDMNode('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
+                ? `<button onclick="selectDMNode('${escHtml(msg.from_id)}','${escHtml(msg.from_name||msg.from_id)}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
                 : '';
             return `
             <div class="${itemClass}">
                 <div class="msg-header">
                     <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                    <span class="msg-sender">${senderName}${dmLabel}</span>${dmBtn}
+                    <span class="msg-sender">${escHtml(senderName)}${dmLabel}</span>${dmBtn}
                 </div>
-                <div class="msg-text">${msg.text}</div>
+                <div class="msg-text">${escHtml(msg.text)}</div>
             </div>`;
         }).join('');
     } else {
@@ -511,6 +521,71 @@ function playBeep() {
 }
 
 connectWS();
+
+// Check for updates (non-blocking, once per session)
+setTimeout(checkForUpdates, 3000);
+
+async function checkForUpdates() {
+    if (sessionStorage.getItem('update_checked')) return;
+    sessionStorage.setItem('update_checked', '1');
+    try {
+        const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {
+            headers: { 'Accept': 'application/vnd.github.v3+json' }
+        });
+        if (!resp.ok) return;
+        const release = await resp.json();
+        const latestTag = release.tag_name || '';
+        const latestVer = latestTag.replace('v', '').replace('-stable', '');
+        const currentVer = '2.0.7';
+        if (latestVer && latestVer !== currentVer && isNewerVersion(latestVer, currentVer)) {
+            showUpdateBanner(latestVer, release.name, release.body, release.html_url);
+        }
+    } catch (e) { /* silently ignore — no internet or GitHub down */ }
+}
+
+function isNewerVersion(latest, current) {
+    const a = latest.split('.').map(Number);
+    const b = current.split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((a[i]||0) > (b[i]||0)) return true;
+        if ((a[i]||0) < (b[i]||0)) return false;
+    }
+    return false;
+}
+
+function showUpdateBanner(version, name, body, url) {
+    const banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;background:#1d4ed8;color:white;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:13px;max-width:320px;cursor:pointer;font-family:Arial,sans-serif;';
+    banner.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <b>🚀 Update available: v${escHtml(version)}</b>
+            <span onclick="document.getElementById('update-banner').remove()" style="cursor:pointer;opacity:0.7;margin-left:12px;font-size:16px">✕</span>
+        </div>
+        <div style="font-size:11px;opacity:0.9;margin-bottom:8px">${escHtml(name)}</div>
+        <div style="display:flex;gap:8px">
+            <button onclick="document.getElementById('update-modal').style.display='flex'" style="background:white;color:#1d4ed8;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold">📋 What's new</button>
+            <a href="${escHtml(url)}" target="_blank" style="background:rgba(255,255,255,0.2);color:white;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:12px">GitHub →</a>
+        </div>`;
+    document.body.appendChild(banner);
+    const modal = document.createElement('div');
+    modal.id = 'update-modal';
+    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;';
+    modal.innerHTML = `
+        <div style="background:white;border-radius:10px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+                <h2 style="font-size:16px;color:#1f2937">🚀 ${escHtml(name)}</h2>
+                <span onclick="document.getElementById('update-modal').style.display='none'" style="cursor:pointer;font-size:20px;color:#6b7280">✕</span>
+            </div>
+            <pre style="font-size:12px;color:#374151;white-space:pre-wrap;font-family:Arial,sans-serif;line-height:1.6">${escHtml(body)}</pre>
+            <div style="margin-top:16px;display:flex;gap:8px">
+                <a href="${escHtml(url)}" target="_blank" style="background:#1d4ed8;color:white;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:bold">View on GitHub →</a>
+                <button onclick="document.getElementById('update-modal').style.display='none'" style="background:#f3f4f6;color:#374151;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">Close</button>
+            </div>
+        </div>`;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+}
 </script>
 </body>
 </html>

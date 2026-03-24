@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v2.0.6 (NeighborInfo parser, topology visualization, Config toggle)
+**Current Version:** v2.0.7 (Security hardening, XSS fix, topology zoom/pan, auto-update check)
 
 ## Running & Deployment
 
@@ -181,6 +181,17 @@ meshtastic-network-mapper/
 ├── LICENSE                       # MIT License
 └── .gitignore                    # Git ignore rules
 ```
+
+## Recent Changes (v2.0.7)
+
+- XSS fix: `escHtml()` added to all frontend files (index, stats, config, messages)
+- Security: `sanitize_str()`, `sanitize_message()`, `sanitize_node_id()` for all radio packet input
+- Security: `safe_json()` with UTF-8 validation before WebSocket send; 64KB WS message size limit
+- feat: auto-update check via GitHub API with changelog popup (once per session, non-blocking)
+- fix: stats WebSocket message size reduced (~120KB → ~15KB, send only id+name in nodes map)
+- fix: topology zoom/pan with +/- buttons, center-anchored zoom, state preserved between refreshes
+- fix: page visibility handler restores data after browser sleep/wake
+- fix: suppress websockets handshake log noise from browser reconnects
 
 ## Recent Changes (v2.0)
 
