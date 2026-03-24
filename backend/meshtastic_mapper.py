@@ -61,12 +61,16 @@ def sanitize_node_id(s):
 def safe_json(obj):
     """JSON serialize with UTF-8 support, fallback to ASCII if needed."""
     try:
-        return json.dumps(obj, ensure_ascii=False)
-    except (UnicodeEncodeError, ValueError):
+        result = json.dumps(obj, ensure_ascii=False)
+        # Validate UTF-8 encoding before sending
+        result.encode('utf-8')
+        return result
+    except (UnicodeEncodeError, ValueError) as e:
+        print(f"[WS] UTF-8 encode error: {e}, falling back to ASCII")
         try:
             return json.dumps(obj, ensure_ascii=True)
-        except Exception as e:
-            print(f"[WS] JSON encode error: {e}")
+        except Exception as e2:
+            print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
 VERSION = '2.0.5'
@@ -1906,6 +1910,11 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping node_update broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
 
@@ -1921,6 +1930,11 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping node_deleted broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
@@ -1936,6 +1950,11 @@ class ListenBasedMapper:
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping new_message broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
 
@@ -1953,6 +1972,11 @@ class ListenBasedMapper:
             'timestamp': int(time.time())
         })
 
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping stats_update broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
 
     async def broadcast_connection_status(self, status, message=''):
@@ -1969,6 +1993,11 @@ class ListenBasedMapper:
             'tracker': getattr(self, 'tracker_info', {}),
             'timestamp': int(time.time())
         })
+        try:
+            msg.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping connection_status broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
