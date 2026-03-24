@@ -28,6 +28,15 @@ from meshtastic.protobuf import config_pb2
 # Suppress noisy websockets handshake errors (browser reconnect after sleep)
 logging.getLogger('websockets.server').setLevel(logging.CRITICAL)
 
+def sanitize_str(s):
+    """Ensure string is valid UTF-8, replace invalid bytes."""
+    if not isinstance(s, str):
+        return str(s) if s is not None else ''
+    try:
+        return s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    except Exception:
+        return ''
+
 VERSION = '2.0.5'
 
 # Global set of connected WebSocket clients
@@ -1065,7 +1074,7 @@ class ListenBasedMapper:
 
     def _update_message_names(self, node_id, name):
         """Update from_name in stored messages when a node's name becomes known"""
-        self.known_names[node_id] = name
+        self.known_names[node_id] = sanitize_str(name)
         for ch_msgs in self.messages.values():
             for msg in ch_msgs:
                 if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
@@ -1203,7 +1212,7 @@ class ListenBasedMapper:
                 node_data = ast.literal_eval(dict_str)
                 
                 node_id = node_data.get('user', {}).get('id')
-                name = node_data.get('user', {}).get('longName', node_id)
+                name = sanitize_str(node_data.get('user', {}).get('longName', node_id))
                 pos = node_data.get('position', {})
                 
                 if not node_id:
@@ -1259,7 +1268,7 @@ class ListenBasedMapper:
 
                 else:
                     # Node without position - save to separate dict
-                    name = node_data.get('user', {}).get('longName', node_id)
+                    name = sanitize_str(node_data.get('user', {}).get('longName', node_id))
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
                     last_heard = node_data.get('lastHeard', int(time.time()))
@@ -1590,7 +1599,7 @@ class ListenBasedMapper:
             if not node_id:
                 return False
 
-            name = user.get('longName') or node_id
+            name = sanitize_str(user.get('longName') or node_id)
             role = user.get('role', 'CLIENT')
             snr = packet.get('rxSnr', 0)
             via_mqtt = packet.get('viaMqtt', False)
@@ -1856,11 +1865,19 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
-            'type': 'node_update',
-            'node': node_data,
-            'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        try:
+            message = json.dumps({
+                'type': 'node_update',
+                'node': node_data,
+                'timestamp': int(time.time())
+            }, ensure_ascii=False)
+        except (UnicodeEncodeError, ValueError) as e:
+            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
+            message = json.dumps({
+                'type': 'node_update',
+                'node': node_data,
+                'timestamp': int(time.time())
+            }, ensure_ascii=True)
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1871,11 +1888,19 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
-            'type': 'node_deleted',
-            'node_id': node_id,
-            'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        try:
+            message = json.dumps({
+                'type': 'node_deleted',
+                'node_id': node_id,
+                'timestamp': int(time.time())
+            }, ensure_ascii=False)
+        except (UnicodeEncodeError, ValueError) as e:
+            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
+            message = json.dumps({
+                'type': 'node_deleted',
+                'node_id': node_id,
+                'timestamp': int(time.time())
+            }, ensure_ascii=True)
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1886,11 +1911,19 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
-            'type': 'new_message',
-            'message': message_data,
-            'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        try:
+            message = json.dumps({
+                'type': 'new_message',
+                'message': message_data,
+                'timestamp': int(time.time())
+            }, ensure_ascii=False)
+        except (UnicodeEncodeError, ValueError) as e:
+            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
+            message = json.dumps({
+                'type': 'new_message',
+                'message': message_data,
+                'timestamp': int(time.time())
+            }, ensure_ascii=True)
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1903,12 +1936,21 @@ class ListenBasedMapper:
 
         max_dist, farthest_id = self.get_max_distance()
 
-        message = json.dumps({
-            'type': 'stats_update',
-            'max_distance_km': max_dist,
-            'farthest_node': farthest_id,
-            'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        try:
+            message = json.dumps({
+                'type': 'stats_update',
+                'max_distance_km': max_dist,
+                'farthest_node': farthest_id,
+                'timestamp': int(time.time())
+            }, ensure_ascii=False)
+        except (UnicodeEncodeError, ValueError) as e:
+            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
+            message = json.dumps({
+                'type': 'stats_update',
+                'max_distance_km': max_dist,
+                'farthest_node': farthest_id,
+                'timestamp': int(time.time())
+            }, ensure_ascii=True)
 
         websockets.broadcast(set(connected_clients), message)
 
@@ -1916,16 +1958,29 @@ class ListenBasedMapper:
         """Broadcast connection status to all connected WebSocket clients"""
         if not connected_clients:
             return
-        msg = json.dumps({
-            'type': 'connection_status',
-            'status': status,
-            'message': str(message),
-            'connection_type': self.connection_type,
-            'host': self.host,
-            'port': self.port,
-            'tracker': getattr(self, 'tracker_info', {}),
-            'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        try:
+            msg = json.dumps({
+                'type': 'connection_status',
+                'status': status,
+                'message': str(message),
+                'connection_type': self.connection_type,
+                'host': self.host,
+                'port': self.port,
+                'tracker': getattr(self, 'tracker_info', {}),
+                'timestamp': int(time.time())
+            }, ensure_ascii=False)
+        except (UnicodeEncodeError, ValueError) as e:
+            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
+            msg = json.dumps({
+                'type': 'connection_status',
+                'status': status,
+                'message': str(message),
+                'connection_type': self.connection_type,
+                'host': self.host,
+                'port': self.port,
+                'tracker': getattr(self, 'tracker_info', {}),
+                'timestamp': int(time.time())
+            }, ensure_ascii=True)
         websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
