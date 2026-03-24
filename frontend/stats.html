@@ -366,6 +366,16 @@ function positionTip(e) {
 }
 
 // ── State ────────────────────────────────────────────────────────
+function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 let ws = null;
 let radioStats = null;
 let charts = {};
@@ -609,14 +619,14 @@ function renderAll(data) {
         const tip = getNodeSuggestion(s);
         const tipBtn = tip ? `<button class="tip-btn" data-ntip="${tip.replace(/"/g,'&quot;')}">💡</button>` : '';
         return `<tr>
-            <td style="font-weight:500">${s.from_name !== s.from_id ? s.from_name : '—'}</td>
-            <td style="font-size:11px;color:#6b7280;font-family:monospace">${s.from_id}</td>
+            <td style="font-weight:500">${escHtml(s.from_name !== s.from_id ? s.from_name : '—')}</td>
+            <td style="font-size:11px;color:#6b7280;font-family:monospace">${escHtml(s.from_id)}</td>
             <td>${s.cnt}</td>
             <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
             <td style="font-size:10px;color:#374151;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${s.last_relay && !s.last_relay.startsWith('relay_') ? (nodesMap[s.last_relay]||s.last_relay) : 'direct'}">${s.last_relay && !s.last_relay.startsWith('relay_') ? `<span style="color:#2563eb">${(nodesMap[s.last_relay]||s.last_relay).substring(0,15)}</span>` : '—'}</td>
             <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
             <td>${tipBtn}</td>
-            <td><button onclick="clearNodeStats('${s.from_id}', '${(s.from_name||s.from_id).replace(/'/g,"\\'")}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
+            <td><button onclick="clearNodeStats('${escHtml(s.from_id)}', '${escHtml(s.from_name||s.from_id)}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
         </tr>`;
     }).join('');
     // Attach tip listeners
@@ -634,7 +644,7 @@ function renderAll(data) {
     } else {
         tbody2.innerHTML = (data.relayed_nodes||[]).map(n => `
             <tr>
-                <td title="${n.from_id}">${n.from_name||n.from_id}</td>
+                <td title="${escHtml(n.from_id)}">${escHtml(n.from_name||n.from_id)}</td>
                 <td>${n.cnt}</td>
                 <td>${relTotal>0 ? (n.cnt/relTotal*100).toFixed(1) : '-'}%</td>
             </tr>`).join('');
@@ -1040,8 +1050,8 @@ function renderAnomalies(anomalies) {
             <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()} · ${agoStr}</span>
             <span class="badge ${badgeClass}">${a.anomaly_type}</span>
             ${countBadge}
-            <strong style="margin-left:6px">${a.node_name||a.node_id}</strong>
-            <div style="color:#374151;margin-top:4px">${desc}</div>
+            <strong style="margin-left:6px">${escHtml(a.node_name||a.node_id)}</strong>
+            <div style="color:#374151;margin-top:4px">${escHtml(desc)}</div>
         </div>`;
     }).join('');
 }

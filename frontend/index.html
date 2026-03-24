@@ -531,6 +531,16 @@
             return m + 'm';
         }
 
+        function escHtml(s) {
+            if (!s) return '';
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
         function timeAgo(timestamp) {
             const now = Math.floor(Date.now() / 1000);
             const diff = now - timestamp;
@@ -814,9 +824,9 @@
                 else if (age > 3600) dotColor = '#eab308';
                 const hopsText = n.hops != null ? ` | hops: ${n.hops}` : '';
                 const gpsIcon = hasGps ? '' : ' 📍';
-                return `<div class="search-result-item" onclick="selectSearchResult('${n.id}', ${hasGps})">
+                return `<div class="search-result-item" onclick="selectSearchResult('${escHtml(n.id)}', ${hasGps})">
                     <div class="search-dot" style="background:${dotColor}"></div>
-                    <span>${n.name}${gpsIcon} <span style="color:#666;font-size:11px;">${n.id}${hopsText}</span></span>
+                    <span>${escHtml(n.name)}${gpsIcon} <span style="color:#666;font-size:11px;">${escHtml(n.id)}${hopsText}</span></span>
                 </div>`;
             }).join('');
             resultsEl.style.display = 'block';
@@ -981,7 +991,7 @@
                 return hops.map((h, i) => {
                     const snrText = h.snr != null ? ` <span style="color:${snrToColor(h.snr)}">(${h.snr} dB)</span>` : '';
                     const arrow = i < hops.length - 1 ? '<span class="hop-arrow">→</span>' : '';
-                    return `<span class="traceroute-hop">${h.name || h.id || '?'}${snrText}${arrow}</span>`;
+                    return `<span class="traceroute-hop">${escHtml(h.name || h.id || '?')}${snrText}${arrow}</span>`;
                 }).join('');
             }
 
@@ -1310,8 +1320,8 @@
                     const isHighlighted = n.id === highlightedNoGpsId;
                     return `
                     <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
-                        <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${n.name}</div>
-                        <div class="meta">${n.id} | ${n.role}</div>
+                        <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
+                        <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="window.location.href='/meshtastic/messages.html';event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
@@ -1337,11 +1347,11 @@
                 let pop;
                 if (isOwnTracker(n.id)) {
                     pop = `<div class="node-popup">
-                        <b>📍 ${n.name}</b><br>
+                        <b>📍 ${escHtml(n.name)}</b><br>
                         YOUR TRACKER<br>
-                        Role: ${n.role || 'CLIENT'}<br>
-                        Pos: ${n.lat}, ${n.lon}<br>
-                        Alt: ${n.alt}m
+                        Role: ${escHtml(n.role || 'CLIENT')}<br>
+                        Pos: ${escHtml(String(n.lat))}, ${escHtml(String(n.lon))}<br>
+                        Alt: ${escHtml(String(n.alt))}m
                     </div>`;
                 } else {
                     let distanceInfo = '';
@@ -1357,13 +1367,13 @@
                           + `<button onclick="window.location.href='/meshtastic/messages.html'">✉️ Message</button>`
                         : '';
                     pop = `<div class="node-popup">
-                        <b>${n.name}</b><br>
-                        ID: ${n.id}<br>
-                        Role: ${n.role || 'CLIENT'}<br>
-                        SNR: ${n.snr} dB<br>
-                        RSSI: ${n.rssi != null ? n.rssi + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
-                        Alt: ${n.alt}m<br>
-                        Hops: ${n.hops != null ? n.hops : '?'}<br>
+                        <b>${escHtml(n.name)}</b><br>
+                        ID: ${escHtml(n.id)}<br>
+                        Role: ${escHtml(n.role || 'CLIENT')}<br>
+                        SNR: ${escHtml(String(n.snr))} dB<br>
+                        RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
+                        Alt: ${escHtml(String(n.alt))}m<br>
+                        Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'}<br>
                         ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
                 }

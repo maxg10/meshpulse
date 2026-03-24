@@ -199,6 +199,16 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────
+function escHtml(s) {
+    if (!s) return '';
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
 let ws = null;
 let allMessages = {};
 let activeChannel = 0;
@@ -372,15 +382,15 @@ function updateMessagesDisplay() {
             const isIncomingDM = isDM && msg.from_id !== trackerInfo.node_id;
             const dmLabel = isIncomingDM ? ' <span style="color:#f97316;font-size:10px">(DM)</span>' : '';
             const dmBtn = msg.from_id !== trackerInfo.node_id
-                ? `<button onclick="selectDMNode('${msg.from_id}','${(msg.from_name||msg.from_id).replace(/'/g,"\\'").replace(/"/g,'&quot;')}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
+                ? `<button onclick="selectDMNode('${escHtml(msg.from_id)}','${escHtml(msg.from_name||msg.from_id)}');event.stopPropagation();" class="dm-btn" style="margin-left:4px;vertical-align:middle" title="Send DM">DM</button>`
                 : '';
             return `
             <div class="${itemClass}">
                 <div class="msg-header">
                     <span class="msg-time">${formatMessageTime(msg.timestamp)}</span>
-                    <span class="msg-sender">${senderName}${dmLabel}</span>${dmBtn}
+                    <span class="msg-sender">${escHtml(senderName)}${dmLabel}</span>${dmBtn}
                 </div>
-                <div class="msg-text">${msg.text}</div>
+                <div class="msg-text">${escHtml(msg.text)}</div>
             </div>`;
         }).join('');
     } else {
