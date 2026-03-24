@@ -6,6 +6,7 @@ Meshtastic Mapper - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
 Real-time updates via WebSocket
 """
+import logging
 import subprocess
 import json
 import time
@@ -23,6 +24,9 @@ import meshtastic.tcp_interface
 import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
+
+# Suppress noisy websockets handshake errors (browser reconnect after sleep)
+logging.getLogger('websockets.server').setLevel(logging.CRITICAL)
 
 VERSION = '2.0.5'
 
