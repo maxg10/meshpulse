@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-#ver 2.0.5
+#ver 2.0.6
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
 Real-time updates via WebSocket
 """
+import logging
 import subprocess
 import json
 import time
@@ -24,7 +25,55 @@ import meshtastic.serial_interface
 from meshtastic import mesh_pb2, portnums_pb2
 from meshtastic.protobuf import config_pb2
 
-VERSION = '2.0.5'
+# Suppress noisy websockets handshake errors (browser reconnect after sleep)
+logging.getLogger('websockets.server').setLevel(logging.CRITICAL)
+
+def sanitize_str(s, max_len=100):
+    """Sanitize string from radio: valid UTF-8, max length, strip control chars."""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ''
+    try:
+        s = s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    except Exception:
+        s = ''
+    s = ''.join(c for c in s if ord(c) >= 32 or c in '\n\t')
+    return s[:max_len]
+
+def sanitize_message(s, max_len=512):
+    """Sanitize message text — allow more chars but still limit length."""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ''
+    try:
+        s = s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    except Exception:
+        s = ''
+    return s[:max_len]
+
+def sanitize_node_id(s):
+    """Sanitize node ID — must be !hex format."""
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    if not s.startswith('!') or len(s) < 3 or len(s) > 12:
+        return s[:12] if s else None
+    return s
+
+def safe_json(obj):
+    """JSON serialize with UTF-8 support, fallback to ASCII if needed."""
+    try:
+        result = json.dumps(obj, ensure_ascii=False)
+        # Validate UTF-8 encoding before sending
+        result.encode('utf-8')
+        return result
+    except (UnicodeEncodeError, ValueError) as e:
+        print(f"[WS] UTF-8 encode error: {e}, falling back to ASCII")
+        try:
+            return json.dumps(obj, ensure_ascii=True)
+        except Exception as e2:
+            print(f"[WS] JSON encode error: {e2}")
+            return json.dumps({'type': 'error', 'message': 'encode_error'})
+
+VERSION = '2.0.6'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -1024,7 +1073,7 @@ class ListenBasedMapper:
     def _parse_neighbor_info(self, packet):
         """Parse NEIGHBORINFO_APP packet."""
         try:
-            from_id = packet.get('fromId')
+            from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
                 return
             from_name = (
@@ -1041,8 +1090,10 @@ class ListenBasedMapper:
                 neighbor_num = n.get('nodeId')
                 if not neighbor_num:
                     continue
-                neighbor_id = f"!{neighbor_num:08x}" if isinstance(neighbor_num, int) else str(neighbor_num)
-                neighbor_name = (
+                neighbor_id = sanitize_node_id(f"!{neighbor_num:08x}" if isinstance(neighbor_num, int) else str(neighbor_num))
+                if not neighbor_id:
+                    continue
+                neighbor_name = sanitize_str(
                     self.nodes.get(neighbor_id, {}).get('name') or
                     self.nodes_no_position.get(neighbor_id, {}).get('name') or
                     self.known_names.get(neighbor_id) or
@@ -1061,7 +1112,7 @@ class ListenBasedMapper:
 
     def _update_message_names(self, node_id, name):
         """Update from_name in stored messages when a node's name becomes known"""
-        self.known_names[node_id] = name
+        self.known_names[node_id] = sanitize_str(name)
         for ch_msgs in self.messages.values():
             for msg in ch_msgs:
                 if msg.get('from_id') == node_id and msg.get('from_name') == node_id:
@@ -1199,7 +1250,7 @@ class ListenBasedMapper:
                 node_data = ast.literal_eval(dict_str)
                 
                 node_id = node_data.get('user', {}).get('id')
-                name = node_data.get('user', {}).get('longName', node_id)
+                name = sanitize_str(node_data.get('user', {}).get('longName', node_id), max_len=50)
                 pos = node_data.get('position', {})
                 
                 if not node_id:
@@ -1255,7 +1306,7 @@ class ListenBasedMapper:
 
                 else:
                     # Node without position - save to separate dict
-                    name = node_data.get('user', {}).get('longName', node_id)
+                    name = sanitize_str(node_data.get('user', {}).get('longName', node_id), max_len=50)
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
                     last_heard = node_data.get('lastHeard', int(time.time()))
@@ -1582,12 +1633,12 @@ class ListenBasedMapper:
         try:
             decoded = packet.get('decoded', {})
             user = decoded.get('user', {})
-            node_id = user.get('id') or packet.get('fromId')
+            node_id = sanitize_node_id(user.get('id') or packet.get('fromId'))
             if not node_id:
                 return False
 
-            name = user.get('longName') or node_id
-            role = user.get('role', 'CLIENT')
+            name = sanitize_str(user.get('longName') or node_id, max_len=50)
+            role = sanitize_str(user.get('role', 'CLIENT'), max_len=30)
             snr = packet.get('rxSnr', 0)
             via_mqtt = packet.get('viaMqtt', False)
 
@@ -1661,7 +1712,7 @@ class ListenBasedMapper:
     def parse_position_from_packet(self, packet):
         """Parse a POSITION_APP packet received via the Python API."""
         try:
-            node_id = packet.get('fromId')
+            node_id = sanitize_node_id(packet.get('fromId'))
             if not node_id:
                 return False
 
@@ -1738,7 +1789,7 @@ class ListenBasedMapper:
     def parse_telemetry_from_packet(self, packet):
         """Parse a TELEMETRY_APP packet received via the Python API."""
         try:
-            node_id = packet.get('fromId')
+            node_id = sanitize_node_id(packet.get('fromId'))
             if not node_id:
                 return False
 
@@ -1802,12 +1853,12 @@ class ListenBasedMapper:
     def parse_text_from_packet(self, packet):
         """Parse a TEXT_MESSAGE_APP packet received via the Python API."""
         try:
-            from_id = packet.get('fromId')
+            from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
                 return False
 
             to_id = packet.get('toId', '^all')
-            text = packet.get('decoded', {}).get('text', '')
+            text = sanitize_message(packet.get('decoded', {}).get('text', ''))
             if not text:
                 return False
 
@@ -1852,13 +1903,18 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
+        message = safe_json({
             'type': 'node_update',
             'node': node_data,
             'timestamp': int(time.time())
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping node_update broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted update for {node_data['id']} to {len(connected_clients)} clients")
 
@@ -1867,13 +1923,18 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
+        message = safe_json({
             'type': 'node_deleted',
             'node_id': node_id,
             'timestamp': int(time.time())
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping node_deleted broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted deletion for {node_id} to {len(connected_clients)} clients")
 
@@ -1882,13 +1943,18 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        message = json.dumps({
+        message = safe_json({
             'type': 'new_message',
             'message': message_data,
             'timestamp': int(time.time())
         })
 
         # Broadcast to all connected clients
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping new_message broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
         print(f"[WS] Broadcasted message from {message_data['from_id']} to {len(connected_clients)} clients")
 
@@ -1899,20 +1965,25 @@ class ListenBasedMapper:
 
         max_dist, farthest_id = self.get_max_distance()
 
-        message = json.dumps({
+        message = safe_json({
             'type': 'stats_update',
             'max_distance_km': max_dist,
             'farthest_node': farthest_id,
             'timestamp': int(time.time())
         })
 
+        try:
+            message.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping stats_update broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), message)
 
     async def broadcast_connection_status(self, status, message=''):
         """Broadcast connection status to all connected WebSocket clients"""
         if not connected_clients:
             return
-        msg = json.dumps({
+        msg = safe_json({
             'type': 'connection_status',
             'status': status,
             'message': str(message),
@@ -1922,6 +1993,11 @@ class ListenBasedMapper:
             'tracker': getattr(self, 'tracker_info', {}),
             'timestamp': int(time.time())
         })
+        try:
+            msg.encode('utf-8')
+        except UnicodeEncodeError as e:
+            print(f"[WS] Skipping connection_status broadcast — UTF-8 validation failed: {e}")
+            return
         websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
@@ -2579,12 +2655,12 @@ async def run_send_message(text, channel_index, dest_id, websocket):
     """
     try:
         if not mapper:
-            await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}))
+            await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}, ensure_ascii=False))
             return
 
         await websocket.send(json.dumps({
             'type': 'send_status', 'status': 'sending', 'connection_type': mapper.connection_type
-        }))
+        }, ensure_ascii=False))
 
         if mapper.connection_type == 'tcp':
             # TCP: create a separate TCPInterface just for sending; do NOT stop listener
@@ -2618,8 +2694,8 @@ async def run_send_message(text, channel_index, dest_id, websocket):
                 success, msg = False, 'Send timed out'
 
             print(f"[SEND] TCP ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
-            await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
-            await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+            await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}, ensure_ascii=False))
+            await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}, ensure_ascii=False))
 
             if success:
                 sent_message = {
@@ -2661,8 +2737,8 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             success, msg = False, 'Send timed out'
 
         print(f"[SEND] Serial ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
-        await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}))
-        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}))
+        await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}, ensure_ascii=False))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}, ensure_ascii=False))
 
         if success:
             sent_message = {
@@ -2680,12 +2756,12 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             await mapper.broadcast_message(sent_message)
 
     except asyncio.TimeoutError:
-        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}))
-        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}, ensure_ascii=False))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}, ensure_ascii=False))
     except Exception as e:
         print(f"[SEND] Error: {e}")
-        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}))
-        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}))
+        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}, ensure_ascii=False))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}, ensure_ascii=False))
 
 
 async def run_traceroute(node_id, websocket):
@@ -2698,7 +2774,7 @@ async def run_traceroute(node_id, websocket):
         if not mapper:
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': 'Mapper not ready'
-            }))
+            }, ensure_ascii=False))
             return
 
         conn_type = mapper.connection_type
@@ -2708,7 +2784,7 @@ async def run_traceroute(node_id, websocket):
             'type': 'traceroute_status',
             'status': 'starting',
             'connection_type': conn_type
-        }))
+        }, ensure_ascii=False))
 
         loop = asyncio.get_event_loop()
 
@@ -2718,7 +2794,7 @@ async def run_traceroute(node_id, websocket):
                     await websocket.send(json.dumps({
                         'type': 'traceroute_result',
                         'node_id': node_id, 'error': 'Not connected'
-                    }))
+                    }, ensure_ascii=False))
                     return
 
                 mapper._pending_traceroute_result = None
@@ -2750,19 +2826,19 @@ async def run_traceroute(node_id, websocket):
                             'route': result['route'],
                             'route_back': result['route_back'],
                             'raw': ''
-                        }))
+                        }, ensure_ascii=False))
                         return
 
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
                     'node_id': node_id,
                     'error': 'Timeout - no traceroute response received'
-                }))
+                }, ensure_ascii=False))
             except Exception as e:
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
                     'node_id': node_id, 'error': str(e)
-                }))
+                }, ensure_ascii=False))
             return
 
         # TCP: run alongside listener, no interruption needed
@@ -2782,7 +2858,7 @@ async def run_traceroute(node_id, websocket):
         except asyncio.TimeoutError:
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
-            }))
+            }, ensure_ascii=False))
             return
 
         route, route_back = parse_traceroute_output(raw_output)
@@ -2813,14 +2889,14 @@ async def run_traceroute(node_id, websocket):
             'route': route,
             'route_back': route_back,
             'raw': raw_output
-        }))
+        }, ensure_ascii=False))
 
     except Exception as e:
         print(f"[TRACEROUTE] Error: {e}")
         try:
             await websocket.send(json.dumps({
                 'type': 'traceroute_result', 'node_id': node_id, 'error': str(e)
-            }))
+            }, ensure_ascii=False))
         except Exception:
             pass
 
@@ -2837,7 +2913,7 @@ async def handle_connection_change(data, websocket):
         await websocket.send(json.dumps({
             'type': 'connection_status', 'status': 'failed',
             'message': 'No host specified'
-        }))
+        }, ensure_ascii=False))
         return
 
     print(f"[WS] Connection change: {connection_type} {host or ''}")
@@ -2860,7 +2936,7 @@ async def handle_connection_change(data, websocket):
     await websocket.send(json.dumps({
         'type': 'connection_status', 'status': 'connecting',
         'message': f'Switching to {connection_type}' + (f': {host}' if host else '') + '...'
-    }))
+    }, ensure_ascii=False))
 
     # Terminate current subprocess to trigger run() exit
     if mapper and mapper.current_process:
@@ -2881,7 +2957,7 @@ async def websocket_handler(websocket):
 
     # Send current connection status and tracker info to newly connected client
     if mapper and hasattr(mapper, 'tracker_info'):
-        status_msg = json.dumps({
+        status_msg = safe_json({
             'type': 'connection_status',
             'status': 'connected',
             'message': '',
@@ -2896,6 +2972,9 @@ async def websocket_handler(websocket):
     try:
         async for message in websocket:
             try:
+                if len(message) > 65536:  # 64KB max
+                    print(f"[WS] Message too large ({len(message)} bytes), ignoring")
+                    continue
                 data = json.loads(message)
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
@@ -2917,7 +2996,12 @@ async def websocket_handler(websocket):
                     if mapper:
                         stats = mapper.stats_db.get_stats_summary(mapper.local_node_id)
                         stats['local_node_id'] = mapper.local_node_id
-                        stats['nodes'] = {**mapper.nodes, **mapper.nodes_no_position}
+                        # Send only id->name mapping, not full node data (saves ~100KB per stats request)
+                        all_nodes = {**mapper.nodes, **mapper.nodes_no_position}
+                        stats['nodes'] = {
+                            nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
+                            for nid, n in all_nodes.items()
+                        }
                         stats['tracker_info'] = getattr(mapper, 'tracker_info', {})
                         # Geographic stats: farthest node, avg distance of direct nodes
                         geo = {'farthest_node_id': None, 'farthest_node_name': None,
@@ -2958,9 +3042,9 @@ async def websocket_handler(websocket):
                             if anomaly.get('node_id') in all_current_names:
                                 anomaly['node_name'] = all_current_names[anomaly['node_id']]
                         stats['neighbor_graph'] = mapper.stats_db.get_neighbor_graph()
-                        await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}))
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}, ensure_ascii=False))
                     else:
-                        await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}))
+                        await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}, ensure_ascii=False))
                 elif data.get('type') == 'get_config':
                     if mapper:
                         try:
@@ -2968,13 +3052,13 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'config_data',
                                 'config': config
-                            }))
+                            }, ensure_ascii=False))
                         except Exception as e:
                             print(f"[CONFIG] get_config error: {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_error',
                                 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
 
                 elif data.get('type') == 'set_config':
                     if mapper:
@@ -2987,7 +3071,7 @@ async def websocket_handler(websocket):
                                 'success': True,
                                 'rebooting': reboot,
                                 'applied': result
-                            }))
+                            }, ensure_ascii=False))
                         except (BrokenPipeError, OSError) as e:
                             # Device disconnected after reboot — this is expected
                             print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
@@ -2997,14 +3081,14 @@ async def websocket_handler(websocket):
                                 'applied': [],
                                 'rebooting': True,
                                 'warning': 'Device disconnected — config likely saved, device may be rebooting'
-                            }))
+                            }, ensure_ascii=False))
                         except Exception as e:
                             print(f"[CONFIG] Error: {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': False,
                                 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
 
                 elif data.get('type') == 'set_fixed_position':
                     if mapper:
@@ -3022,13 +3106,13 @@ async def websocket_handler(websocket):
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': True
-                                }))
+                                }, ensure_ascii=False))
                                 print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
                                 'success': False, 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
 
                 elif data.get('type') == 'clear_fixed_position':
                     if mapper:
@@ -3043,13 +3127,13 @@ async def websocket_handler(websocket):
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': True
-                                }))
+                                }, ensure_ascii=False))
                                 print(f"[CONFIG] Fixed position cleared")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
                                 'success': False, 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
 
                 elif data.get('type') == 'get_favorites':
                     try:
@@ -3069,14 +3153,14 @@ async def websocket_handler(websocket):
                                     'name': user.get('longName', user.get('id', node_num)),
                                     'short_name': user.get('shortName', '??'),
                                 })
-                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}, ensure_ascii=False))
                     except Exception as e:
-                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': [], 'error': str(e)}))
+                        await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': [], 'error': str(e)}, ensure_ascii=False))
 
                 elif data.get('type') == 'set_favorite':
                     node_id = data.get('node_id', '').strip()
                     if not node_id:
-                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}, ensure_ascii=False))
                     elif mapper:
                         try:
                             iface = None
@@ -3087,7 +3171,7 @@ async def websocket_handler(websocket):
                             if not iface:
                                 raise Exception('No active connection')
                             iface.localNode.setFavorite(node_id)
-                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'set', 'node_id': node_id}))
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'set', 'node_id': node_id}, ensure_ascii=False))
                             try:
                                 favorites = []
                                 for node_num, node_info in iface.nodes.items():
@@ -3098,16 +3182,16 @@ async def websocket_handler(websocket):
                                             'name': user.get('longName', user.get('id', node_num)),
                                             'short_name': user.get('shortName', '??'),
                                         })
-                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}, ensure_ascii=False))
                             except:
                                 pass
                         except Exception as e:
-                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}, ensure_ascii=False))
 
                 elif data.get('type') == 'remove_favorite':
                     node_id = data.get('node_id', '').strip()
                     if not node_id:
-                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}))
+                        await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': 'No node ID provided'}, ensure_ascii=False))
                     elif mapper:
                         try:
                             iface = None
@@ -3118,7 +3202,7 @@ async def websocket_handler(websocket):
                             if not iface:
                                 raise Exception('No active connection')
                             iface.localNode.removeFavorite(node_id)
-                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'remove', 'node_id': node_id}))
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': True, 'action': 'remove', 'node_id': node_id}, ensure_ascii=False))
                             try:
                                 favorites = []
                                 for node_num, node_info in iface.nodes.items():
@@ -3129,11 +3213,11 @@ async def websocket_handler(websocket):
                                             'name': user.get('longName', user.get('id', node_num)),
                                             'short_name': user.get('shortName', '??'),
                                         })
-                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}))
+                                await websocket.send(json.dumps({'type': 'favorites_list', 'favorites': favorites}, ensure_ascii=False))
                             except:
                                 pass
                         except Exception as e:
-                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}))
+                            await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}, ensure_ascii=False))
 
                 elif data.get('type') == 'save_channel':
                     try:
@@ -3190,13 +3274,13 @@ async def websocket_handler(websocket):
                             'type': 'channel_save_result',
                             'success': True,
                             'index': ch_index
-                        }))
+                        }, ensure_ascii=False))
                     except Exception as e:
                         await websocket.send(json.dumps({
                             'type': 'channel_save_result',
                             'success': False,
                             'error': str(e)
-                        }))
+                        }, ensure_ascii=False))
 
                 elif data.get('type') == 'clear_node_stats':
                     node_id = data.get('node_id', '').strip()
@@ -3207,7 +3291,7 @@ async def websocket_handler(websocket):
                                 'type': 'clear_node_stats_result',
                                 'node_id': node_id,
                                 'success': True
-                            }))
+                            }, ensure_ascii=False))
                             print(f"[STATS] Cleared packet history for {node_id}")
                         except Exception as e:
                             await websocket.send(json.dumps({
@@ -3215,7 +3299,7 @@ async def websocket_handler(websocket):
                                 'node_id': node_id,
                                 'success': False,
                                 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
                 elif data.get('type') == 'get_elevation':
                     locations = data.get('locations', [])
                     if locations and len(locations) <= 100:
@@ -3229,12 +3313,12 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'elevation_data',
                                 'elevations': [r['elevation'] for r in result.get('results', [])]
-                            }))
+                            }, ensure_ascii=False))
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'elevation_data',
                                 'error': str(e)
-                            }))
+                            }, ensure_ascii=False))
                 elif data.get('type') == 'get_messages':
                     if mapper:
                         channel_names = {}
@@ -3255,12 +3339,12 @@ async def websocket_handler(websocket):
                             'type': 'messages_data',
                             'messages': mapper.messages,
                             'channel_names': channel_names
-                        }))
+                        }, ensure_ascii=False))
 
                 elif data.get('type') == 'request_position':
                     node_id = data.get('node_id')
                     if not node_id:
-                        await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}))
+                        await websocket.send(json.dumps({'type': 'error', 'message': 'No node_id provided'}, ensure_ascii=False))
                         return
                     try:
                         from meshtastic.protobuf import mesh_pb2, portnums_pb2
@@ -3290,11 +3374,11 @@ async def websocket_handler(websocket):
 
                         await loop.run_in_executor(None, _do_request)
                         print(f"[POS] Requested position from {node_id}")
-                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}))
+                        await websocket.send(json.dumps({'type': 'position_requested', 'node_id': node_id}, ensure_ascii=False))
 
                     except Exception as e:
                         print(f"[POS] Error requesting position from {node_id}: {e}")
-                        await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}))
+                        await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}, ensure_ascii=False))
 
                 elif data.get('type') == 'ping_device':
                     try:
@@ -3307,12 +3391,12 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({
                             'type': 'pong_device',
                             'connected': is_connected
-                        }))
+                        }, ensure_ascii=False))
                     except Exception as e:
                         await websocket.send(json.dumps({
                             'type': 'pong_device',
                             'connected': False
-                        }))
+                        }, ensure_ascii=False))
 
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")

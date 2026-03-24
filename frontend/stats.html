@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.5">
+    <link rel="stylesheet" href="styles.css?v=2.0.6">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.5 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.6 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -370,6 +370,8 @@ let ws = null;
 let radioStats = null;
 let charts = {};
 let topoState = null;
+// Global topology zoom state
+let _topoScale = 1, _topoPanX = 0, _topoPanY = 0;
 
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
@@ -715,7 +717,7 @@ function renderTopology(topSenders, topologyData, localNodeId) {
 function renderNeighborTopology(edges, localNodeId) {
     const svg = document.getElementById('topology-svg');
     const W = svg.clientWidth || 900;
-    const H = 380;
+    const H = 500;
     svg.innerHTML = '';
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
@@ -723,6 +725,94 @@ function renderNeighborTopology(edges, localNodeId) {
         svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#9ca3af" font-size="13">No neighbor data yet. Enable Neighbor Info module in Config → Telemetry.</text>`;
         return;
     }
+
+    let scale = _topoScale, panX = _topoPanX, panY = _topoPanY, isDragging = false, startX, startY;
+
+    // Zoom group — all content goes inside this
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.id = 'topo-zoom-group';
+    svg.appendChild(g);
+
+    function applyTransform() {
+        g.setAttribute('transform', `translate(${panX},${panY}) scale(${scale})`);
+        _topoScale = scale; _topoPanX = panX; _topoPanY = panY;
+    }
+
+    applyTransform(); // restore saved state
+
+    // Mouse drag to pan
+    svg.addEventListener('mousedown', (e) => {
+        if (e.target.closest('.topo-btn')) return;
+        isDragging = true;
+        startX = e.clientX - panX;
+        startY = e.clientY - panY;
+        svg.style.cursor = 'grabbing';
+    });
+    svg.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+        panX = e.clientX - startX;
+        panY = e.clientY - startY;
+        applyTransform();
+    });
+    svg.addEventListener('mouseup', () => { isDragging = false; svg.style.cursor = 'grab'; });
+    svg.addEventListener('mouseleave', () => { isDragging = false; svg.style.cursor = 'grab'; });
+    svg.style.cursor = 'grab';
+
+    function zoomBy(factor) {
+        const svgW = svg.clientWidth || 900;
+        const svgH = parseInt(svg.getAttribute('height')) || 500;
+        const cx = svgW / 2, cy = svgH / 2;
+        panX = cx - factor * (cx - panX);
+        panY = cy - factor * (cy - panY);
+        scale = Math.max(0.2, Math.min(5, scale * factor));
+        applyTransform();
+    }
+
+    // +/- buttons inside SVG (like Leaflet)
+    const btnGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    btnGroup.setAttribute('class', 'topo-controls');
+
+    function makeSvgBtn(x, y, label, onClick) {
+        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        bg.setAttribute('class', 'topo-btn');
+        bg.style.cursor = 'pointer';
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', x); rect.setAttribute('y', y);
+        rect.setAttribute('width', 24); rect.setAttribute('height', 24);
+        rect.setAttribute('rx', 4);
+        rect.setAttribute('fill', 'white');
+        rect.setAttribute('stroke', '#d1d5db');
+        rect.setAttribute('stroke-width', '1');
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', x + 12); text.setAttribute('y', y + 16);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('font-size', '14');
+        text.setAttribute('font-weight', 'bold');
+        text.setAttribute('fill', '#374151');
+        text.setAttribute('pointer-events', 'none');
+        text.textContent = label;
+
+        bg.appendChild(rect);
+        bg.appendChild(text);
+        bg.addEventListener('click', onClick);
+
+        bg.addEventListener('mouseenter', () => rect.setAttribute('fill', '#f3f4f6'));
+        bg.addEventListener('mouseleave', () => rect.setAttribute('fill', 'white'));
+
+        return bg;
+    }
+
+    btnGroup.appendChild(makeSvgBtn(4, 10, '+', () => zoomBy(1.3)));
+    btnGroup.appendChild(makeSvgBtn(4, 38, '−', () => zoomBy(1 / 1.3)));
+    btnGroup.appendChild(makeSvgBtn(4, 70, '⌂', () => {
+        scale = 1; panX = 0; panY = 0;
+        _topoScale = 1; _topoPanX = 0; _topoPanY = 0;
+        applyTransform();
+    }));
+
+    svg.appendChild(btnGroup); // buttons on top of zoom group
 
     const nodeMap = {};
     const nodesMap = window._lastStatsData?.nodes || {};
@@ -794,13 +884,13 @@ function renderNeighborTopology(edges, localNodeId) {
         ns.appendChild(g);
     });
 
-    svg.appendChild(ls);
-    svg.appendChild(ns);
+    g.appendChild(ls);
+    g.appendChild(ns);
 }
 
 function renderRelayTopology(nodes, relayed, localId) {
     const w = document.getElementById('topology-svg').clientWidth || 800;
-    const h = 380;
+    const h = 500;
 
     // Build data
     const nodeMap = {};
@@ -861,7 +951,7 @@ function _topoInit(newNodes, newLinks, w, h) {
 function refreshTopology() {
     if (!topoState || !topoState.lastNodes) return;
     topoState.sim = null;
-    _topoInit(topoState.lastNodes, topoState.lastLinks, topoState.lastW || 800, 380);
+    _topoInit(topoState.lastNodes, topoState.lastLinks, topoState.lastW || 800, 500);
 }
 
 function _topoDrawLinks(links) {

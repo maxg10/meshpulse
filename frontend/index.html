@@ -8,12 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.0.5">
+    <link rel="stylesheet" href="styles.css?v=2.0.6">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.5 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.6 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -157,8 +157,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.0.5 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.0.5';
+        // Meshtastic Mapper v2.0.6 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.0.6';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -264,6 +264,7 @@
                         if (data.type === 'node_update') {
                             console.log('[WS] Node update:', data.node.id);
                             handleNodeUpdate(data.node);
+                            window._lastUpdateTime = Date.now();
                         } else if (data.type === 'node_deleted') {
                             console.log('[WS] Node deleted:', data.node_id);
 
@@ -325,6 +326,7 @@
                             handleTracerouteResult(data);
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
+                            window._lastUpdateTime = Date.now();
                             updateConnectionStatus(data.status);
                             const msgEl = document.getElementById('connection-message');
                             msgEl.textContent = data.message || '';
@@ -424,6 +426,22 @@
             }
         }
         
+        // Refresh data when page becomes visible again (after sleep/tab switch)
+        document.addEventListener('visibilitychange', function() {
+            if (!document.hidden) {
+                const now = Date.now();
+                const lastUpdate = window._lastUpdateTime || 0;
+                const staleMs = 60000; // 60 seconds
+                if (now - lastUpdate > staleMs) {
+                    console.log('[MAP] Page visible after sleep — refreshing data...');
+                    fetchNodesJSON(0);
+                    if (ws && ws.readyState !== WebSocket.OPEN) {
+                        connectWebSocket();
+                    }
+                }
+            }
+        });
+
         function handleNodeUpdate(node) {
             // Update node in appropriate list
             if (node.lat && node.lon) {
