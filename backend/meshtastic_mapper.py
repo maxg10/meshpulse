@@ -28,14 +28,46 @@ from meshtastic.protobuf import config_pb2
 # Suppress noisy websockets handshake errors (browser reconnect after sleep)
 logging.getLogger('websockets.server').setLevel(logging.CRITICAL)
 
-def sanitize_str(s):
-    """Ensure string is valid UTF-8, replace invalid bytes."""
+def sanitize_str(s, max_len=100):
+    """Sanitize string from radio: valid UTF-8, max length, strip control chars."""
     if not isinstance(s, str):
-        return str(s) if s is not None else ''
+        s = str(s) if s is not None else ''
     try:
-        return s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+        s = s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
     except Exception:
-        return ''
+        s = ''
+    s = ''.join(c for c in s if ord(c) >= 32 or c in '\n\t')
+    return s[:max_len]
+
+def sanitize_message(s, max_len=512):
+    """Sanitize message text — allow more chars but still limit length."""
+    if not isinstance(s, str):
+        s = str(s) if s is not None else ''
+    try:
+        s = s.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
+    except Exception:
+        s = ''
+    return s[:max_len]
+
+def sanitize_node_id(s):
+    """Sanitize node ID — must be !hex format."""
+    if not isinstance(s, str):
+        return None
+    s = s.strip()
+    if not s.startswith('!') or len(s) < 3 or len(s) > 12:
+        return s[:12] if s else None
+    return s
+
+def safe_json(obj):
+    """JSON serialize with UTF-8 support, fallback to ASCII if needed."""
+    try:
+        return json.dumps(obj, ensure_ascii=False)
+    except (UnicodeEncodeError, ValueError):
+        try:
+            return json.dumps(obj, ensure_ascii=True)
+        except Exception as e:
+            print(f"[WS] JSON encode error: {e}")
+            return json.dumps({'type': 'error', 'message': 'encode_error'})
 
 VERSION = '2.0.5'
 
@@ -1037,7 +1069,7 @@ class ListenBasedMapper:
     def _parse_neighbor_info(self, packet):
         """Parse NEIGHBORINFO_APP packet."""
         try:
-            from_id = packet.get('fromId')
+            from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
                 return
             from_name = (
@@ -1054,8 +1086,10 @@ class ListenBasedMapper:
                 neighbor_num = n.get('nodeId')
                 if not neighbor_num:
                     continue
-                neighbor_id = f"!{neighbor_num:08x}" if isinstance(neighbor_num, int) else str(neighbor_num)
-                neighbor_name = (
+                neighbor_id = sanitize_node_id(f"!{neighbor_num:08x}" if isinstance(neighbor_num, int) else str(neighbor_num))
+                if not neighbor_id:
+                    continue
+                neighbor_name = sanitize_str(
                     self.nodes.get(neighbor_id, {}).get('name') or
                     self.nodes_no_position.get(neighbor_id, {}).get('name') or
                     self.known_names.get(neighbor_id) or
@@ -1212,7 +1246,7 @@ class ListenBasedMapper:
                 node_data = ast.literal_eval(dict_str)
                 
                 node_id = node_data.get('user', {}).get('id')
-                name = sanitize_str(node_data.get('user', {}).get('longName', node_id))
+                name = sanitize_str(node_data.get('user', {}).get('longName', node_id), max_len=50)
                 pos = node_data.get('position', {})
                 
                 if not node_id:
@@ -1268,7 +1302,7 @@ class ListenBasedMapper:
 
                 else:
                     # Node without position - save to separate dict
-                    name = sanitize_str(node_data.get('user', {}).get('longName', node_id))
+                    name = sanitize_str(node_data.get('user', {}).get('longName', node_id), max_len=50)
                     snr = node_data.get('snr', 0)
                     role = node_data.get('user', {}).get('role', 'CLIENT')
                     last_heard = node_data.get('lastHeard', int(time.time()))
@@ -1595,12 +1629,12 @@ class ListenBasedMapper:
         try:
             decoded = packet.get('decoded', {})
             user = decoded.get('user', {})
-            node_id = user.get('id') or packet.get('fromId')
+            node_id = sanitize_node_id(user.get('id') or packet.get('fromId'))
             if not node_id:
                 return False
 
-            name = sanitize_str(user.get('longName') or node_id)
-            role = user.get('role', 'CLIENT')
+            name = sanitize_str(user.get('longName') or node_id, max_len=50)
+            role = sanitize_str(user.get('role', 'CLIENT'), max_len=30)
             snr = packet.get('rxSnr', 0)
             via_mqtt = packet.get('viaMqtt', False)
 
@@ -1674,7 +1708,7 @@ class ListenBasedMapper:
     def parse_position_from_packet(self, packet):
         """Parse a POSITION_APP packet received via the Python API."""
         try:
-            node_id = packet.get('fromId')
+            node_id = sanitize_node_id(packet.get('fromId'))
             if not node_id:
                 return False
 
@@ -1751,7 +1785,7 @@ class ListenBasedMapper:
     def parse_telemetry_from_packet(self, packet):
         """Parse a TELEMETRY_APP packet received via the Python API."""
         try:
-            node_id = packet.get('fromId')
+            node_id = sanitize_node_id(packet.get('fromId'))
             if not node_id:
                 return False
 
@@ -1815,12 +1849,12 @@ class ListenBasedMapper:
     def parse_text_from_packet(self, packet):
         """Parse a TEXT_MESSAGE_APP packet received via the Python API."""
         try:
-            from_id = packet.get('fromId')
+            from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
                 return False
 
             to_id = packet.get('toId', '^all')
-            text = packet.get('decoded', {}).get('text', '')
+            text = sanitize_message(packet.get('decoded', {}).get('text', ''))
             if not text:
                 return False
 
@@ -1865,19 +1899,11 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        try:
-            message = json.dumps({
-                'type': 'node_update',
-                'node': node_data,
-                'timestamp': int(time.time())
-            }, ensure_ascii=False)
-        except (UnicodeEncodeError, ValueError) as e:
-            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
-            message = json.dumps({
-                'type': 'node_update',
-                'node': node_data,
-                'timestamp': int(time.time())
-            }, ensure_ascii=True)
+        message = safe_json({
+            'type': 'node_update',
+            'node': node_data,
+            'timestamp': int(time.time())
+        })
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1888,19 +1914,11 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        try:
-            message = json.dumps({
-                'type': 'node_deleted',
-                'node_id': node_id,
-                'timestamp': int(time.time())
-            }, ensure_ascii=False)
-        except (UnicodeEncodeError, ValueError) as e:
-            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
-            message = json.dumps({
-                'type': 'node_deleted',
-                'node_id': node_id,
-                'timestamp': int(time.time())
-            }, ensure_ascii=True)
+        message = safe_json({
+            'type': 'node_deleted',
+            'node_id': node_id,
+            'timestamp': int(time.time())
+        })
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1911,19 +1929,11 @@ class ListenBasedMapper:
         if not connected_clients:
             return
 
-        try:
-            message = json.dumps({
-                'type': 'new_message',
-                'message': message_data,
-                'timestamp': int(time.time())
-            }, ensure_ascii=False)
-        except (UnicodeEncodeError, ValueError) as e:
-            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
-            message = json.dumps({
-                'type': 'new_message',
-                'message': message_data,
-                'timestamp': int(time.time())
-            }, ensure_ascii=True)
+        message = safe_json({
+            'type': 'new_message',
+            'message': message_data,
+            'timestamp': int(time.time())
+        })
 
         # Broadcast to all connected clients
         websockets.broadcast(set(connected_clients), message)
@@ -1936,21 +1946,12 @@ class ListenBasedMapper:
 
         max_dist, farthest_id = self.get_max_distance()
 
-        try:
-            message = json.dumps({
-                'type': 'stats_update',
-                'max_distance_km': max_dist,
-                'farthest_node': farthest_id,
-                'timestamp': int(time.time())
-            }, ensure_ascii=False)
-        except (UnicodeEncodeError, ValueError) as e:
-            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
-            message = json.dumps({
-                'type': 'stats_update',
-                'max_distance_km': max_dist,
-                'farthest_node': farthest_id,
-                'timestamp': int(time.time())
-            }, ensure_ascii=True)
+        message = safe_json({
+            'type': 'stats_update',
+            'max_distance_km': max_dist,
+            'farthest_node': farthest_id,
+            'timestamp': int(time.time())
+        })
 
         websockets.broadcast(set(connected_clients), message)
 
@@ -1958,29 +1959,16 @@ class ListenBasedMapper:
         """Broadcast connection status to all connected WebSocket clients"""
         if not connected_clients:
             return
-        try:
-            msg = json.dumps({
-                'type': 'connection_status',
-                'status': status,
-                'message': str(message),
-                'connection_type': self.connection_type,
-                'host': self.host,
-                'port': self.port,
-                'tracker': getattr(self, 'tracker_info', {}),
-                'timestamp': int(time.time())
-            }, ensure_ascii=False)
-        except (UnicodeEncodeError, ValueError) as e:
-            print(f"[WS] JSON encode error: {e}, retrying with ensure_ascii=True")
-            msg = json.dumps({
-                'type': 'connection_status',
-                'status': status,
-                'message': str(message),
-                'connection_type': self.connection_type,
-                'host': self.host,
-                'port': self.port,
-                'tracker': getattr(self, 'tracker_info', {}),
-                'timestamp': int(time.time())
-            }, ensure_ascii=True)
+        msg = safe_json({
+            'type': 'connection_status',
+            'status': status,
+            'message': str(message),
+            'connection_type': self.connection_type,
+            'host': self.host,
+            'port': self.port,
+            'tracker': getattr(self, 'tracker_info', {}),
+            'timestamp': int(time.time())
+        })
         websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
@@ -2940,7 +2928,7 @@ async def websocket_handler(websocket):
 
     # Send current connection status and tracker info to newly connected client
     if mapper and hasattr(mapper, 'tracker_info'):
-        status_msg = json.dumps({
+        status_msg = safe_json({
             'type': 'connection_status',
             'status': 'connected',
             'message': '',
@@ -2949,12 +2937,15 @@ async def websocket_handler(websocket):
             'port': mapper.port,
             'tracker': mapper.tracker_info,
             'timestamp': int(time.time())
-        }, ensure_ascii=False)
+        })
         await websocket.send(status_msg)
 
     try:
         async for message in websocket:
             try:
+                if len(message) > 65536:  # 64KB max
+                    print(f"[WS] Message too large ({len(message)} bytes), ignoring")
+                    continue
                 data = json.loads(message)
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
