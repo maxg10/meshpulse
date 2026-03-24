@@ -151,7 +151,32 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.6 — NeighborInfo Topology
+## What's New in v2.0.7 — Security & Topology
+
+**🔒 Security Hardening**
+- XSS protection — all node names, messages and IDs escaped in frontend
+- Input sanitization — all radio packet data sanitized (UTF-8, length limits, control chars)
+- WebSocket security — 64KB message size limit, UTF-8 validation before send
+- Safe JSON encoding — emoji and special chars handled correctly
+
+**🕸️ Network Topology**
+- Zoom & pan with +/- buttons (like Leaflet map controls)
+- Drag to pan the graph
+- Zoom state preserved between auto-refreshes
+
+**🔄 Reliability**
+- Auto-refresh after browser wakes from sleep
+- TCP and serial disconnect detection improved
+- Fixed data loss on service restart
+- Fixed node names lost after restart
+
+**🆕 Auto-update check**
+- Banner appears when newer version is available on GitHub
+- Changelog popup shows what's new
+
+---
+
+## What's New in v2.0.5 — NeighborInfo Topology
 
 **Config page (new):**
 - 📱 Full device configuration via web UI — Device, LoRa, Position, Telemetry, Network, Bluetooth
