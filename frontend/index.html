@@ -63,6 +63,7 @@
         <div id="connection-message" style="font-size:10px;color:#666;margin-top:2px;"></div>
         </div>
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
+        <small id="tracker-battery-line" style="display:none"><b>Battery:</b> <span id="tracker-battery">-</span></small><br>
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
         <label class="filter-label">
@@ -1308,7 +1309,12 @@
             }
             updateConnectionStatus('connected');
             document.getElementById('tracker-uptime').textContent = formatUptime(trackerInfo.uptime_seconds);
-            
+            const bat = trackerInfo.battery_level;
+            if (bat != null) {
+                document.getElementById('tracker-battery').innerHTML = batteryIcon(bat);
+                document.getElementById('tracker-battery-line').style.display = '';
+            }
+
             // Update no-GPS nodes panel
             const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
             let filteredNoGps = noMqttNodes;

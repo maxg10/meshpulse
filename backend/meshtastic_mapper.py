@@ -1859,6 +1859,29 @@ class ListenBasedMapper:
                 if tracker_updated:
                     asyncio.run(self.broadcast_connection_status('connected'))
 
+                # Also save battery/telemetry to nodes dict for popup display
+                battery_level = device_metrics.get('batteryLevel')
+                voltage = device_metrics.get('voltage')
+                uptime_seconds = device_metrics.get('uptimeSeconds')
+                env = telemetry.get('environmentMetrics', {})
+                temperature = env.get('temperature')
+
+                telemetry_update = {}
+                if battery_level is not None:
+                    telemetry_update['battery_level'] = round(battery_level, 1)
+                    self.tracker_info['battery_level'] = round(battery_level, 1)
+                if voltage is not None:
+                    telemetry_update['voltage'] = round(voltage, 2)
+                    self.tracker_info['voltage'] = round(voltage, 2)
+                if uptime_seconds is not None:
+                    telemetry_update['uptime_seconds'] = uptime_seconds
+                if temperature is not None:
+                    telemetry_update['temperature'] = round(temperature, 1)
+                    self.tracker_info['temperature'] = round(temperature, 1)
+
+                if telemetry_update and self.local_node_id in self.nodes:
+                    self.nodes[self.local_node_id].update(telemetry_update)
+
             rssi = packet.get('rxRssi') or None
             if rssi is not None:
                 if node_id in self.nodes:
