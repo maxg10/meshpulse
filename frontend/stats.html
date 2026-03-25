@@ -530,6 +530,24 @@ function getNodeSuggestion(s) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
+function formatUptime(seconds) {
+    if (!seconds && seconds !== 0) return '-';
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function batteryIcon(level) {
+    if (level === null || level === undefined) return '';
+    const pct = Math.round(level);
+    const icon = pct >= 20 ? '🔋' : '🪫';
+    const color = pct >= 50 ? '#22c55e' : pct >= 20 ? '#eab308' : '#ef4444';
+    return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
+}
+
 function formatLastSeen(ts) {
     if (!ts) return '-';
     const diff = Math.floor(Date.now()/1000) - ts;

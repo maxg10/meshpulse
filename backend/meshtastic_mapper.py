@@ -1870,10 +1870,31 @@ class ListenBasedMapper:
                 relay_node_raw = packet.get('relayNode')
                 self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
 
+            # Save device metrics for all nodes (not just tracker)
+            device_metrics = telemetry.get('deviceMetrics', {})
+            battery_level = device_metrics.get('batteryLevel')
+            voltage = device_metrics.get('voltage')
+            uptime_seconds = device_metrics.get('uptimeSeconds')
+
+            env = telemetry.get('environmentMetrics', {})
+            temperature = env.get('temperature')
+
+            telemetry_update = {}
+            if battery_level is not None:
+                telemetry_update['battery_level'] = round(battery_level, 1)
+            if voltage is not None:
+                telemetry_update['voltage'] = round(voltage, 2)
+            if uptime_seconds is not None:
+                telemetry_update['uptime_seconds'] = uptime_seconds
+            if temperature is not None:
+                telemetry_update['temperature'] = round(temperature, 1)
+
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
                 self.nodes[node_id]['source'] = 'live'
+                if telemetry_update:
+                    self.nodes[node_id].update(telemetry_update)
                 print(f"♡ {node_id} telemetry heartbeat [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
@@ -1882,6 +1903,8 @@ class ListenBasedMapper:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
                 self.nodes_no_position[node_id]['seen_at'] = int(time.time())
                 self.nodes_no_position[node_id]['source'] = 'live'
+                if telemetry_update:
+                    self.nodes_no_position[node_id].update(telemetry_update)
                 print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
