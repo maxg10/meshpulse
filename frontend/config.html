@@ -161,6 +161,7 @@
     <button class="tab" onclick="switchTab('telemetry', this)">🔋 Telemetry</button>
     <button class="tab" onclick="switchTab('network', this)">🌐 Network</button>
     <button class="tab" onclick="switchTab('bluetooth', this)">🔵 Bluetooth</button>
+    <button class="tab" onclick="switchTab('mqtt', this)">📡 MQTT</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
 </div>
@@ -564,6 +565,88 @@
             <div class="desc">6-digit PIN when using Fixed PIN mode</div>
             <input type="number" id="bluetooth.fixed_pin" min="0" max="999999"
                 oninput="markChanged(this)" placeholder="123456">
+        </div>
+    </div>
+</div>
+
+<!-- MQTT tab -->
+<div id="tab-mqtt" class="tab-content">
+    <div class="card">
+        <div class="card-title">📡 MQTT Settings</div>
+        <div class="alert alert-warning" style="margin-bottom:12px">
+            ⚠️ MQTT bridges your mesh to the internet. Make sure you understand the privacy implications before enabling.
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.enabled" onchange="markChanged(this)">
+            <label for="mqtt.enabled">MQTT Enabled <span class="tip" onmouseenter="showTip('Enable MQTT integration. When enabled, your node will forward mesh packets to an MQTT broker over WiFi/internet.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>MQTT Server Address <span class="tip" onmouseenter="showTip('Hostname or IP of your MQTT broker. Default: mqtt.meshtastic.org',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Default: mqtt.meshtastic.org</div>
+                <input type="text" id="mqtt.address" maxlength="100" oninput="markChanged(this)" placeholder="mqtt.meshtastic.org">
+            </div>
+            <div class="field">
+                <label>Root Topic <span class="tip" onmouseenter="showTip('MQTT topic prefix. Default: msh. All messages published under this topic.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Topic prefix. Default: msh</div>
+                <input type="text" id="mqtt.root" maxlength="30" oninput="markChanged(this)" placeholder="msh">
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Username <span class="tip" onmouseenter="showTip('MQTT broker username. Leave empty for anonymous access.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Leave empty for anonymous</div>
+                <input type="text" id="mqtt.username" maxlength="64" oninput="markChanged(this)" placeholder="(optional)">
+            </div>
+            <div class="field">
+                <label>Password <span class="tip" onmouseenter="showTip('MQTT broker password.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">MQTT broker password</div>
+                <input type="password" id="mqtt.password" maxlength="64" oninput="markChanged(this)" placeholder="(optional)">
+            </div>
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.tls_enabled" onchange="markChanged(this)">
+            <label for="mqtt.tls_enabled">TLS Enabled <span class="tip" onmouseenter="showTip('Enable TLS/SSL encryption for MQTT connection. Recommended when connecting to remote brokers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.encryption_enabled" onchange="markChanged(this)">
+            <label for="mqtt.encryption_enabled">Encryption Enabled <span class="tip" onmouseenter="showTip('Encrypt packets before sending to MQTT. When disabled, packets are sent in plaintext — anyone subscribed to the topic can read them.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.json_enabled" onchange="markChanged(this)">
+            <label for="mqtt.json_enabled">JSON Enabled <span class="tip" onmouseenter="showTip('Publish decoded packets as JSON in addition to protobuf. Useful for integration with other tools.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.proxy_to_client_enabled" onchange="markChanged(this)">
+            <label for="mqtt.proxy_to_client_enabled">Proxy to Client Enabled <span class="tip" onmouseenter="showTip('Allow the connected client app to handle MQTT connection instead of the device. Useful when device has no WiFi.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">🗺️ Map Reporting</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ Map reporting sends your node position to the public Meshtastic map (meshtastic.org/map).
+            Your position will be visible to everyone.
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.map_reporting_enabled" onchange="markChanged(this)">
+            <label for="mqtt.map_reporting_enabled">Map Reporting Enabled <span class="tip" onmouseenter="showTip('Publish your position to the public Meshtastic map. Your node will appear on meshtastic.org/map visible to everyone.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Publish Interval (seconds) <span class="tip" onmouseenter="showTip('How often to publish position to the map. Default: 900s (15 min). Lower = more traffic.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Default: 900s (15 min)</div>
+                <input type="number" id="mqtt.map_publish_interval_secs" min="60" max="86400" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Approximate Location <span class="tip" onmouseenter="showTip('Precision bits for approximate location on public map. Higher = more precise. Lower = more private. Default: 32 (exact). Use 10-16 for privacy.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Precision bits (10=~10km, 32=exact)</div>
+                <input type="number" id="mqtt.position_precision" min="10" max="32" oninput="markChanged(this)">
+            </div>
         </div>
     </div>
 </div>
@@ -1171,6 +1254,20 @@ function populateForm(config) {
     // Neighborinfo
     setField('neighborinfo.neighbor_info_enabled', config.neighborinfo?.neighbor_info_enabled ?? false);
     setField('neighborinfo.update_interval', config.neighborinfo?.update_interval ?? 14400);
+
+    // MQTT
+    setField('mqtt.enabled', config.mqtt?.enabled ?? false);
+    setField('mqtt.address', config.mqtt?.address ?? 'mqtt.meshtastic.org');
+    setField('mqtt.root', config.mqtt?.root ?? 'msh');
+    setField('mqtt.username', config.mqtt?.username ?? '');
+    setField('mqtt.password', config.mqtt?.password ?? '');
+    setField('mqtt.tls_enabled', config.mqtt?.tls_enabled ?? false);
+    setField('mqtt.encryption_enabled', config.mqtt?.encryption_enabled ?? true);
+    setField('mqtt.json_enabled', config.mqtt?.json_enabled ?? false);
+    setField('mqtt.proxy_to_client_enabled', config.mqtt?.proxy_to_client_enabled ?? false);
+    setField('mqtt.map_reporting_enabled', config.mqtt?.map_reporting_enabled ?? false);
+    setField('mqtt.map_publish_interval_secs', config.mqtt?.map_publish_interval_secs ?? 900);
+    setField('mqtt.position_precision', config.mqtt?.position_precision ?? 32);
 
     // Fixed position - pre-fill from current node position
     if (config.current_position) {

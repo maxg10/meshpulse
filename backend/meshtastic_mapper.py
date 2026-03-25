@@ -876,6 +876,25 @@ class ListenBasedMapper:
             config['neighborinfo'] = {'neighbor_info_enabled': False, 'update_interval': 14400}
 
         try:
+            m = node.moduleConfig.mqtt
+            config['mqtt'] = {
+                'enabled': m.enabled,
+                'address': m.address,
+                'username': m.username,
+                'password': m.password,
+                'encryption_enabled': m.encryption_enabled,
+                'json_enabled': m.json_enabled,
+                'tls_enabled': m.tls_enabled,
+                'proxy_to_client_enabled': m.proxy_to_client_enabled,
+                'root': m.root,
+                'map_reporting_enabled': m.map_report_settings.publish_secs > 0 if hasattr(m, 'map_report_settings') else False,
+                'map_publish_interval_secs': m.map_report_settings.publish_secs if hasattr(m, 'map_report_settings') else 900,
+                'position_precision': m.map_report_settings.position_precision if hasattr(m, 'map_report_settings') else 32,
+            }
+        except Exception as e:
+            config['mqtt'] = {'error': str(e)}
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -1033,6 +1052,27 @@ class ListenBasedMapper:
                     node.moduleConfig.neighbor_info.update_interval = int(val)
             node.writeConfig('neighbor_info')
             applied.append('neighborinfo')
+
+        if 'mqtt' in changes:
+            m = node.moduleConfig.mqtt
+            mqtt_changes = changes['mqtt']
+            simple_fields = ['enabled', 'address', 'username', 'password',
+                             'encryption_enabled', 'json_enabled', 'tls_enabled',
+                             'proxy_to_client_enabled', 'root']
+            for key in simple_fields:
+                if key in mqtt_changes:
+                    setattr(m, key, mqtt_changes[key])
+            if 'map_reporting_enabled' in mqtt_changes or 'map_publish_interval_secs' in mqtt_changes:
+                if hasattr(m, 'map_report_settings'):
+                    if mqtt_changes.get('map_reporting_enabled'):
+                        m.map_report_settings.publish_secs = int(mqtt_changes.get('map_publish_interval_secs', 900))
+                    else:
+                        m.map_report_settings.publish_secs = 0
+            if 'position_precision' in mqtt_changes:
+                if hasattr(m, 'map_report_settings'):
+                    m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
+            node.writeConfig('mqtt')
+            applied.append('mqtt')
 
         if reboot:
             try:
