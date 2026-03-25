@@ -877,19 +877,20 @@ class ListenBasedMapper:
 
         try:
             m = node.moduleConfig.mqtt
+            mrs = getattr(m, 'map_report_settings', None)
             config['mqtt'] = {
-                'enabled': m.enabled,
-                'address': m.address,
-                'username': m.username,
-                'password': m.password,
-                'encryption_enabled': m.encryption_enabled,
-                'json_enabled': m.json_enabled,
-                'tls_enabled': m.tls_enabled,
-                'proxy_to_client_enabled': m.proxy_to_client_enabled,
-                'root': m.root,
-                'map_reporting_enabled': m.map_report_settings.publish_secs > 0 if hasattr(m, 'map_report_settings') else False,
-                'map_publish_interval_secs': m.map_report_settings.publish_secs if hasattr(m, 'map_report_settings') else 900,
-                'position_precision': m.map_report_settings.position_precision if hasattr(m, 'map_report_settings') else 32,
+                'enabled': getattr(m, 'enabled', False),
+                'address': getattr(m, 'address', ''),
+                'username': getattr(m, 'username', ''),
+                'password': getattr(m, 'password', ''),
+                'encryption_enabled': getattr(m, 'encryption_enabled', True),
+                'json_enabled': getattr(m, 'json_enabled', False),
+                'tls_enabled': getattr(m, 'tls_enabled', False),
+                'proxy_to_client_enabled': getattr(m, 'proxy_to_client_enabled', False),
+                'root': getattr(m, 'root', 'msh'),
+                'map_reporting_enabled': mrs.publish_secs > 0 if mrs else False,
+                'map_publish_interval_secs': getattr(mrs, 'publish_secs', 900) if mrs else 900,
+                'position_precision': getattr(mrs, 'position_precision', 32) if mrs else 32,
             }
         except Exception as e:
             config['mqtt'] = {'error': str(e)}
@@ -897,15 +898,23 @@ class ListenBasedMapper:
         try:
             p = node.localConfig.power
             config['power'] = {
-                'is_power_saving': p.is_power_saving,
-                'light_sleep_enabled': p.light_sleep_enabled,
-                'wait_bluetooth_secs': p.wait_bluetooth_secs,
-                'min_wake_secs': p.min_wake_secs,
-                'sds_secs': p.sds_secs,
-                'adc_multiplier_override': p.adc_multiplier_override,
+                'is_power_saving': getattr(p, 'is_power_saving', False),
+                'light_sleep_enabled': getattr(p, 'light_sleep_enabled', False),
+                'wait_bluetooth_secs': getattr(p, 'wait_bluetooth_secs', 60),
+                'min_wake_secs': getattr(p, 'min_wake_secs', 10),
+                'sds_secs': getattr(p, 'sds_secs', 0),
+                'adc_multiplier_override': getattr(p, 'adc_multiplier_override', 0),
             }
         except Exception as e:
-            config['power'] = {'error': str(e)}
+            config['power'] = {
+                'is_power_saving': False,
+                'light_sleep_enabled': False,
+                'wait_bluetooth_secs': 60,
+                'min_wake_secs': 10,
+                'sds_secs': 0,
+                'adc_multiplier_override': 0,
+                'error': str(e)
+            }
 
         try:
             # Channels
