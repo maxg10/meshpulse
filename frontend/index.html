@@ -534,8 +534,10 @@
         function batteryIcon(level) {
             if (level === null || level === undefined) return '';
             const pct = Math.round(level);
-            const icon = pct >= 20 ? '🔋' : '🪫';
+            // >100% means device is powered externally (USB/solar charging)
+            if (pct > 100) return `<span style="color:#22c55e" title="Powered (charging)">🔌 PWR</span>`;
             const color = pct >= 50 ? '#22c55e' : pct >= 20 ? '#eab308' : '#ef4444';
+            const icon = pct >= 20 ? '🔋' : '🪫';
             return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
         }
 
