@@ -1171,9 +1171,7 @@ function connectWS() {
         } else if (d.type === 'config_saved') {
             if (d.success) {
                 showAlert(d.rebooting ? '✅ Config saved! Device is rebooting...' : '✅ Config saved successfully!', 'success');
-                // Merge saved changes into originalConfig immediately so that
-                // any serial reconnect triggered by writeConfig() does not
-                // overwrite the form with stale values from the device.
+                // Merge saved changes into originalConfig immediately
                 for (const [section, fields] of Object.entries(pendingChanges)) {
                     if (!originalConfig[section]) originalConfig[section] = {};
                     for (const [key, val] of Object.entries(fields)) {
@@ -1183,11 +1181,6 @@ function connectWS() {
                 pendingChanges = {};
                 document.querySelectorAll('.changed').forEach(el => el.classList.remove('changed'));
                 updateChangesInfo();
-                if (!d.rebooting) {
-                    setTimeout(() => {
-                        ws.send(JSON.stringify({type: 'get_config'}));
-                    }, 5000);
-                }
             } else {
                 showAlert('❌ Error saving config: ' + d.error, 'error');
             }
