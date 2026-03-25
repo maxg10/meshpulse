@@ -1176,7 +1176,9 @@ function connectWS() {
                 document.querySelectorAll('.changed').forEach(el => el.classList.remove('changed'));
                 updateChangesInfo();
                 if (!d.rebooting) {
-                    ws.send(JSON.stringify({type: 'get_config'}));
+                    setTimeout(() => {
+                        ws.send(JSON.stringify({type: 'get_config'}));
+                    }, 2000);
                 }
             } else {
                 showAlert('❌ Error saving config: ' + d.error, 'error');
