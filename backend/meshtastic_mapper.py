@@ -895,6 +895,19 @@ class ListenBasedMapper:
             config['mqtt'] = {'error': str(e)}
 
         try:
+            p = node.localConfig.power
+            config['power'] = {
+                'is_power_saving': p.is_power_saving,
+                'light_sleep_enabled': p.light_sleep_enabled,
+                'wait_bluetooth_secs': p.wait_bluetooth_secs,
+                'min_wake_secs': p.min_wake_secs,
+                'sds_secs': p.sds_secs,
+                'adc_multiplier_override': p.adc_multiplier_override,
+            }
+        except Exception as e:
+            config['power'] = {'error': str(e)}
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -1073,6 +1086,18 @@ class ListenBasedMapper:
                     m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
             node.writeConfig('mqtt')
             applied.append('mqtt')
+
+        if 'power' in changes:
+            p = node.localConfig.power
+            for key, val in changes['power'].items():
+                if key == 'adc_multiplier_override':
+                    setattr(p, key, float(val))
+                elif key in ('is_power_saving', 'light_sleep_enabled'):
+                    setattr(p, key, bool(val))
+                else:
+                    setattr(p, key, int(val))
+            node.writeConfig('power')
+            applied.append('power')
 
         if reboot:
             try:
