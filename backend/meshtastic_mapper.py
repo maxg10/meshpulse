@@ -917,6 +917,27 @@ class ListenBasedMapper:
             }
 
         try:
+            d = node.localConfig.display
+            config['display'] = {
+                'screen_on_secs': getattr(d, 'screen_on_secs', 0),
+                'gps_format': getattr(d, 'gps_format', 0),
+                'auto_screen_carousel_secs': getattr(d, 'auto_screen_carousel_secs', 0),
+                'compass_north_top': getattr(d, 'compass_north_top', False),
+                'wake_on_tap_or_motion': getattr(d, 'wake_on_tap_or_motion', False),
+                'flip_screen': getattr(d, 'flip_screen', False),
+                'units': getattr(d, 'units', 0),
+                'oled': getattr(d, 'oled', 0),
+                'displaymode': getattr(d, 'displaymode', 0),
+                'heading_bold': getattr(d, 'heading_bold', False),
+            }
+        except Exception as e:
+            config['display'] = {
+                'screen_on_secs': 0, 'gps_format': 0, 'auto_screen_carousel_secs': 0,
+                'compass_north_top': False, 'wake_on_tap_or_motion': False, 'flip_screen': False,
+                'units': 0, 'oled': 0, 'displaymode': 0, 'heading_bold': False, 'error': str(e)
+            }
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -1107,6 +1128,18 @@ class ListenBasedMapper:
                     setattr(p, key, int(val))
             node.writeConfig('power')
             applied.append('power')
+
+        if 'display' in changes:
+            d = node.localConfig.display
+            for key, val in changes['display'].items():
+                if key in ('gps_format', 'units', 'oled', 'displaymode'):
+                    setattr(d, key, int(val))
+                elif key in ('compass_north_top', 'wake_on_tap_or_motion', 'flip_screen', 'heading_bold'):
+                    setattr(d, key, bool(val))
+                else:
+                    setattr(d, key, int(val))
+            node.writeConfig('display')
+            applied.append('display')
 
         if reboot:
             try:

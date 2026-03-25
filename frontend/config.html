@@ -163,6 +163,7 @@
     <button class="tab" onclick="switchTab('bluetooth', this)">🔵 Bluetooth</button>
     <button class="tab" onclick="switchTab('mqtt', this)">📡 MQTT</button>
     <button class="tab" onclick="switchTab('power', this)">⚡ Power</button>
+    <button class="tab" onclick="switchTab('display', this)">🖥️ Display</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
 </div>
@@ -699,6 +700,83 @@
                 <input type="number" id="power.adc_multiplier_override" min="0" max="10" step="0.01"
                     oninput="markChanged(this)">
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Display tab -->
+<div id="tab-display" class="tab-content">
+    <div class="card">
+        <div class="card-title">🖥️ Display Settings</div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Screen Timeout (seconds) <span class="tip" onmouseenter="showTip('How long the screen stays on after last interaction. 0 = always on. Default: 0.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = always on</div>
+                <input type="number" id="display.screen_on_secs" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Auto Carousel Interval (seconds) <span class="tip" onmouseenter="showTip('How often the screen automatically cycles through pages. 0 = disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = disabled</div>
+                <input type="number" id="display.auto_screen_carousel_secs" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>GPS Coordinate Format <span class="tip" onmouseenter="showTip('Format for displaying GPS coordinates on screen.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.gps_format" onchange="markChanged(this)">
+                <option value="0">Decimal (DEC)</option>
+                <option value="1">Degrees Minutes Seconds (DMS)</option>
+                <option value="2">Universal Transverse Mercator (UTM)</option>
+                <option value="3">Military Grid Reference (MGRS)</option>
+                <option value="4">Open Location Code (OLC)</option>
+                <option value="5">Ordnance Survey (OSGR)</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>Units <span class="tip" onmouseenter="showTip('Metric or Imperial units for distance display.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.units" onchange="markChanged(this)">
+                <option value="0">Metric</option>
+                <option value="1">Imperial</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>OLED Type <span class="tip" onmouseenter="showTip('OLED display driver type. Auto detects in most cases.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.oled" onchange="markChanged(this)">
+                <option value="0">Auto</option>
+                <option value="1">SSD1306</option>
+                <option value="2">SH1106</option>
+                <option value="3">SH1107</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>Display Mode <span class="tip" onmouseenter="showTip('Screen layout mode.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.displaymode" onchange="markChanged(this)">
+                <option value="0">Default</option>
+                <option value="1">Two Color</option>
+                <option value="2">Inverted</option>
+                <option value="3">Color</option>
+            </select>
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="display.compass_north_top" onchange="markChanged(this)">
+            <label for="display.compass_north_top">Compass North Top <span class="tip" onmouseenter="showTip('Always point north at top of compass display.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.wake_on_tap_or_motion" onchange="markChanged(this)">
+            <label for="display.wake_on_tap_or_motion">Wake on Tap or Motion <span class="tip" onmouseenter="showTip('Wake the screen when the device is tapped or moved.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.flip_screen" onchange="markChanged(this)">
+            <label for="display.flip_screen">Flip Screen <span class="tip" onmouseenter="showTip('Rotate display 180 degrees. Useful when device is mounted upside down.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.heading_bold" onchange="markChanged(this)">
+            <label for="display.heading_bold">Heading Bold <span class="tip" onmouseenter="showTip('Display heading text in bold font.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
     </div>
 </div>
@@ -1331,6 +1409,18 @@ function populateForm(config) {
     setField('power.min_wake_secs', config.power?.min_wake_secs ?? 10);
     setField('power.sds_secs', config.power?.sds_secs ?? 0);
     setField('power.adc_multiplier_override', config.power?.adc_multiplier_override ?? 0);
+
+    // Display
+    setField('display.screen_on_secs', config.display?.screen_on_secs ?? 0);
+    setField('display.gps_format', config.display?.gps_format ?? 0);
+    setField('display.auto_screen_carousel_secs', config.display?.auto_screen_carousel_secs ?? 0);
+    setField('display.compass_north_top', config.display?.compass_north_top ?? false);
+    setField('display.wake_on_tap_or_motion', config.display?.wake_on_tap_or_motion ?? false);
+    setField('display.flip_screen', config.display?.flip_screen ?? false);
+    setField('display.units', config.display?.units ?? 0);
+    setField('display.oled', config.display?.oled ?? 0);
+    setField('display.displaymode', config.display?.displaymode ?? 0);
+    setField('display.heading_bold', config.display?.heading_bold ?? false);
 
     // Fixed position - pre-fill from current node position
     if (config.current_position) {
