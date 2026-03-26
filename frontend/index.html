@@ -76,6 +76,9 @@
             <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()"> Show direct lines
         </label><br>
         <label class="filter-label">
+            <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()"> Show neighbor links
+        </label><br>
+        <label class="filter-label">
             <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
         </label><br>
         <label class="filter-label">
@@ -149,6 +152,8 @@
         let mapReady = false;
         let initialFetchDone = false;
         let directLines = [];
+        let neighborLines = [];
+        let neighborData = {}; // from_id -> [{id, name, snr}]
         let losChart = null;
         let highlightedNoGpsId = null;
         let losAbortController = null;
@@ -323,6 +328,11 @@
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
+                        } else if (data.type === 'neighbor_update') {
+                            neighborData[data.from_id] = data.neighbors;
+                            if (document.getElementById('show-neighbor-links').checked) {
+                                updateNeighborLinks();
+                            }
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
@@ -505,7 +515,19 @@
                     }
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
-                    
+
+                    if (d.neighbor_graph) {
+                        neighborData = {};
+                        d.neighbor_graph.forEach(edge => {
+                            if (!neighborData[edge.from_id]) neighborData[edge.from_id] = [];
+                            neighborData[edge.from_id].push({
+                                id: edge.neighbor_id,
+                                name: edge.neighbor_name,
+                                snr: edge.snr
+                            });
+                        });
+                    }
+
                     // Update display (will wait for map if needed)
                     updateDisplay();
                     
@@ -1208,6 +1230,51 @@
             });
         }
 
+        function updateNeighborLinks() {
+            // Remove existing lines
+            neighborLines.forEach(l => map.removeLayer(l));
+            neighborLines = [];
+
+            if (!document.getElementById('show-neighbor-links').checked) return;
+
+            const allKnown = {};
+            allNodes.forEach(n => { allKnown[n.id] = n; });
+
+            Object.entries(neighborData).forEach(([fromId, neighbors]) => {
+                const fromNode = allKnown[fromId];
+                if (!fromNode || !fromNode.lat || !fromNode.lon) return;
+
+                neighbors.forEach(nb => {
+                    const toNode = allKnown[nb.id];
+                    if (!toNode || !toNode.lat || !toNode.lon) return;
+                    // Avoid duplicate lines (A-B and B-A)
+                    if (fromId > nb.id) return;
+
+                    const snr = nb.snr;
+                    const color = snr >= 5 ? '#22c55e' : snr >= -5 ? '#eab308' : '#ef4444';
+
+                    const line = L.polyline(
+                        [[fromNode.lat, fromNode.lon], [toNode.lat, toNode.lon]],
+                        {
+                            color: color,
+                            weight: 1.5,
+                            opacity: 0.7,
+                            dashArray: '5, 8'
+                        }
+                    ).addTo(map);
+
+                    line.bindPopup(
+                        `<div class="node-popup">
+                            <b>${escHtml(fromNode.name)} ↔ ${escHtml(toNode.name)}</b><br>
+                            SNR: ${snr} dB
+                        </div>`
+                    );
+
+                    neighborLines.push(line);
+                });
+            });
+        }
+
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1424,6 +1491,7 @@
 
             // Update overlays
             updateDirectLines();
+            updateNeighborLinks();
 
             // Max range link
             const maxLink = document.getElementById('maxrange-link');

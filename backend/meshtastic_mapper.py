@@ -1346,6 +1346,8 @@ class ListenBasedMapper:
             if neighbors:
                 self.stats_db.log_neighbor_info(from_id, from_name, neighbors)
                 print(f"[NEIGHBOR] {from_name} ({from_id}): {len(neighbors)} neighbors")
+                # Broadcast to frontend
+                asyncio.run(self.broadcast_neighbor_update(from_id, from_name, neighbors))
         except Exception as e:
             print(f"[NEIGHBOR] Parse error: {e}")
 
@@ -2286,6 +2288,23 @@ class ListenBasedMapper:
         websockets.broadcast(set(connected_clients), msg)
         print(f"[WS] Connection status: {status} ({self.connection_type})")
 
+    async def broadcast_neighbor_update(self, from_id, from_name, neighbors):
+        """Broadcast neighbor info update to all WebSocket clients."""
+        if not connected_clients:
+            return
+        msg = safe_json({
+            'type': 'neighbor_update',
+            'from_id': from_id,
+            'from_name': from_name,
+            'neighbors': neighbors,
+            'timestamp': int(time.time())
+        })
+        try:
+            msg.encode('utf-8')
+        except UnicodeEncodeError:
+            return
+        websockets.broadcast(set(connected_clients), msg)
+
     def _dedup_nodes(self):
         """Remove any node from nodes_no_position that also exists in nodes (has GPS)."""
         duplicates = [nid for nid in self.nodes_no_position if nid in self.nodes]
@@ -2338,7 +2357,8 @@ class ListenBasedMapper:
                 'nodes': nodes_list,
                 'nodes_no_pos': nodes_no_pos_list,
                 'messages': self.messages,
-                'known_names': self.known_names
+                'known_names': self.known_names,
+                'neighbor_graph': self.stats_db.get_neighbor_graph()
             }
             
             temp_path = self.json_path + '.tmp'
