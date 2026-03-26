@@ -2493,8 +2493,6 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting in 10s...'))
-
                 print("[WAIT] Retrying in 10 seconds...")
                 time.sleep(10)
                 restart_count += 1
@@ -2505,6 +2503,10 @@ class ListenBasedMapper:
                         serial_iface.disconnect()
                     except Exception:
                         pass
+                try:
+                    asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting...'))
+                except Exception:
+                    pass
                 self._serial_iface = None
 
     def _on_serial_packet(self, packet):
@@ -2718,8 +2720,6 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting in 10s...'))
-
                 print("[WAIT] Retrying in 10 seconds...")
                 time.sleep(10)
                 restart_count += 1
@@ -2730,6 +2730,10 @@ class ListenBasedMapper:
                         tcp_iface.disconnect()
                     except Exception:
                         pass
+                try:
+                    asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting...'))
+                except Exception:
+                    pass
 
     def run(self):
         """Run meshtastic --listen and parse output"""
