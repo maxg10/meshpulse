@@ -76,9 +76,6 @@
             <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()"> Show direct lines
         </label><br>
         <label class="filter-label">
-            <input type="checkbox" id="show-heat-map" onchange="updateHeatMap()"> Show heat map
-        </label><br>
-        <label class="filter-label">
             <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
         </label><br>
         <label class="filter-label">
@@ -135,7 +132,6 @@
         <div id="traceroute-body"></div>
     </div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
         const map = L.map('map').setView([52.0, 19.0], 6);
@@ -153,7 +149,6 @@
         let mapReady = false;
         let initialFetchDone = false;
         let directLines = [];
-        let heatLayer = null;
         let losChart = null;
         let highlightedNoGpsId = null;
         let losAbortController = null;
@@ -1089,7 +1084,6 @@
                 allNodesNoGps = [];
                 Object.keys(markers).forEach(id => map.removeLayer(markers[id]));
                 markers = {};
-                if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
                 directLines.forEach(line => map.removeLayer(line));
                 directLines = [];
                 updateDisplay();
@@ -1166,7 +1160,6 @@
                 allNodesNoGps = [];
                 Object.keys(markers).forEach(id => map.removeLayer(markers[id]));
                 markers = {};
-                if (heatLayer) { map.removeLayer(heatLayer); heatLayer = null; }
                 directLines.forEach(line => map.removeLayer(line));
                 directLines = [];
                 updateDisplay();
@@ -1213,26 +1206,6 @@
                 ).addTo(map);
                 directLines.push(line);
             });
-        }
-
-        function updateHeatMap() {
-            const showHeat = document.getElementById('show-heat-map').checked;
-
-            if (!showHeat) {
-                if (heatLayer) {
-                    map.removeLayer(heatLayer);
-                    heatLayer = null;
-                }
-                return;
-            }
-
-            const points = allNodes.map(n => [n.lat, n.lon, 1.0]);
-
-            if (heatLayer) {
-                heatLayer.setLatLngs(points);
-            } else {
-                heatLayer = L.heatLayer(points, { radius: 25, blur: 15, maxZoom: 17 }).addTo(map);
-            }
         }
 
         function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -1451,7 +1424,6 @@
 
             // Update overlays
             updateDirectLines();
-            updateHeatMap();
 
             // Max range link
             const maxLink = document.getElementById('maxrange-link');
