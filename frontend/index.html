@@ -135,7 +135,7 @@
     <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script>
-        const map = L.map('map').setView([52.4064, 16.9252], 11);
+        const map = L.map('map').setView([52.0, 19.0], 6);
         
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
             attribution:'© OSM'
@@ -498,6 +498,11 @@
                         trackerInfo = d.tracker;
                         if (!trackerInfo.uptime_seconds && oldUptime) {
                             trackerInfo.uptime_seconds = oldUptime;
+                        }
+                        // Center map on tracker position on first load
+                        if (!window._mapCentered && d.tracker && d.tracker.lat && d.tracker.lon) {
+                            map.setView([d.tracker.lat, d.tracker.lon], 11);
+                            window._mapCentered = true;
                         }
                     }
                     maxDistanceKm = d.max_distance_km;
