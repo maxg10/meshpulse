@@ -19,6 +19,7 @@ import websockets
 import threading
 import base64
 import sqlite3
+import shutil
 import meshtastic
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
@@ -522,7 +523,7 @@ class ListenBasedMapper:
         self._tcp_iface = None
         self._pending_traceroute_result = None
         self.json_path = '/var/www/html/meshtastic/nodes.json'
-        self.meshtastic_cmd = os.path.expanduser('~/.local/bin/meshtastic')
+        self.meshtastic_cmd = shutil.which('meshtastic') or os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age
 
         # Load existing nodes or start fresh
