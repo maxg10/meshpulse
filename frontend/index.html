@@ -67,6 +67,9 @@
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
         <label class="filter-label">
+            <input type="checkbox" id="show-mqtt-nodes" onchange="updateDisplay()"> Show MQTT nodes
+        </label><br>
+        <label class="filter-label">
             <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
         </label><br>
         <label class="filter-label">
@@ -1254,6 +1257,11 @@
             const filterDirect = document.getElementById('filter-direct').checked;
             const hideUnknownHops = document.getElementById('hide-unknown-hops').checked;
             let filteredNodes = allNodes;
+            const showMqtt = document.getElementById('show-mqtt-nodes').checked;
+            if (!showMqtt) {
+                filteredNodes = filteredNodes.filter(n => !n.via_mqtt);
+            }
+            let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
             if (filterDirect) {
                 filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
             }
@@ -1277,11 +1285,11 @@
             });
 
             // Also count routers/repeaters in No GPS list
-            allNodesNoGps.forEach(n => {
+            filteredNoGps.forEach(n => {
                 if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
             });
 
-            document.getElementById('cnt').textContent = `${filteredNodes.length + allNodesNoGps.length} (${filteredNodes.length}+${allNodesNoGps.length})`;
+            document.getElementById('cnt').textContent = `${filteredNodes.length + filteredNoGps.length} (${filteredNodes.length}+${filteredNoGps.length})`;
             document.getElementById('routers').textContent = routers;
             document.getElementById('clients').textContent = clients;
             document.getElementById('direct').textContent = direct;
@@ -1327,8 +1335,6 @@
             }
 
             // Update no-GPS nodes panel
-            const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
-            let filteredNoGps = noMqttNodes;
             if (filterDirect) {
                 filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
             }
