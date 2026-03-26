@@ -79,6 +79,9 @@
             <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()"> Show neighbor links
         </label><br>
         <label class="filter-label">
+            <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()"> Show relay nodes
+        </label><br>
+        <label class="filter-label">
             <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
         </label><br>
         <label class="filter-label">
@@ -154,6 +157,8 @@
         let directLines = [];
         let neighborLines = [];
         let neighborData = {}; // from_id -> [{id, name, snr}]
+        let relayLines = [];
+        let relayNodes = {}; // node_id -> count
         let losChart = null;
         let highlightedNoGpsId = null;
         let losAbortController = null;
@@ -311,6 +316,14 @@
                                 };
                             } else {
                                 maxLink.style.display = 'none';
+                            }
+                            if (data.relay_nodes) {
+                                relayNodes = {};
+                                data.relay_nodes.forEach(n => { relayNodes[n.id] = n.count; });
+                                if (document.getElementById('show-relay-nodes') &&
+                                    document.getElementById('show-relay-nodes').checked) {
+                                    updateRelayVisualization();
+                                }
                             }
                         } else if (data.type === 'traceroute_status') {
                             console.log('[WS] Traceroute status:', data.status);
@@ -526,6 +539,11 @@
                                 snr: edge.snr
                             });
                         });
+                    }
+
+                    if (d.relay_nodes) {
+                        relayNodes = {};
+                        d.relay_nodes.forEach(n => { relayNodes[n.id] = n.count; });
                     }
 
                     // Update display (will wait for map if needed)
@@ -1275,6 +1293,60 @@
             });
         }
 
+        function updateRelayVisualization() {
+            // Remove existing relay lines and badges
+            relayLines.forEach(l => map.removeLayer(l));
+            relayLines = [];
+            // Remove relay badges from markers
+            document.querySelectorAll('.relay-badge').forEach(b => b.remove());
+
+            if (!document.getElementById('show-relay-nodes').checked) return;
+
+            const trackerNode = allNodes.find(n => isOwnTracker(n.id));
+            if (!trackerNode || !trackerNode.lat || !trackerNode.lon) return;
+
+            Object.entries(relayNodes).forEach(([nodeId, count]) => {
+                const node = allNodes.find(n => n.id === nodeId);
+                if (!node || !node.lat || !node.lon) return;
+
+                // Color by relay count
+                const color = count >= 10 ? '#22c55e' : count >= 3 ? '#eab308' : '#ef4444';
+
+                // Draw line from tracker to relay node
+                const line = L.polyline(
+                    [[trackerNode.lat, trackerNode.lon], [node.lat, node.lon]],
+                    {
+                        color: color,
+                        weight: 2,
+                        opacity: 0.6,
+                        dashArray: '3, 10'
+                    }
+                ).addTo(map);
+
+                line.bindPopup(`<div class="node-popup">
+                    <b>⟳ Relayed through your node</b><br>
+                    ${escHtml(node.name)}<br>
+                    Packets relayed: <b>${count}</b>
+                </div>`);
+
+                relayLines.push(line);
+
+                // Add badge to marker
+                const marker = markers[nodeId];
+                if (marker && marker.getElement) {
+                    const el = marker.getElement();
+                    if (el && !el.querySelector('.relay-badge')) {
+                        const badge = document.createElement('div');
+                        badge.className = 'relay-badge';
+                        badge.textContent = '⟳' + count;
+                        badge.style.cssText = 'position:absolute;top:-8px;right:-8px;background:#2563eb;color:white;border-radius:8px;padding:0 4px;font-size:9px;font-weight:bold;pointer-events:none;white-space:nowrap;';
+                        el.style.position = 'relative';
+                        el.appendChild(badge);
+                    }
+                }
+            });
+        }
+
         function calculateDistance(lat1, lon1, lat2, lon2) {
             const R = 6371;
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1492,6 +1564,7 @@
             // Update overlays
             updateDirectLines();
             updateNeighborLinks();
+            updateRelayVisualization();
 
             // Max range link
             const maxLink = document.getElementById('maxrange-link');

@@ -361,6 +361,30 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def get_relay_nodes_for_map(self, local_node_id):
+        """Get nodes that have been relayed through our node, with packet counts."""
+        if not local_node_id:
+            return []
+        since = int(time.time()) - 86400  # last 24h
+        own_variants = [
+            local_node_id or '',
+            (local_node_id or '').lstrip('!'),
+            '!' + (local_node_id or '').lstrip('!')
+        ]
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            c = conn.cursor()
+            rows = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
+                FROM packets
+                WHERE ts > ? AND relayed_by_us = 1
+                AND from_id NOT IN (?, ?, ?)
+                GROUP BY from_id
+                ORDER BY cnt DESC
+                LIMIT 50''', (since, *own_variants)).fetchall()
+            conn.close()
+            return [{'id': r['from_id'], 'name': r['from_name'], 'count': r['cnt']} for r in rows]
+
     def get_neighbor_graph(self):
         """Get neighbor graph for topology visualization. Only returns data from last 6 hours."""
         since = int(time.time()) - 21600
@@ -2251,11 +2275,16 @@ class ListenBasedMapper:
             return
 
         max_dist, farthest_id = self.get_max_distance()
+        try:
+            relay_nodes = self.stats_db.get_relay_nodes_for_map(self.local_node_id)
+        except Exception:
+            relay_nodes = []
 
         message = safe_json({
             'type': 'stats_update',
             'max_distance_km': max_dist,
             'farthest_node': farthest_id,
+            'relay_nodes': relay_nodes,
             'timestamp': int(time.time())
         })
 
@@ -2346,6 +2375,12 @@ class ListenBasedMapper:
                 else:
                     nodes_no_pos_list.append(tracker_entry)
 
+            # Get relay stats for map visualization
+            try:
+                relay_nodes = self.stats_db.get_relay_nodes_for_map(self.local_node_id)
+            except Exception:
+                relay_nodes = []
+
             data = {
                 'ts': int(time.time()),
                 'updated': datetime.now().isoformat(),
@@ -2358,7 +2393,8 @@ class ListenBasedMapper:
                 'nodes_no_pos': nodes_no_pos_list,
                 'messages': self.messages,
                 'known_names': self.known_names,
-                'neighbor_graph': self.stats_db.get_neighbor_graph()
+                'neighbor_graph': self.stats_db.get_neighbor_graph(),
+                'relay_nodes': relay_nodes
             }
             
             temp_path = self.json_path + '.tmp'
