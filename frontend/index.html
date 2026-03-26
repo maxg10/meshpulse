@@ -328,9 +328,15 @@
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
-                            updateConnectionStatus(data.status);
                             const msgEl = document.getElementById('connection-message');
-                            msgEl.textContent = data.message || '';
+                            if (msgEl) msgEl.textContent = data.message || '';
+                            if (data.status === 'disconnected') {
+                                updateConnectionStatus('connecting'); // yellow — reconnecting
+                                const msgEl2 = document.getElementById('connection-message');
+                                if (msgEl2) msgEl2.textContent = data.message || 'Device disconnected — reconnecting...';
+                            } else {
+                                updateConnectionStatus(data.status);
+                            }
                             if (window._tcpConnectTimeout) {
                                 clearTimeout(window._tcpConnectTimeout);
                                 window._tcpConnectTimeout = null;

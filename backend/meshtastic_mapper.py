@@ -2493,6 +2493,8 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
+                asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting in 10s...'))
+
                 print("[WAIT] Retrying in 10 seconds...")
                 time.sleep(10)
                 restart_count += 1
@@ -2715,6 +2717,8 @@ class ListenBasedMapper:
 
                 if self.nodes:
                     self.save_nodes()
+
+                asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting in 10s...'))
 
                 print("[WAIT] Retrying in 10 seconds...")
                 time.sleep(10)
