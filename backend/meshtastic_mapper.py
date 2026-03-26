@@ -2385,7 +2385,8 @@ class ListenBasedMapper:
                             lat = pos.get('latitude')
                             lon = pos.get('longitude')
                             alt = pos.get('altitude', 0)
-                            # Read real role from localConfig
+                        except Exception:
+                            pass
                         try:
                             role_int = iface.localNode.localConfig.device.role
                             role_map = {0: 'CLIENT', 1: 'CLIENT_MUTE', 2: 'ROUTER', 3: 'CLIENT_BASE',
@@ -2394,7 +2395,8 @@ class ListenBasedMapper:
                             tracker_role = role_map.get(int(role_int), 'CLIENT')
                         except Exception:
                             tracker_role = node_info.get('user', {}).get('role', 'CLIENT')
-                        if lat and lon and not (lat == 0 and lon == 0):
+                        try:
+                            if lat and lon and not (lat == 0 and lon == 0):
                                 self.tracker_info['lat'] = round(lat, 6)
                                 self.tracker_info['lon'] = round(lon, 6)
                                 self.tracker_info['alt'] = alt or 0
