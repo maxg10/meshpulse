@@ -80,6 +80,41 @@ http://YOUR_PI_IP/meshtastic/
 
 ---
 
+## Docker Installation (TCP only)
+
+The easiest way to run Meshtastic Mapper on any platform — Linux, Mac, Windows, Raspberry Pi. No dependencies to install except Docker.
+
+> ⚠️ Docker version supports TCP/WiFi connections only. USB serial is not supported in containers.
+
+### Requirements
+- **Mac/Windows:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+- **Linux/Raspberry Pi:** `curl -fsSL https://get.docker.com | sh`
+
+### How to run — with docker-compose (recommended)
+```bash
+git clone https://github.com/maxg10/meshtastic-network-mapper.git
+cd meshtastic-network-mapper
+cp .env.example .env
+# Edit .env — set your tracker IP:
+# TRACKER_HOST=192.168.1.103
+docker compose up -d
+```
+
+Open: http://localhost/meshtastic/
+
+### Updating
+```bash
+git pull
+docker compose pull
+docker compose up -d
+```
+
+### Notes
+- Data (nodes, stats, config) persists in a Docker volume between restarts
+- If port 80 is busy, change to e.g. `"8080:80"` in `docker-compose.yml`
+
+---
+
 ## Manual Installation
 
 If you prefer to install manually or want to understand what's happening:
