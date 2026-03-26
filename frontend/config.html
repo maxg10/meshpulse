@@ -164,6 +164,7 @@
     <button class="tab" onclick="switchTab('mqtt', this)">📡 MQTT</button>
     <button class="tab" onclick="switchTab('power', this)">⚡ Power</button>
     <button class="tab" onclick="switchTab('display', this)">🖥️ Display</button>
+    <button class="tab" onclick="switchTab('modules', this)">🧩 Modules</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
 </div>
@@ -779,6 +780,206 @@
             <label for="display.heading_bold">Heading Bold <span class="tip" onmouseenter="showTip('Display heading text in bold font.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
     </div>
+</div>
+
+<!-- Modules tab -->
+<div id="tab-modules" class="tab-content">
+
+    <!-- Store & Forward -->
+    <div class="card">
+        <div class="card-title">📦 Store & Forward</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Buffers messages for nodes that are temporarily offline. Only enable on router nodes with sufficient RAM.</div>
+        <div class="field-check">
+            <input type="checkbox" id="store_forward.enabled" onchange="markChanged(this)">
+            <label for="store_forward.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable Store & Forward module. Router nodes will buffer messages for offline nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="store_forward.heartbeat" onchange="markChanged(this)">
+            <label for="store_forward.heartbeat">Heartbeat <span class="tip" onmouseenter="showTip('Send periodic heartbeat to indicate Store & Forward is available.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Max Records <span class="tip" onmouseenter="showTip('Maximum number of messages to store. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = default</div>
+                <input type="number" id="store_forward.records" min="0" max="500" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>History Return Max <span class="tip" onmouseenter="showTip('Max number of messages to return when a client requests history.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Max messages returned on history request</div>
+                <input type="number" id="store_forward.history_return_max" min="0" max="100" oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field">
+            <label>History Return Window (seconds) <span class="tip" onmouseenter="showTip('How far back in time to return messages. 0 = all stored.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Time window for history requests. 0 = all</div>
+            <input type="number" id="store_forward.history_return_window" min="0" max="86400" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- External Notification -->
+    <div class="card">
+        <div class="card-title">🔔 External Notification</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Trigger a buzzer, LED or vibration motor via GPIO when messages arrive.</div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.enabled" onchange="markChanged(this)">
+            <label for="ext_notification.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.active" onchange="markChanged(this)">
+            <label for="ext_notification.active">Active High <span class="tip" onmouseenter="showTip('If true, GPIO goes HIGH to activate. If false, GPIO goes LOW to activate.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_message" onchange="markChanged(this)">
+            <label for="ext_notification.alert_message">Alert on Message <span class="tip" onmouseenter="showTip('Trigger notification when a text message is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_bell" onchange="markChanged(this)">
+            <label for="ext_notification.alert_bell">Alert on Bell <span class="tip" onmouseenter="showTip('Trigger notification when a bell character is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.use_pwm" onchange="markChanged(this)">
+            <label for="ext_notification.use_pwm">Use PWM <span class="tip" onmouseenter="showTip('Use PWM output instead of simple on/off. Required for some buzzers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Output Duration (ms) <span class="tip" onmouseenter="showTip('How long to activate the output in milliseconds. 0 = default (1000ms).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = 1000ms default</div>
+                <input type="number" id="ext_notification.output_ms" min="0" max="10000" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Nag Timeout (seconds) <span class="tip" onmouseenter="showTip('Keep repeating the alert for this many seconds until acknowledged. 0 = disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = disabled</div>
+                <input type="number" id="ext_notification.nag_timeout" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+
+    <!-- Range Test -->
+    <div class="card">
+        <div class="card-title">📏 Range Test</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Automatically sends test packets to measure range. Set Sender interval &gt; 0 on one node, leave at 0 on receiver nodes.</div>
+        <div class="field-check">
+            <input type="checkbox" id="range_test.enabled" onchange="markChanged(this)">
+            <label for="range_test.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable range test module. Must be enabled on both sender and receiver.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="range_test.save" onchange="markChanged(this)">
+            <label for="range_test.save">Save to Flash <span class="tip" onmouseenter="showTip('Save received packets to rangetest.csv on device flash. ESP32 only.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Sender Interval (seconds) <span class="tip" onmouseenter="showTip('How often to send test packets. 0 = receiver only (do not send).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">0 = receiver only. Set &gt; 0 on the sender node.</div>
+            <input type="number" id="range_test.sender" min="0" max="3600" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- Canned Messages -->
+    <div class="card">
+        <div class="card-title">💬 Canned Messages</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Pre-set messages selectable via hardware input (rotary encoder, buttons). Useful for devices without keyboards.</div>
+        <div class="field-check">
+            <input type="checkbox" id="canned_message.enabled" onchange="markChanged(this)">
+            <label for="canned_message.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="canned_message.send_bell" onchange="markChanged(this)">
+            <label for="canned_message.send_bell">Send Bell <span class="tip" onmouseenter="showTip('Append a bell character to each sent canned message. Used with External Notification module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Messages <span class="tip" onmouseenter="showTip('Pipe-separated list of pre-set messages. Max 200 bytes total. Example: Hello|On my way|Call me',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Separate messages with | character. Max 200 bytes.</div>
+            <input type="text" id="canned_message.messages" maxlength="200" oninput="markChanged(this)" placeholder="Hello|On my way|Call me|OK">
+        </div>
+        <div class="field">
+            <label>Input Source <span class="tip" onmouseenter="showTip('Input event source. Leave empty for default. Options: rotEnc1, upDownEnc1, cardkb, serialkb.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">e.g. rotEnc1, upDownEnc1, cardkb (leave empty for default)</div>
+            <input type="text" id="canned_message.allow_input_source" maxlength="30" oninput="markChanged(this)" placeholder="rotEnc1">
+        </div>
+    </div>
+
+    <!-- Paxcounter -->
+    <div class="card">
+        <div class="card-title">👥 Paxcounter</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Counts nearby devices by sniffing WiFi and Bluetooth MAC addresses. Useful for crowd density estimation.</div>
+        <div class="field-check">
+            <input type="checkbox" id="paxcounter.enabled" onchange="markChanged(this)">
+            <label for="paxcounter.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable Paxcounter. Device will passively scan for nearby WiFi and BT devices.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often to broadcast paxcounter data. 0 = default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">0 = default interval</div>
+            <input type="number" id="paxcounter.paxcounter_update_interval" min="0" max="3600" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- Serial Module -->
+    <div class="card">
+        <div class="card-title">🔌 Serial Module</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Bridge between serial/UART port and the mesh network. Allows external devices (Arduino, GPS, etc.) to send/receive mesh packets.</div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.enabled" onchange="markChanged(this)">
+            <label for="serial_module.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.echo" onchange="markChanged(this)">
+            <label for="serial_module.echo">Echo <span class="tip" onmouseenter="showTip('Echo received packets back to the serial port.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.override_console_serial_port" onchange="markChanged(this)">
+            <label for="serial_module.override_console_serial_port">Override Console Port <span class="tip" onmouseenter="showTip('Use the main serial/console port for this module instead of a secondary UART.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Mode <span class="tip" onmouseenter="showTip('Serial module operating mode.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="serial_module.mode" onchange="markChanged(this)">
+                <option value="0">Default (PROTO)</option>
+                <option value="1">Simple</option>
+                <option value="2">Proto</option>
+                <option value="3">NMEA</option>
+                <option value="4">CalTopo</option>
+            </select>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>RX Pin <span class="tip" onmouseenter="showTip('GPIO pin number for RX. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">GPIO pin, 0 = default</div>
+                <input type="number" id="serial_module.rxd" min="0" max="48" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>TX Pin <span class="tip" onmouseenter="showTip('GPIO pin number for TX. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">GPIO pin, 0 = default</div>
+                <input type="number" id="serial_module.txd" min="0" max="48" oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Baud Rate <span class="tip" onmouseenter="showTip('Serial baud rate. 0 = default (38400).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <select id="serial_module.baud" onchange="markChanged(this)">
+                    <option value="0">Default (38400)</option>
+                    <option value="1">110</option>
+                    <option value="2">300</option>
+                    <option value="3">600</option>
+                    <option value="4">1200</option>
+                    <option value="5">2400</option>
+                    <option value="6">4800</option>
+                    <option value="7">9600</option>
+                    <option value="8">19200</option>
+                    <option value="9">38400</option>
+                    <option value="10">57600</option>
+                    <option value="11">115200</option>
+                    <option value="12">230400</option>
+                    <option value="13">460800</option>
+                    <option value="14">576000</option>
+                    <option value="15">921600</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Timeout (seconds) <span class="tip" onmouseenter="showTip('Timeout before sending incomplete packets. 0 = default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = default</div>
+                <input type="number" id="serial_module.timeout" min="0" max="60" oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- Channels tab -->
@@ -1421,6 +1622,47 @@ function populateForm(config) {
     setField('display.oled', config.display?.oled ?? 0);
     setField('display.displaymode', config.display?.displaymode ?? 0);
     setField('display.heading_bold', config.display?.heading_bold ?? false);
+
+    // Store & Forward
+    setField('store_forward.enabled', config.store_forward?.enabled ?? false);
+    setField('store_forward.heartbeat', config.store_forward?.heartbeat ?? false);
+    setField('store_forward.records', config.store_forward?.records ?? 0);
+    setField('store_forward.history_return_max', config.store_forward?.history_return_max ?? 0);
+    setField('store_forward.history_return_window', config.store_forward?.history_return_window ?? 0);
+
+    // External Notification
+    setField('ext_notification.enabled', config.ext_notification?.enabled ?? false);
+    setField('ext_notification.active', config.ext_notification?.active ?? false);
+    setField('ext_notification.alert_message', config.ext_notification?.alert_message ?? false);
+    setField('ext_notification.alert_bell', config.ext_notification?.alert_bell ?? false);
+    setField('ext_notification.use_pwm', config.ext_notification?.use_pwm ?? false);
+    setField('ext_notification.output_ms', config.ext_notification?.output_ms ?? 0);
+    setField('ext_notification.nag_timeout', config.ext_notification?.nag_timeout ?? 0);
+
+    // Range Test
+    setField('range_test.enabled', config.range_test?.enabled ?? false);
+    setField('range_test.sender', config.range_test?.sender ?? 0);
+    setField('range_test.save', config.range_test?.save ?? false);
+
+    // Canned Messages
+    setField('canned_message.enabled', config.canned_message?.enabled ?? false);
+    setField('canned_message.send_bell', config.canned_message?.send_bell ?? false);
+    setField('canned_message.messages', config.canned_message?.messages ?? '');
+    setField('canned_message.allow_input_source', config.canned_message?.allow_input_source ?? '');
+
+    // Paxcounter
+    setField('paxcounter.enabled', config.paxcounter?.enabled ?? false);
+    setField('paxcounter.paxcounter_update_interval', config.paxcounter?.paxcounter_update_interval ?? 0);
+
+    // Serial Module
+    setField('serial_module.enabled', config.serial_module?.enabled ?? false);
+    setField('serial_module.echo', config.serial_module?.echo ?? false);
+    setField('serial_module.override_console_serial_port', config.serial_module?.override_console_serial_port ?? false);
+    setField('serial_module.mode', config.serial_module?.mode ?? 0);
+    setField('serial_module.rxd', config.serial_module?.rxd ?? 0);
+    setField('serial_module.txd', config.serial_module?.txd ?? 0);
+    setField('serial_module.baud', config.serial_module?.baud ?? 0);
+    setField('serial_module.timeout', config.serial_module?.timeout ?? 0);
 
     // Fixed position - pre-fill from current node position
     if (config.current_position) {

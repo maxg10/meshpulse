@@ -938,6 +938,77 @@ class ListenBasedMapper:
             }
 
         try:
+            sf = node.moduleConfig.store_forward
+            config['store_forward'] = {
+                'enabled': getattr(sf, 'enabled', False),
+                'heartbeat': getattr(sf, 'heartbeat', False),
+                'records': getattr(sf, 'records', 0),
+                'history_return_max': getattr(sf, 'history_return_max', 0),
+                'history_return_window': getattr(sf, 'history_return_window', 0),
+            }
+        except Exception as e:
+            config['store_forward'] = {'enabled': False, 'heartbeat': False, 'records': 0, 'history_return_max': 0, 'history_return_window': 0, 'error': str(e)}
+
+        try:
+            en = node.moduleConfig.external_notification
+            config['ext_notification'] = {
+                'enabled': getattr(en, 'enabled', False),
+                'active': getattr(en, 'active', False),
+                'alert_message': getattr(en, 'alert_message', False),
+                'alert_bell': getattr(en, 'alert_bell', False),
+                'output_ms': getattr(en, 'output_ms', 0),
+                'nag_timeout': getattr(en, 'nag_timeout', 0),
+                'use_pwm': getattr(en, 'use_pwm', False),
+            }
+        except Exception as e:
+            config['ext_notification'] = {'enabled': False, 'active': False, 'alert_message': False, 'alert_bell': False, 'output_ms': 0, 'nag_timeout': 0, 'use_pwm': False, 'error': str(e)}
+
+        try:
+            rt = node.moduleConfig.range_test
+            config['range_test'] = {
+                'enabled': getattr(rt, 'enabled', False),
+                'sender': getattr(rt, 'sender', 0),
+                'save': getattr(rt, 'save', False),
+            }
+        except Exception as e:
+            config['range_test'] = {'enabled': False, 'sender': 0, 'save': False, 'error': str(e)}
+
+        try:
+            cm = node.moduleConfig.canned_message
+            config['canned_message'] = {
+                'enabled': getattr(cm, 'enabled', False),
+                'send_bell': getattr(cm, 'send_bell', False),
+                'messages': getattr(cm, 'messages', ''),
+                'allow_input_source': getattr(cm, 'allow_input_source', ''),
+            }
+        except Exception as e:
+            config['canned_message'] = {'enabled': False, 'send_bell': False, 'messages': '', 'allow_input_source': '', 'error': str(e)}
+
+        try:
+            px = node.moduleConfig.paxcounter
+            config['paxcounter'] = {
+                'enabled': getattr(px, 'enabled', False),
+                'paxcounter_update_interval': getattr(px, 'paxcounter_update_interval', 0),
+            }
+        except Exception as e:
+            config['paxcounter'] = {'enabled': False, 'paxcounter_update_interval': 0, 'error': str(e)}
+
+        try:
+            sr = node.moduleConfig.serial
+            config['serial_module'] = {
+                'enabled': getattr(sr, 'enabled', False),
+                'echo': getattr(sr, 'echo', False),
+                'rxd': getattr(sr, 'rxd', 0),
+                'txd': getattr(sr, 'txd', 0),
+                'baud': getattr(sr, 'baud', 0),
+                'timeout': getattr(sr, 'timeout', 0),
+                'mode': getattr(sr, 'mode', 0),
+                'override_console_serial_port': getattr(sr, 'override_console_serial_port', False),
+            }
+        except Exception as e:
+            config['serial_module'] = {'enabled': False, 'echo': False, 'rxd': 0, 'txd': 0, 'baud': 0, 'timeout': 0, 'mode': 0, 'override_console_serial_port': False, 'error': str(e)}
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -1140,6 +1211,66 @@ class ListenBasedMapper:
                     setattr(d, key, int(val))
             node.writeConfig('display')
             applied.append('display')
+
+        if 'store_forward' in changes:
+            sf = node.moduleConfig.store_forward
+            for key, val in changes['store_forward'].items():
+                if key in ('enabled', 'heartbeat'):
+                    setattr(sf, key, bool(val))
+                else:
+                    setattr(sf, key, int(val))
+            node.writeConfig('store_forward')
+            applied.append('store_forward')
+
+        if 'ext_notification' in changes:
+            en = node.moduleConfig.external_notification
+            for key, val in changes['ext_notification'].items():
+                if key in ('enabled', 'active', 'alert_message', 'alert_bell', 'use_pwm'):
+                    setattr(en, key, bool(val))
+                else:
+                    setattr(en, key, int(val))
+            node.writeConfig('external_notification')
+            applied.append('ext_notification')
+
+        if 'range_test' in changes:
+            rt = node.moduleConfig.range_test
+            for key, val in changes['range_test'].items():
+                if key in ('enabled', 'save'):
+                    setattr(rt, key, bool(val))
+                else:
+                    setattr(rt, key, int(val))
+            node.writeConfig('range_test')
+            applied.append('range_test')
+
+        if 'canned_message' in changes:
+            cm = node.moduleConfig.canned_message
+            for key, val in changes['canned_message'].items():
+                if key in ('enabled', 'send_bell'):
+                    setattr(cm, key, bool(val))
+                else:
+                    setattr(cm, key, str(val))
+            node.writeConfig('canned_message')
+            applied.append('canned_message')
+
+        if 'paxcounter' in changes:
+            px = node.moduleConfig.paxcounter
+            for key, val in changes['paxcounter'].items():
+                if key == 'enabled':
+                    setattr(px, key, bool(val))
+                else:
+                    setattr(px, key, int(val))
+            node.writeConfig('paxcounter')
+            applied.append('paxcounter')
+
+        if 'serial_module' in changes:
+            sr = node.moduleConfig.serial
+            for key, val in changes['serial_module'].items():
+                if key in ('enabled', 'echo', 'override_console_serial_port'):
+                    setattr(sr, key, bool(val))
+                else:
+                    setattr(sr, key, int(val))
+            node.writeConfig('serial')
+            applied.append('serial_module')
 
         if reboot:
             try:
