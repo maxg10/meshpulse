@@ -10,7 +10,7 @@ services:
     environment:
       - TRACKER_HOST=${TRACKER_HOST:-}
     volumes:
-      - mapper-data:/app/data
+      - mapper-data:/var/www/html/meshtastic
 
 volumes:
   mapper-data:

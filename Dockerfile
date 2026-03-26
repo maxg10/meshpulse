@@ -8,8 +8,8 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies
 RUN pip install --no-cache-dir meshtastic websockets
 
-# Create directories
-RUN mkdir -p /var/www/html/meshtastic /app/data
+# Create web directory
+RUN mkdir -p /var/www/html/meshtastic /var/log/lighttpd /var/cache/lighttpd/uploads
 
 # Copy backend
 COPY backend/ /app/backend/
@@ -17,16 +17,10 @@ COPY backend/ /app/backend/
 # Copy frontend to web root
 COPY frontend/ /var/www/html/meshtastic/
 
-# Copy lighttpd config
+# Copy docker support files
 COPY docker/lighttpd.conf /etc/lighttpd/lighttpd.conf
-
-# Copy entrypoint
 COPY docker/entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
-
-# nodes.json lives in /app/data (persistent volume)
-# symlink so backend and frontend both find it
-RUN ln -sf /app/data/nodes.json /var/www/html/meshtastic/nodes.json
 
 WORKDIR /app
 
