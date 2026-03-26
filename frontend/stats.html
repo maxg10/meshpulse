@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.7">
+    <link rel="stylesheet" href="styles.css?v=2.0.8">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +125,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.7 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.8 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -530,6 +530,24 @@ function getNodeSuggestion(s) {
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
+function formatUptime(seconds) {
+    if (!seconds && seconds !== 0) return '-';
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+}
+
+function batteryIcon(level) {
+    if (level === null || level === undefined) return '';
+    const pct = Math.round(level);
+    const icon = pct >= 20 ? '🔋' : '🪫';
+    const color = pct >= 50 ? '#22c55e' : pct >= 20 ? '#eab308' : '#ef4444';
+    return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
+}
+
 function formatLastSeen(ts) {
     if (!ts) return '-';
     const diff = Math.floor(Date.now()/1000) - ts;
@@ -1091,6 +1109,8 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
+const CURRENT_VERSION = '2.0.8';
+
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
     sessionStorage.setItem('update_checked', '1');
@@ -1102,8 +1122,7 @@ async function checkForUpdates() {
         const release = await resp.json();
         const latestTag = release.tag_name || '';
         const latestVer = latestTag.replace('v', '').replace('-stable', '');
-        const currentVer = '2.0.7';
-        if (latestVer && latestVer !== currentVer && isNewerVersion(latestVer, currentVer)) {
+        if (latestVer && isNewerVersion(latestVer, CURRENT_VERSION)) {
             showUpdateBanner(latestVer, release.name, release.body, release.html_url);
         }
     } catch (e) { /* silently ignore — no internet or GitHub down */ }

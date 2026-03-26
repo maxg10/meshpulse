@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-#ver 2.0.7
+#ver 2.0.8
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -73,7 +73,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-VERSION = '2.0.7'
+VERSION = '2.0.8'
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -876,6 +876,139 @@ class ListenBasedMapper:
             config['neighborinfo'] = {'neighbor_info_enabled': False, 'update_interval': 14400}
 
         try:
+            m = node.moduleConfig.mqtt
+            mrs = getattr(m, 'map_report_settings', None)
+            config['mqtt'] = {
+                'enabled': getattr(m, 'enabled', False),
+                'address': getattr(m, 'address', ''),
+                'username': getattr(m, 'username', ''),
+                'password': getattr(m, 'password', ''),
+                'encryption_enabled': getattr(m, 'encryption_enabled', True),
+                'json_enabled': getattr(m, 'json_enabled', False),
+                'tls_enabled': getattr(m, 'tls_enabled', False),
+                'proxy_to_client_enabled': getattr(m, 'proxy_to_client_enabled', False),
+                'root': getattr(m, 'root', 'msh'),
+                'map_reporting_enabled': mrs.publish_secs > 0 if mrs else False,
+                'map_publish_interval_secs': getattr(mrs, 'publish_secs', 900) if mrs else 900,
+                'position_precision': getattr(mrs, 'position_precision', 32) if mrs else 32,
+            }
+        except Exception as e:
+            config['mqtt'] = {'error': str(e)}
+
+        try:
+            p = node.localConfig.power
+            config['power'] = {
+                'is_power_saving': getattr(p, 'is_power_saving', False),
+                'light_sleep_enabled': getattr(p, 'light_sleep_enabled', False),
+                'wait_bluetooth_secs': getattr(p, 'wait_bluetooth_secs', 60),
+                'min_wake_secs': getattr(p, 'min_wake_secs', 10),
+                'sds_secs': getattr(p, 'sds_secs', 0),
+                'adc_multiplier_override': getattr(p, 'adc_multiplier_override', 0),
+            }
+        except Exception as e:
+            config['power'] = {
+                'is_power_saving': False,
+                'light_sleep_enabled': False,
+                'wait_bluetooth_secs': 60,
+                'min_wake_secs': 10,
+                'sds_secs': 0,
+                'adc_multiplier_override': 0,
+                'error': str(e)
+            }
+
+        try:
+            d = node.localConfig.display
+            config['display'] = {
+                'screen_on_secs': getattr(d, 'screen_on_secs', 0),
+                'gps_format': getattr(d, 'gps_format', 0),
+                'auto_screen_carousel_secs': getattr(d, 'auto_screen_carousel_secs', 0),
+                'compass_north_top': getattr(d, 'compass_north_top', False),
+                'wake_on_tap_or_motion': getattr(d, 'wake_on_tap_or_motion', False),
+                'flip_screen': getattr(d, 'flip_screen', False),
+                'units': getattr(d, 'units', 0),
+                'oled': getattr(d, 'oled', 0),
+                'displaymode': getattr(d, 'displaymode', 0),
+                'heading_bold': getattr(d, 'heading_bold', False),
+            }
+        except Exception as e:
+            config['display'] = {
+                'screen_on_secs': 0, 'gps_format': 0, 'auto_screen_carousel_secs': 0,
+                'compass_north_top': False, 'wake_on_tap_or_motion': False, 'flip_screen': False,
+                'units': 0, 'oled': 0, 'displaymode': 0, 'heading_bold': False, 'error': str(e)
+            }
+
+        try:
+            sf = node.moduleConfig.store_forward
+            config['store_forward'] = {
+                'enabled': getattr(sf, 'enabled', False),
+                'heartbeat': getattr(sf, 'heartbeat', False),
+                'records': getattr(sf, 'records', 0),
+                'history_return_max': getattr(sf, 'history_return_max', 0),
+                'history_return_window': getattr(sf, 'history_return_window', 0),
+            }
+        except Exception as e:
+            config['store_forward'] = {'enabled': False, 'heartbeat': False, 'records': 0, 'history_return_max': 0, 'history_return_window': 0, 'error': str(e)}
+
+        try:
+            en = node.moduleConfig.external_notification
+            config['ext_notification'] = {
+                'enabled': getattr(en, 'enabled', False),
+                'active': getattr(en, 'active', False),
+                'alert_message': getattr(en, 'alert_message', False),
+                'alert_bell': getattr(en, 'alert_bell', False),
+                'output_ms': getattr(en, 'output_ms', 0),
+                'nag_timeout': getattr(en, 'nag_timeout', 0),
+                'use_pwm': getattr(en, 'use_pwm', False),
+            }
+        except Exception as e:
+            config['ext_notification'] = {'enabled': False, 'active': False, 'alert_message': False, 'alert_bell': False, 'output_ms': 0, 'nag_timeout': 0, 'use_pwm': False, 'error': str(e)}
+
+        try:
+            rt = node.moduleConfig.range_test
+            config['range_test'] = {
+                'enabled': getattr(rt, 'enabled', False),
+                'sender': getattr(rt, 'sender', 0),
+                'save': getattr(rt, 'save', False),
+            }
+        except Exception as e:
+            config['range_test'] = {'enabled': False, 'sender': 0, 'save': False, 'error': str(e)}
+
+        try:
+            cm = node.moduleConfig.canned_message
+            config['canned_message'] = {
+                'enabled': getattr(cm, 'enabled', False),
+                'send_bell': getattr(cm, 'send_bell', False),
+                'messages': getattr(cm, 'messages', ''),
+                'allow_input_source': getattr(cm, 'allow_input_source', ''),
+            }
+        except Exception as e:
+            config['canned_message'] = {'enabled': False, 'send_bell': False, 'messages': '', 'allow_input_source': '', 'error': str(e)}
+
+        try:
+            px = node.moduleConfig.paxcounter
+            config['paxcounter'] = {
+                'enabled': getattr(px, 'enabled', False),
+                'paxcounter_update_interval': getattr(px, 'paxcounter_update_interval', 0),
+            }
+        except Exception as e:
+            config['paxcounter'] = {'enabled': False, 'paxcounter_update_interval': 0, 'error': str(e)}
+
+        try:
+            sr = node.moduleConfig.serial
+            config['serial_module'] = {
+                'enabled': getattr(sr, 'enabled', False),
+                'echo': getattr(sr, 'echo', False),
+                'rxd': getattr(sr, 'rxd', 0),
+                'txd': getattr(sr, 'txd', 0),
+                'baud': getattr(sr, 'baud', 0),
+                'timeout': getattr(sr, 'timeout', 0),
+                'mode': getattr(sr, 'mode', 0),
+                'override_console_serial_port': getattr(sr, 'override_console_serial_port', False),
+            }
+        except Exception as e:
+            config['serial_module'] = {'enabled': False, 'echo': False, 'rxd': 0, 'txd': 0, 'baud': 0, 'timeout': 0, 'mode': 0, 'override_console_serial_port': False, 'error': str(e)}
+
+        try:
             # Channels
             from meshtastic.protobuf import channel_pb2
             channels = []
@@ -1033,6 +1166,111 @@ class ListenBasedMapper:
                     node.moduleConfig.neighbor_info.update_interval = int(val)
             node.writeConfig('neighbor_info')
             applied.append('neighborinfo')
+
+        if 'mqtt' in changes:
+            m = node.moduleConfig.mqtt
+            mqtt_changes = changes['mqtt']
+            simple_fields = ['enabled', 'address', 'username', 'password',
+                             'encryption_enabled', 'json_enabled', 'tls_enabled',
+                             'proxy_to_client_enabled', 'root']
+            for key in simple_fields:
+                if key in mqtt_changes:
+                    setattr(m, key, mqtt_changes[key])
+            if 'map_reporting_enabled' in mqtt_changes or 'map_publish_interval_secs' in mqtt_changes:
+                if hasattr(m, 'map_report_settings'):
+                    if mqtt_changes.get('map_reporting_enabled'):
+                        m.map_report_settings.publish_secs = int(mqtt_changes.get('map_publish_interval_secs', 900))
+                    else:
+                        m.map_report_settings.publish_secs = 0
+            if 'position_precision' in mqtt_changes:
+                if hasattr(m, 'map_report_settings'):
+                    m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
+            node.writeConfig('mqtt')
+            applied.append('mqtt')
+
+        if 'power' in changes:
+            p = node.localConfig.power
+            for key, val in changes['power'].items():
+                if key == 'adc_multiplier_override':
+                    setattr(p, key, float(val))
+                elif key in ('is_power_saving', 'light_sleep_enabled'):
+                    setattr(p, key, bool(val))
+                else:
+                    setattr(p, key, int(val))
+            node.writeConfig('power')
+            applied.append('power')
+
+        if 'display' in changes:
+            d = node.localConfig.display
+            for key, val in changes['display'].items():
+                if key in ('gps_format', 'units', 'oled', 'displaymode'):
+                    setattr(d, key, int(val))
+                elif key in ('compass_north_top', 'wake_on_tap_or_motion', 'flip_screen', 'heading_bold'):
+                    setattr(d, key, bool(val))
+                else:
+                    setattr(d, key, int(val))
+            node.writeConfig('display')
+            applied.append('display')
+
+        if 'store_forward' in changes:
+            sf = node.moduleConfig.store_forward
+            for key, val in changes['store_forward'].items():
+                if key in ('enabled', 'heartbeat'):
+                    setattr(sf, key, bool(val))
+                else:
+                    setattr(sf, key, int(val))
+            node.writeConfig('store_forward')
+            applied.append('store_forward')
+
+        if 'ext_notification' in changes:
+            en = node.moduleConfig.external_notification
+            for key, val in changes['ext_notification'].items():
+                if key in ('enabled', 'active', 'alert_message', 'alert_bell', 'use_pwm'):
+                    setattr(en, key, bool(val))
+                else:
+                    setattr(en, key, int(val))
+            node.writeConfig('external_notification')
+            applied.append('ext_notification')
+
+        if 'range_test' in changes:
+            rt = node.moduleConfig.range_test
+            for key, val in changes['range_test'].items():
+                if key in ('enabled', 'save'):
+                    setattr(rt, key, bool(val))
+                else:
+                    setattr(rt, key, int(val))
+            node.writeConfig('range_test')
+            applied.append('range_test')
+
+        if 'canned_message' in changes:
+            cm = node.moduleConfig.canned_message
+            for key, val in changes['canned_message'].items():
+                if key in ('enabled', 'send_bell'):
+                    setattr(cm, key, bool(val))
+                else:
+                    setattr(cm, key, str(val))
+            node.writeConfig('canned_message')
+            applied.append('canned_message')
+
+        if 'paxcounter' in changes:
+            px = node.moduleConfig.paxcounter
+            for key, val in changes['paxcounter'].items():
+                if key == 'enabled':
+                    setattr(px, key, bool(val))
+                else:
+                    setattr(px, key, int(val))
+            node.writeConfig('paxcounter')
+            applied.append('paxcounter')
+
+        if 'serial_module' in changes:
+            sr = node.moduleConfig.serial
+            for key, val in changes['serial_module'].items():
+                if key in ('enabled', 'echo', 'override_console_serial_port'):
+                    setattr(sr, key, bool(val))
+                else:
+                    setattr(sr, key, int(val))
+            node.writeConfig('serial')
+            applied.append('serial_module')
 
         if reboot:
             try:
@@ -1819,6 +2057,29 @@ class ListenBasedMapper:
                 if tracker_updated:
                     asyncio.run(self.broadcast_connection_status('connected'))
 
+                # Also save battery/telemetry to nodes dict for popup display
+                battery_level = device_metrics.get('batteryLevel')
+                voltage = device_metrics.get('voltage')
+                uptime_seconds = device_metrics.get('uptimeSeconds')
+                env = telemetry.get('environmentMetrics', {})
+                temperature = env.get('temperature')
+
+                telemetry_update = {}
+                if battery_level is not None:
+                    telemetry_update['battery_level'] = round(battery_level, 1)
+                    self.tracker_info['battery_level'] = round(battery_level, 1)
+                if voltage is not None:
+                    telemetry_update['voltage'] = round(voltage, 2)
+                    self.tracker_info['voltage'] = round(voltage, 2)
+                if uptime_seconds is not None:
+                    telemetry_update['uptime_seconds'] = uptime_seconds
+                if temperature is not None:
+                    telemetry_update['temperature'] = round(temperature, 1)
+                    self.tracker_info['temperature'] = round(temperature, 1)
+
+                if telemetry_update and self.local_node_id in self.nodes:
+                    self.nodes[self.local_node_id].update(telemetry_update)
+
             rssi = packet.get('rxRssi') or None
             if rssi is not None:
                 if node_id in self.nodes:
@@ -1830,10 +2091,31 @@ class ListenBasedMapper:
                 relay_node_raw = packet.get('relayNode')
                 self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
 
+            # Save device metrics for all nodes (not just tracker)
+            device_metrics = telemetry.get('deviceMetrics', {})
+            battery_level = device_metrics.get('batteryLevel')
+            voltage = device_metrics.get('voltage')
+            uptime_seconds = device_metrics.get('uptimeSeconds')
+
+            env = telemetry.get('environmentMetrics', {})
+            temperature = env.get('temperature')
+
+            telemetry_update = {}
+            if battery_level is not None:
+                telemetry_update['battery_level'] = round(battery_level, 1)
+            if voltage is not None:
+                telemetry_update['voltage'] = round(voltage, 2)
+            if uptime_seconds is not None:
+                telemetry_update['uptime_seconds'] = uptime_seconds
+            if temperature is not None:
+                telemetry_update['temperature'] = round(temperature, 1)
+
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
                 self.nodes[node_id]['seen_at'] = int(time.time())
                 self.nodes[node_id]['source'] = 'live'
+                if telemetry_update:
+                    self.nodes[node_id].update(telemetry_update)
                 print(f"♡ {node_id} telemetry heartbeat [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
@@ -1842,6 +2124,8 @@ class ListenBasedMapper:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
                 self.nodes_no_position[node_id]['seen_at'] = int(time.time())
                 self.nodes_no_position[node_id]['source'] = 'live'
+                if telemetry_update:
+                    self.nodes_no_position[node_id].update(telemetry_update)
                 print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
@@ -2219,6 +2503,10 @@ class ListenBasedMapper:
                         serial_iface.disconnect()
                     except Exception:
                         pass
+                try:
+                    asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting...'))
+                except Exception:
+                    pass
                 self._serial_iface = None
 
     def _on_serial_packet(self, packet):
@@ -2442,6 +2730,10 @@ class ListenBasedMapper:
                         tcp_iface.disconnect()
                     except Exception:
                         pass
+                try:
+                    asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting...'))
+                except Exception:
+                    pass
 
     def run(self):
         """Run meshtastic --listen and parse output"""

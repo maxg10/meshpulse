@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Meshtastic Network Mapper is a real-time web visualization tool for Meshtastic mesh network nodes. It connects to a Meshtastic device via USB serial or TCP, parses node/position/telemetry packets from `meshtastic --listen`, and displays nodes on an interactive Leaflet.js map with WebSocket support for real-time updates. Optimized for low-power devices (Raspberry Pi Model B+, 512MB RAM).
 
-**Current Version:** v2.0.7 (Security hardening, XSS fix, topology zoom/pan, auto-update check)
+**Current Version:** v2.0.8 (Config expansion: Power/MQTT/Display/Modules tabs, device disconnect indicator)
 
 ## Running & Deployment
 
@@ -181,6 +181,25 @@ meshtastic-network-mapper/
 ├── LICENSE                       # MIT License
 └── .gitignore                    # Git ignore rules
 ```
+
+## Recent Changes (v2.0.8)
+
+**Added:**
+- Power config tab — is_power_saving, light_sleep_enabled, wait_bluetooth_secs, min_wake_secs, sds_secs, adc_multiplier_override
+- MQTT config tab — enabled, address, root, username, password, TLS, encryption, JSON, proxy_to_client, map reporting, position precision
+- Display config tab — screen_on_secs, gps_format, auto_screen_carousel_secs, compass_north_top, wake_on_tap_or_motion, flip_screen, units, oled, displaymode, heading_bold
+- Modules config tab — Store & Forward, External Notification, Range Test, Canned Messages, Paxcounter, Serial module
+- Device disconnect indicator — frontend shows yellow "reconnecting" status when serial/TCP loses connection to device
+- `broadcast_connection_status('disconnected')` sent from `finally` block in `_run_serial()` and `_run_tcp()` before cleanup
+
+**Fixed:**
+- Config checkboxes (Power `is_power_saving`, MQTT `enabled`, etc.) no longer reset after save — root cause was `AttributeError` on `light_sleep_enabled` field missing in firmware 2.7.15 which silently replaced entire `power` config block with `{"error": "light_sleep_enabled"}`
+- All config fields in `get_device_config()` now use `getattr(obj, field, default)` for power and mqtt blocks — safe across firmware versions
+- Removed automatic `get_config` reload after save — local `originalConfig` merge is source of truth; device cache was stale after `writeConfig()`
+- `config_saved` handler merges `pendingChanges` into `originalConfig` immediately so serial reconnect cannot overwrite form with stale device values
+
+**Changed:**
+- Version bumped to v2.0.8
 
 ## Recent Changes (v2.0.7)
 

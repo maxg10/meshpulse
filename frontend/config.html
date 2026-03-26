@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.7">
+    <link rel="stylesheet" href="styles.css?v=2.0.8">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -134,7 +134,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.7 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.8 — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -161,6 +161,10 @@
     <button class="tab" onclick="switchTab('telemetry', this)">🔋 Telemetry</button>
     <button class="tab" onclick="switchTab('network', this)">🌐 Network</button>
     <button class="tab" onclick="switchTab('bluetooth', this)">🔵 Bluetooth</button>
+    <button class="tab" onclick="switchTab('mqtt', this)">📡 MQTT</button>
+    <button class="tab" onclick="switchTab('power', this)">⚡ Power</button>
+    <button class="tab" onclick="switchTab('display', this)">🖥️ Display</button>
+    <button class="tab" onclick="switchTab('modules', this)">🧩 Modules</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
 </div>
@@ -566,6 +570,416 @@
                 oninput="markChanged(this)" placeholder="123456">
         </div>
     </div>
+</div>
+
+<!-- MQTT tab -->
+<div id="tab-mqtt" class="tab-content">
+    <div class="card">
+        <div class="card-title">📡 MQTT Settings</div>
+        <div class="alert alert-warning" style="margin-bottom:12px">
+            ⚠️ MQTT bridges your mesh to the internet. Make sure you understand the privacy implications before enabling.
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.enabled" onchange="markChanged(this)">
+            <label for="mqtt.enabled">MQTT Enabled <span class="tip" onmouseenter="showTip('Enable MQTT integration. When enabled, your node will forward mesh packets to an MQTT broker over WiFi/internet.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>MQTT Server Address <span class="tip" onmouseenter="showTip('Hostname or IP of your MQTT broker. Default: mqtt.meshtastic.org',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Default: mqtt.meshtastic.org</div>
+                <input type="text" id="mqtt.address" maxlength="100" oninput="markChanged(this)" placeholder="mqtt.meshtastic.org">
+            </div>
+            <div class="field">
+                <label>Root Topic <span class="tip" onmouseenter="showTip('MQTT topic prefix. Default: msh. All messages published under this topic.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Topic prefix. Default: msh</div>
+                <input type="text" id="mqtt.root" maxlength="30" oninput="markChanged(this)" placeholder="msh">
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Username <span class="tip" onmouseenter="showTip('MQTT broker username. Leave empty for anonymous access.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Leave empty for anonymous</div>
+                <input type="text" id="mqtt.username" maxlength="64" oninput="markChanged(this)" placeholder="(optional)">
+            </div>
+            <div class="field">
+                <label>Password <span class="tip" onmouseenter="showTip('MQTT broker password.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">MQTT broker password</div>
+                <input type="password" id="mqtt.password" maxlength="64" oninput="markChanged(this)" placeholder="(optional)">
+            </div>
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.tls_enabled" onchange="markChanged(this)">
+            <label for="mqtt.tls_enabled">TLS Enabled <span class="tip" onmouseenter="showTip('Enable TLS/SSL encryption for MQTT connection. Recommended when connecting to remote brokers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.encryption_enabled" onchange="markChanged(this)">
+            <label for="mqtt.encryption_enabled">Encryption Enabled <span class="tip" onmouseenter="showTip('Encrypt packets before sending to MQTT. When disabled, packets are sent in plaintext — anyone subscribed to the topic can read them.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.json_enabled" onchange="markChanged(this)">
+            <label for="mqtt.json_enabled">JSON Enabled <span class="tip" onmouseenter="showTip('Publish decoded packets as JSON in addition to protobuf. Useful for integration with other tools.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.proxy_to_client_enabled" onchange="markChanged(this)">
+            <label for="mqtt.proxy_to_client_enabled">Proxy to Client Enabled <span class="tip" onmouseenter="showTip('Allow the connected client app to handle MQTT connection instead of the device. Useful when device has no WiFi.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">🗺️ Map Reporting</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ Map reporting sends your node position to the public Meshtastic map (meshtastic.org/map).
+            Your position will be visible to everyone.
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.map_reporting_enabled" onchange="markChanged(this)">
+            <label for="mqtt.map_reporting_enabled">Map Reporting Enabled <span class="tip" onmouseenter="showTip('Publish your position to the public Meshtastic map. Your node will appear on meshtastic.org/map visible to everyone.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Publish Interval (seconds) <span class="tip" onmouseenter="showTip('How often to publish position to the map. Default: 900s (15 min). Lower = more traffic.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Default: 900s (15 min)</div>
+                <input type="number" id="mqtt.map_publish_interval_secs" min="60" max="86400" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Approximate Location <span class="tip" onmouseenter="showTip('Precision bits for approximate location on public map. Higher = more precise. Lower = more private. Default: 32 (exact). Use 10-16 for privacy.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Precision bits (10=~10km, 32=exact)</div>
+                <input type="number" id="mqtt.position_precision" min="10" max="32" oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Power tab -->
+<div id="tab-power" class="tab-content">
+    <div class="card">
+        <div class="card-title">⚡ Power Settings</div>
+        <div class="alert alert-info" style="margin-bottom:12px">
+            ℹ️ Power settings control sleep modes and battery optimization.
+            Incorrect settings may make your device unreachable.
+            Use caution on remote nodes.
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="power.is_power_saving" onchange="markChanged(this)">
+            <label for="power.is_power_saving">Is Powered (USB/Solar) <span class="tip" onmouseenter="showTip('Mark this node as externally powered (USB or solar). When enabled, disables all sleep modes and aggressive power saving. Recommended for routers and base stations.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="power.light_sleep_enabled" onchange="markChanged(this)">
+            <label for="power.light_sleep_enabled">Light Sleep Enabled <span class="tip" onmouseenter="showTip('Enable light sleep mode between packets. Reduces power consumption but may increase latency. Not recommended for routers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+
+        <div class="field-row" style="margin-top:12px">
+            <div class="field">
+                <label>Wait Bluetooth (seconds) <span class="tip" onmouseenter="showTip('How long to wait for a Bluetooth connection before entering sleep mode. Default: 60s. Set to 0 to disable Bluetooth sleep.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Seconds to wait for BT before sleep. Default: 60s</div>
+                <input type="number" id="power.wait_bluetooth_secs" min="0" max="3600"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Minimum Wake Time (seconds) <span class="tip" onmouseenter="showTip('Minimum time the device stays awake after waking up. Prevents immediate re-entry into sleep mode. Default: 10s.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Min active time after wake. Default: 10s</div>
+                <input type="number" id="power.min_wake_secs" min="0" max="3600"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>SDS Sleep (seconds) <span class="tip" onmouseenter="showTip('Super Deep Sleep interval in seconds. Device enters lowest power state for this duration. Set to 0 to disable. WARNING: Device will be unreachable during SDS sleep.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">⚠️ Deep sleep duration. 0 = disabled</div>
+                <input type="number" id="power.sds_secs" min="0" max="86400"
+                    oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>ADC Multiplier Override <span class="tip" onmouseenter="showTip('Override the ADC multiplier used for battery voltage calculation. Default: 0 (use firmware default). Only change if battery percentage readings are incorrect.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Battery ADC override. 0 = use default</div>
+                <input type="number" id="power.adc_multiplier_override" min="0" max="10" step="0.01"
+                    oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Display tab -->
+<div id="tab-display" class="tab-content">
+    <div class="card">
+        <div class="card-title">🖥️ Display Settings</div>
+
+        <div class="field-row">
+            <div class="field">
+                <label>Screen Timeout (seconds) <span class="tip" onmouseenter="showTip('How long the screen stays on after last interaction. 0 = always on. Default: 0.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = always on</div>
+                <input type="number" id="display.screen_on_secs" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Auto Carousel Interval (seconds) <span class="tip" onmouseenter="showTip('How often the screen automatically cycles through pages. 0 = disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = disabled</div>
+                <input type="number" id="display.auto_screen_carousel_secs" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+        </div>
+
+        <div class="field">
+            <label>GPS Coordinate Format <span class="tip" onmouseenter="showTip('Format for displaying GPS coordinates on screen.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.gps_format" onchange="markChanged(this)">
+                <option value="0">Decimal (DEC)</option>
+                <option value="1">Degrees Minutes Seconds (DMS)</option>
+                <option value="2">Universal Transverse Mercator (UTM)</option>
+                <option value="3">Military Grid Reference (MGRS)</option>
+                <option value="4">Open Location Code (OLC)</option>
+                <option value="5">Ordnance Survey (OSGR)</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>Units <span class="tip" onmouseenter="showTip('Metric or Imperial units for distance display.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.units" onchange="markChanged(this)">
+                <option value="0">Metric</option>
+                <option value="1">Imperial</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>OLED Type <span class="tip" onmouseenter="showTip('OLED display driver type. Auto detects in most cases.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.oled" onchange="markChanged(this)">
+                <option value="0">Auto</option>
+                <option value="1">SSD1306</option>
+                <option value="2">SH1106</option>
+                <option value="3">SH1107</option>
+            </select>
+        </div>
+
+        <div class="field">
+            <label>Display Mode <span class="tip" onmouseenter="showTip('Screen layout mode.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="display.displaymode" onchange="markChanged(this)">
+                <option value="0">Default</option>
+                <option value="1">Two Color</option>
+                <option value="2">Inverted</option>
+                <option value="3">Color</option>
+            </select>
+        </div>
+
+        <div class="field-check">
+            <input type="checkbox" id="display.compass_north_top" onchange="markChanged(this)">
+            <label for="display.compass_north_top">Compass North Top <span class="tip" onmouseenter="showTip('Always point north at top of compass display.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.wake_on_tap_or_motion" onchange="markChanged(this)">
+            <label for="display.wake_on_tap_or_motion">Wake on Tap or Motion <span class="tip" onmouseenter="showTip('Wake the screen when the device is tapped or moved.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.flip_screen" onchange="markChanged(this)">
+            <label for="display.flip_screen">Flip Screen <span class="tip" onmouseenter="showTip('Rotate display 180 degrees. Useful when device is mounted upside down.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="display.heading_bold" onchange="markChanged(this)">
+            <label for="display.heading_bold">Heading Bold <span class="tip" onmouseenter="showTip('Display heading text in bold font.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+    </div>
+</div>
+
+<!-- Modules tab -->
+<div id="tab-modules" class="tab-content">
+
+    <!-- Store & Forward -->
+    <div class="card">
+        <div class="card-title">📦 Store & Forward</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Buffers messages for nodes that are temporarily offline. Only enable on router nodes with sufficient RAM.</div>
+        <div class="field-check">
+            <input type="checkbox" id="store_forward.enabled" onchange="markChanged(this)">
+            <label for="store_forward.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable Store & Forward module. Router nodes will buffer messages for offline nodes.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="store_forward.heartbeat" onchange="markChanged(this)">
+            <label for="store_forward.heartbeat">Heartbeat <span class="tip" onmouseenter="showTip('Send periodic heartbeat to indicate Store & Forward is available.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Max Records <span class="tip" onmouseenter="showTip('Maximum number of messages to store. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = default</div>
+                <input type="number" id="store_forward.records" min="0" max="500" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>History Return Max <span class="tip" onmouseenter="showTip('Max number of messages to return when a client requests history.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Max messages returned on history request</div>
+                <input type="number" id="store_forward.history_return_max" min="0" max="100" oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field">
+            <label>History Return Window (seconds) <span class="tip" onmouseenter="showTip('How far back in time to return messages. 0 = all stored.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Time window for history requests. 0 = all</div>
+            <input type="number" id="store_forward.history_return_window" min="0" max="86400" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- External Notification -->
+    <div class="card">
+        <div class="card-title">🔔 External Notification</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Trigger a buzzer, LED or vibration motor via GPIO when messages arrive.</div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.enabled" onchange="markChanged(this)">
+            <label for="ext_notification.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.active" onchange="markChanged(this)">
+            <label for="ext_notification.active">Active High <span class="tip" onmouseenter="showTip('If true, GPIO goes HIGH to activate. If false, GPIO goes LOW to activate.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_message" onchange="markChanged(this)">
+            <label for="ext_notification.alert_message">Alert on Message <span class="tip" onmouseenter="showTip('Trigger notification when a text message is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_bell" onchange="markChanged(this)">
+            <label for="ext_notification.alert_bell">Alert on Bell <span class="tip" onmouseenter="showTip('Trigger notification when a bell character is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.use_pwm" onchange="markChanged(this)">
+            <label for="ext_notification.use_pwm">Use PWM <span class="tip" onmouseenter="showTip('Use PWM output instead of simple on/off. Required for some buzzers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Output Duration (ms) <span class="tip" onmouseenter="showTip('How long to activate the output in milliseconds. 0 = default (1000ms).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = 1000ms default</div>
+                <input type="number" id="ext_notification.output_ms" min="0" max="10000" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Nag Timeout (seconds) <span class="tip" onmouseenter="showTip('Keep repeating the alert for this many seconds until acknowledged. 0 = disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = disabled</div>
+                <input type="number" id="ext_notification.nag_timeout" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+
+    <!-- Range Test -->
+    <div class="card">
+        <div class="card-title">📏 Range Test</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Automatically sends test packets to measure range. Set Sender interval &gt; 0 on one node, leave at 0 on receiver nodes.</div>
+        <div class="field-check">
+            <input type="checkbox" id="range_test.enabled" onchange="markChanged(this)">
+            <label for="range_test.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable range test module. Must be enabled on both sender and receiver.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="range_test.save" onchange="markChanged(this)">
+            <label for="range_test.save">Save to Flash <span class="tip" onmouseenter="showTip('Save received packets to rangetest.csv on device flash. ESP32 only.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Sender Interval (seconds) <span class="tip" onmouseenter="showTip('How often to send test packets. 0 = receiver only (do not send).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">0 = receiver only. Set &gt; 0 on the sender node.</div>
+            <input type="number" id="range_test.sender" min="0" max="3600" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- Canned Messages -->
+    <div class="card">
+        <div class="card-title">💬 Canned Messages</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Pre-set messages selectable via hardware input (rotary encoder, buttons). Useful for devices without keyboards.</div>
+        <div class="field-check">
+            <input type="checkbox" id="canned_message.enabled" onchange="markChanged(this)">
+            <label for="canned_message.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="canned_message.send_bell" onchange="markChanged(this)">
+            <label for="canned_message.send_bell">Send Bell <span class="tip" onmouseenter="showTip('Append a bell character to each sent canned message. Used with External Notification module.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Messages <span class="tip" onmouseenter="showTip('Pipe-separated list of pre-set messages. Max 200 bytes total. Example: Hello|On my way|Call me',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">Separate messages with | character. Max 200 bytes.</div>
+            <input type="text" id="canned_message.messages" maxlength="200" oninput="markChanged(this)" placeholder="Hello|On my way|Call me|OK">
+        </div>
+        <div class="field">
+            <label>Input Source <span class="tip" onmouseenter="showTip('Input event source. Leave empty for default. Options: rotEnc1, upDownEnc1, cardkb, serialkb.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">e.g. rotEnc1, upDownEnc1, cardkb (leave empty for default)</div>
+            <input type="text" id="canned_message.allow_input_source" maxlength="30" oninput="markChanged(this)" placeholder="rotEnc1">
+        </div>
+    </div>
+
+    <!-- Paxcounter -->
+    <div class="card">
+        <div class="card-title">👥 Paxcounter</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Counts nearby devices by sniffing WiFi and Bluetooth MAC addresses. Useful for crowd density estimation.</div>
+        <div class="field-check">
+            <input type="checkbox" id="paxcounter.enabled" onchange="markChanged(this)">
+            <label for="paxcounter.enabled">Enabled <span class="tip" onmouseenter="showTip('Enable Paxcounter. Device will passively scan for nearby WiFi and BT devices.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Update Interval (seconds) <span class="tip" onmouseenter="showTip('How often to broadcast paxcounter data. 0 = default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <div class="desc">0 = default interval</div>
+            <input type="number" id="paxcounter.paxcounter_update_interval" min="0" max="3600" oninput="markChanged(this)">
+        </div>
+    </div>
+
+    <!-- Serial Module -->
+    <div class="card">
+        <div class="card-title">🔌 Serial Module</div>
+        <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Bridge between serial/UART port and the mesh network. Allows external devices (Arduino, GPS, etc.) to send/receive mesh packets.</div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.enabled" onchange="markChanged(this)">
+            <label for="serial_module.enabled">Enabled</label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.echo" onchange="markChanged(this)">
+            <label for="serial_module.echo">Echo <span class="tip" onmouseenter="showTip('Echo received packets back to the serial port.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="serial_module.override_console_serial_port" onchange="markChanged(this)">
+            <label for="serial_module.override_console_serial_port">Override Console Port <span class="tip" onmouseenter="showTip('Use the main serial/console port for this module instead of a secondary UART.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field">
+            <label>Mode <span class="tip" onmouseenter="showTip('Serial module operating mode.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <select id="serial_module.mode" onchange="markChanged(this)">
+                <option value="0">Default (PROTO)</option>
+                <option value="1">Simple</option>
+                <option value="2">Proto</option>
+                <option value="3">NMEA</option>
+                <option value="4">CalTopo</option>
+            </select>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>RX Pin <span class="tip" onmouseenter="showTip('GPIO pin number for RX. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">GPIO pin, 0 = default</div>
+                <input type="number" id="serial_module.rxd" min="0" max="48" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>TX Pin <span class="tip" onmouseenter="showTip('GPIO pin number for TX. 0 = use default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">GPIO pin, 0 = default</div>
+                <input type="number" id="serial_module.txd" min="0" max="48" oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Baud Rate <span class="tip" onmouseenter="showTip('Serial baud rate. 0 = default (38400).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <select id="serial_module.baud" onchange="markChanged(this)">
+                    <option value="0">Default (38400)</option>
+                    <option value="1">110</option>
+                    <option value="2">300</option>
+                    <option value="3">600</option>
+                    <option value="4">1200</option>
+                    <option value="5">2400</option>
+                    <option value="6">4800</option>
+                    <option value="7">9600</option>
+                    <option value="8">19200</option>
+                    <option value="9">38400</option>
+                    <option value="10">57600</option>
+                    <option value="11">115200</option>
+                    <option value="12">230400</option>
+                    <option value="13">460800</option>
+                    <option value="14">576000</option>
+                    <option value="15">921600</option>
+                </select>
+            </div>
+            <div class="field">
+                <label>Timeout (seconds) <span class="tip" onmouseenter="showTip('Timeout before sending incomplete packets. 0 = default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = default</div>
+                <input type="number" id="serial_module.timeout" min="0" max="60" oninput="markChanged(this)">
+            </div>
+        </div>
+    </div>
+
 </div>
 
 <!-- Channels tab -->
@@ -1036,13 +1450,16 @@ function connectWS() {
         } else if (d.type === 'config_saved') {
             if (d.success) {
                 showAlert(d.rebooting ? '✅ Config saved! Device is rebooting...' : '✅ Config saved successfully!', 'success');
+                // Merge saved changes into originalConfig immediately
+                for (const [section, fields] of Object.entries(pendingChanges)) {
+                    if (!originalConfig[section]) originalConfig[section] = {};
+                    for (const [key, val] of Object.entries(fields)) {
+                        originalConfig[section][key] = val;
+                    }
+                }
                 pendingChanges = {};
-                // Clear changed highlights
                 document.querySelectorAll('.changed').forEach(el => el.classList.remove('changed'));
                 updateChangesInfo();
-                if (!d.rebooting) {
-                    ws.send(JSON.stringify({type: 'get_config'}));
-                }
             } else {
                 showAlert('❌ Error saving config: ' + d.error, 'error');
             }
@@ -1171,6 +1588,81 @@ function populateForm(config) {
     // Neighborinfo
     setField('neighborinfo.neighbor_info_enabled', config.neighborinfo?.neighbor_info_enabled ?? false);
     setField('neighborinfo.update_interval', config.neighborinfo?.update_interval ?? 14400);
+
+    // MQTT
+    setField('mqtt.enabled', config.mqtt?.enabled ?? false);
+    setField('mqtt.address', config.mqtt?.address ?? 'mqtt.meshtastic.org');
+    setField('mqtt.root', config.mqtt?.root ?? 'msh');
+    setField('mqtt.username', config.mqtt?.username ?? '');
+    setField('mqtt.password', config.mqtt?.password ?? '');
+    setField('mqtt.tls_enabled', config.mqtt?.tls_enabled ?? false);
+    setField('mqtt.encryption_enabled', config.mqtt?.encryption_enabled ?? true);
+    setField('mqtt.json_enabled', config.mqtt?.json_enabled ?? false);
+    setField('mqtt.proxy_to_client_enabled', config.mqtt?.proxy_to_client_enabled ?? false);
+    setField('mqtt.map_reporting_enabled', config.mqtt?.map_reporting_enabled ?? false);
+    setField('mqtt.map_publish_interval_secs', config.mqtt?.map_publish_interval_secs ?? 900);
+    setField('mqtt.position_precision', config.mqtt?.position_precision ?? 32);
+
+    // Power
+    setField('power.is_power_saving', config.power?.is_power_saving ?? false);
+    setField('power.light_sleep_enabled', config.power?.light_sleep_enabled ?? false);
+    setField('power.wait_bluetooth_secs', config.power?.wait_bluetooth_secs ?? 60);
+    setField('power.min_wake_secs', config.power?.min_wake_secs ?? 10);
+    setField('power.sds_secs', config.power?.sds_secs ?? 0);
+    setField('power.adc_multiplier_override', config.power?.adc_multiplier_override ?? 0);
+
+    // Display
+    setField('display.screen_on_secs', config.display?.screen_on_secs ?? 0);
+    setField('display.gps_format', config.display?.gps_format ?? 0);
+    setField('display.auto_screen_carousel_secs', config.display?.auto_screen_carousel_secs ?? 0);
+    setField('display.compass_north_top', config.display?.compass_north_top ?? false);
+    setField('display.wake_on_tap_or_motion', config.display?.wake_on_tap_or_motion ?? false);
+    setField('display.flip_screen', config.display?.flip_screen ?? false);
+    setField('display.units', config.display?.units ?? 0);
+    setField('display.oled', config.display?.oled ?? 0);
+    setField('display.displaymode', config.display?.displaymode ?? 0);
+    setField('display.heading_bold', config.display?.heading_bold ?? false);
+
+    // Store & Forward
+    setField('store_forward.enabled', config.store_forward?.enabled ?? false);
+    setField('store_forward.heartbeat', config.store_forward?.heartbeat ?? false);
+    setField('store_forward.records', config.store_forward?.records ?? 0);
+    setField('store_forward.history_return_max', config.store_forward?.history_return_max ?? 0);
+    setField('store_forward.history_return_window', config.store_forward?.history_return_window ?? 0);
+
+    // External Notification
+    setField('ext_notification.enabled', config.ext_notification?.enabled ?? false);
+    setField('ext_notification.active', config.ext_notification?.active ?? false);
+    setField('ext_notification.alert_message', config.ext_notification?.alert_message ?? false);
+    setField('ext_notification.alert_bell', config.ext_notification?.alert_bell ?? false);
+    setField('ext_notification.use_pwm', config.ext_notification?.use_pwm ?? false);
+    setField('ext_notification.output_ms', config.ext_notification?.output_ms ?? 0);
+    setField('ext_notification.nag_timeout', config.ext_notification?.nag_timeout ?? 0);
+
+    // Range Test
+    setField('range_test.enabled', config.range_test?.enabled ?? false);
+    setField('range_test.sender', config.range_test?.sender ?? 0);
+    setField('range_test.save', config.range_test?.save ?? false);
+
+    // Canned Messages
+    setField('canned_message.enabled', config.canned_message?.enabled ?? false);
+    setField('canned_message.send_bell', config.canned_message?.send_bell ?? false);
+    setField('canned_message.messages', config.canned_message?.messages ?? '');
+    setField('canned_message.allow_input_source', config.canned_message?.allow_input_source ?? '');
+
+    // Paxcounter
+    setField('paxcounter.enabled', config.paxcounter?.enabled ?? false);
+    setField('paxcounter.paxcounter_update_interval', config.paxcounter?.paxcounter_update_interval ?? 0);
+
+    // Serial Module
+    setField('serial_module.enabled', config.serial_module?.enabled ?? false);
+    setField('serial_module.echo', config.serial_module?.echo ?? false);
+    setField('serial_module.override_console_serial_port', config.serial_module?.override_console_serial_port ?? false);
+    setField('serial_module.mode', config.serial_module?.mode ?? 0);
+    setField('serial_module.rxd', config.serial_module?.rxd ?? 0);
+    setField('serial_module.txd', config.serial_module?.txd ?? 0);
+    setField('serial_module.baud', config.serial_module?.baud ?? 0);
+    setField('serial_module.timeout', config.serial_module?.timeout ?? 0);
 
     // Fixed position - pre-fill from current node position
     if (config.current_position) {
@@ -1355,6 +1847,8 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
+const CURRENT_VERSION = '2.0.8';
+
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
     sessionStorage.setItem('update_checked', '1');
@@ -1366,8 +1860,7 @@ async function checkForUpdates() {
         const release = await resp.json();
         const latestTag = release.tag_name || '';
         const latestVer = latestTag.replace('v', '').replace('-stable', '');
-        const currentVer = '2.0.7';
-        if (latestVer && latestVer !== currentVer && isNewerVersion(latestVer, currentVer)) {
+        if (latestVer && isNewerVersion(latestVer, CURRENT_VERSION)) {
             showUpdateBanner(latestVer, release.name, release.body, release.html_url);
         }
     } catch (e) { /* silently ignore — no internet or GitHub down */ }

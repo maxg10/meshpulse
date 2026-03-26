@@ -8,12 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.0.7">
+    <link rel="stylesheet" href="styles.css?v=2.0.8">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.7 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.8 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -63,6 +63,7 @@
         <div id="connection-message" style="font-size:10px;color:#666;margin-top:2px;"></div>
         </div>
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
+        <small id="tracker-battery-line" style="display:none"><b>Battery:</b> <span id="tracker-battery">-</span></small><br>
         <hr style="margin:5px 0">
         <hr style="margin:5px 0">
         <label class="filter-label">
@@ -157,8 +158,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.0.7 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.0.7';
+        // Meshtastic Mapper v2.0.8 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.0.8';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -327,9 +328,15 @@
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
-                            updateConnectionStatus(data.status);
                             const msgEl = document.getElementById('connection-message');
-                            msgEl.textContent = data.message || '';
+                            if (msgEl) msgEl.textContent = data.message || '';
+                            if (data.status === 'disconnected') {
+                                updateConnectionStatus('connecting'); // yellow — reconnecting
+                                const msgEl2 = document.getElementById('connection-message');
+                                if (msgEl2) msgEl2.textContent = data.message || 'Device disconnected — reconnecting...';
+                            } else {
+                                updateConnectionStatus(data.status);
+                            }
                             if (window._tcpConnectTimeout) {
                                 clearTimeout(window._tcpConnectTimeout);
                                 window._tcpConnectTimeout = null;
@@ -529,6 +536,16 @@
             if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
             if (h > 0) return h + 'h ' + m + 'm';
             return m + 'm';
+        }
+
+        function batteryIcon(level) {
+            if (level === null || level === undefined) return '';
+            const pct = Math.round(level);
+            // >100% means device is powered externally (USB/solar charging)
+            if (pct > 100) return `<span style="color:#22c55e" title="Powered (charging)">🔌 PWR</span>`;
+            const color = pct >= 50 ? '#22c55e' : pct >= 20 ? '#eab308' : '#ef4444';
+            const icon = pct >= 20 ? '🔋' : '🪫';
+            return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
         }
 
         function escHtml(s) {
@@ -1298,7 +1315,12 @@
             }
             updateConnectionStatus('connected');
             document.getElementById('tracker-uptime').textContent = formatUptime(trackerInfo.uptime_seconds);
-            
+            const bat = trackerInfo.battery_level;
+            if (bat != null) {
+                document.getElementById('tracker-battery').innerHTML = batteryIcon(bat);
+                document.getElementById('tracker-battery-line').style.display = '';
+            }
+
             // Update no-GPS nodes panel
             const noMqttNodes = allNodesNoGps.filter(n => !n.via_mqtt);
             let filteredNoGps = noMqttNodes;
@@ -1322,7 +1344,7 @@
                     <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
-                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}</div>
+                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="window.location.href='/meshtastic/messages.html';event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
@@ -1372,7 +1394,7 @@
                         Role: ${escHtml(n.role || 'CLIENT')}<br>
                         SNR: ${escHtml(String(n.snr))} dB<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
-                        Alt: ${escHtml(String(n.alt))}m<br>
+                        ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'}<br>
                         ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
@@ -1488,6 +1510,8 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
+        const CURRENT_VERSION = '2.0.8';
+
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;
             sessionStorage.setItem('update_checked', '1');
@@ -1499,8 +1523,7 @@
                 const release = await resp.json();
                 const latestTag = release.tag_name || '';
                 const latestVer = latestTag.replace('v', '').replace('-stable', '');
-                const currentVer = '2.0.7';
-                if (latestVer && latestVer !== currentVer && isNewerVersion(latestVer, currentVer)) {
+                if (latestVer && isNewerVersion(latestVer, CURRENT_VERSION)) {
                     showUpdateBanner(latestVer, release.name, release.body, release.html_url);
                 }
             } catch (e) { /* silently ignore — no internet or GitHub down */ }
