@@ -7,3 +7,4 @@ nodes.json
 *.bak
 systemd/meshtastic-mapper.service
 config.json
+.env

@@ -1,0 +1,16 @@
+services:
+  meshtastic-mapper:
+    image: maxg10/meshtastic-mapper:latest
+    build: .
+    container_name: meshtastic-mapper
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8765:8765"
+    environment:
+      - TRACKER_HOST=${TRACKER_HOST:-}
+    volumes:
+      - mapper-data:/var/www/html/meshtastic
+
+volumes:
+  mapper-data:
