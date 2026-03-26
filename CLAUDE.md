@@ -33,6 +33,17 @@ sudo journalctl -u meshtastic-mapper -f
 
 The installer copies frontend files to `/var/www/html/meshtastic/` and generates a systemd service file from `systemd/meshtastic-mapper.service.template`. Web access at `http://<host>/meshtastic/`, WebSocket at `ws://<host>:8765`.
 
+**Docker (TCP-only):**
+```bash
+# Quick start with tracker IP:
+docker run -e TRACKER_HOST=192.168.1.103 -p 80:80 -p 8765:8765 -v mapper-data:/app/data maxg10/meshtastic-mapper
+
+# Or with docker-compose:
+cp .env.example .env
+# Edit .env and set TRACKER_HOST
+docker compose up -d
+```
+
 There is no build step, test suite, or linter configured for this project.
 
 ## Architecture
