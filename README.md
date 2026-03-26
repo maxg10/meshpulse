@@ -151,28 +151,22 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.7 — Security & Topology
+## What's New in v2.0.8 — Config Expansion & Reliability
 
-**🔒 Security Hardening**
-- XSS protection — all node names, messages and IDs escaped in frontend
-- Input sanitization — all radio packet data sanitized (UTF-8, length limits, control chars)
-- WebSocket security — 64KB message size limit, UTF-8 validation before send
-- Safe JSON encoding — emoji and special chars handled correctly
+**⚙️ Config Page — New Tabs**
+- ⚡ **Power** — is_powered (USB/Solar), light sleep, Bluetooth wait timeout, SDS sleep, ADC multiplier
+- 📡 **MQTT** — broker address, credentials, TLS, encryption, proxy to client, map reporting with position precision
+- 🖥️ **Display** — screen timeout, GPS format (DEC/DMS/UTM/MGRS/OLC/OSGR), units (metric/imperial), OLED type, display mode, flip screen, compass north top, wake on tap, heading bold
+- 🧩 **Modules** — Store & Forward, External Notification (buzzer/LED), Range Test, Canned Messages, Paxcounter (crowd counting), Serial Module (UART bridge)
 
-**🕸️ Network Topology**
-- Zoom & pan with +/- buttons (like Leaflet map controls)
-- Drag to pan the graph
-- Zoom state preserved between auto-refreshes
+**🔌 Device Disconnect Detection**
+- Map and Config pages now show yellow "reconnecting" status when the device serial/TCP connection drops
+- Status updates in real-time as device reconnects
 
-**🔄 Reliability**
-- Auto-refresh after browser wakes from sleep
-- TCP and serial disconnect detection improved
-- Fixed data loss on service restart
-- Fixed node names lost after restart
-
-**🆕 Auto-update check**
-- Banner appears when newer version is available on GitHub
-- Changelog popup shows what's new
+**🐛 Bug Fixes**
+- Config checkboxes (Power, MQTT) no longer reset after saving — fixed silent `AttributeError` on firmware 2.7.15 that replaced entire config sections with error objects
+- Config form no longer reloads from device after save — prevents stale cache from overwriting saved values
+- All config fields now use safe `getattr()` access — compatible with all firmware versions
 
 ---
 

@@ -8,12 +8,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.0.7">
+    <link rel="stylesheet" href="styles.css?v=2.0.8">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.7 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.8 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -158,8 +158,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.0.7 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.0.7';
+        // Meshtastic Mapper v2.0.8 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.0.8';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -1510,7 +1510,7 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
-        const CURRENT_VERSION = '2.0.7';
+        const CURRENT_VERSION = '2.0.8';
 
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;
