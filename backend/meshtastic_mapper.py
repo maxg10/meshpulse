@@ -1444,6 +1444,9 @@ class ListenBasedMapper:
                             break
                 except:
                     pass
+            # Final check: if relay_node_id resolved to our own node ID string, mark as relayed by us
+            if relay_node_id == self.local_node_id and from_id != self.local_node_id:
+                relayed_by_us = True
 
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
