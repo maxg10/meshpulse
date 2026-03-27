@@ -241,7 +241,9 @@
         </div>
     </div>
     <div class="card" style="margin-top:12px">
-        <div class="card-title">🚫 Ignored Nodes</div>
+        <div class="card-title">🚫 Ignored Nodes
+            <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:3px 10px" onclick="loadIgnoredNodes()">🔄 Refresh</button>
+        </div>
         <div class="alert alert-warning" style="margin-bottom:10px">
             ⚠️ Ignored nodes will not be relayed by your router. Use this to block spammy nodes that waste airtime.
         </div>
@@ -256,6 +258,10 @@
             </div>
         </div>
         <div id="ignore-result" style="margin-top:10px"></div>
+        <div class="card-title" style="margin-top:14px">📋 Currently Ignored Nodes</div>
+        <div id="ignored-nodes-list">
+            <div class="loading">Loading...</div>
+        </div>
     </div>
 </div>
 
@@ -1390,6 +1396,33 @@ function removeFavorite() {
 }
 
 // ── Ignored Nodes ─────────────────────────────────────────────────
+function loadIgnoredNodes() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type: 'get_ignored_nodes'}));
+}
+
+function renderIgnoredNodes(nodes) {
+    const el = document.getElementById('ignored-nodes-list');
+    if (!nodes || nodes.length === 0) {
+        el.innerHTML = '<div style="color:#9ca3af;font-size:12px;padding:8px 0">No ignored nodes.</div>';
+        return;
+    }
+    el.innerHTML = nodes.map(n => `
+        <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #e5e7eb;font-size:12px;">
+            <span style="flex:1"><b>${escHtml(n.name || n.id)}</b> <span style="color:#9ca3af">${escHtml(n.id)}</span></span>
+            <span style="color:#9ca3af">${new Date(n.ts * 1000).toLocaleDateString()}</span>
+            <button onclick="quickUnignore('${escHtml(n.id)}')"
+                style="background:#f3f4f6;border:1px solid #e5e7eb;border-radius:4px;padding:2px 8px;cursor:pointer;font-size:11px">
+                ✓ Unignore
+            </button>
+        </div>`).join('');
+}
+
+function quickUnignore(nodeId) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({type: 'remove_ignored_node', node_id: nodeId}));
+}
+
 function updateIgnoreButtons() {
     const val = document.getElementById('ignore-node-id').value.trim();
     const valid = /^!?[0-9a-fA-F]{8}$/.test(val);
@@ -1525,9 +1558,12 @@ function connectWS() {
                     `<div class="alert alert-success">${msg}</div>`;
                 document.getElementById('ignore-node-id').value = '';
                 updateIgnoreButtons();
+                if (d.ignored_nodes) renderIgnoredNodes(d.ignored_nodes);
             } else {
                 showAlert('❌ Error: ' + d.error, 'error');
             }
+        } else if (d.type === 'ignored_nodes_list') {
+            renderIgnoredNodes(d.ignored_nodes);
         } else if (d.type === 'favorites_list') {
             renderFavoritesList(d.favorites);
         } else if (d.type === 'fixed_position_result') {
@@ -1773,6 +1809,7 @@ function markChanged(el) {
         }
     }
     updateChangesInfo();
+    loadIgnoredNodes();
 }
 
 function updateChangesInfo() {
@@ -1836,6 +1873,7 @@ function switchTab(name, el) {
     });
     location.hash = name;
     if (name === 'favorites') loadFavorites();
+    if (name === 'device') loadIgnoredNodes();
 }
 
 // Restore tab from URL hash on load

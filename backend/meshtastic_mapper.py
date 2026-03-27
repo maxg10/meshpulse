@@ -553,6 +553,7 @@ class ListenBasedMapper:
         # Load existing nodes or start fresh
         self._loaded_radio_stats = None  # Populated by load_existing_nodes if available
         self.nodes_no_position = {}  # Nodes without GPS position
+        self.ignored_nodes = {}  # node_id -> {'id': node_id, 'name': name, 'ts': timestamp}
         self.nodes = self.load_existing_nodes()
         self.local_node_id = self.get_local_node_id()
 
@@ -758,6 +759,7 @@ class ListenBasedMapper:
                         print(f"[LOAD] Loaded {len(nodes)} nodes + {len(nodes_no_pos)} no-GPS after cleanup, {total_msgs} messages")
 
                     self._loaded_known_names = data.get('known_names', {})
+                    self.ignored_nodes = {n['id']: n for n in data.get('ignored_nodes', [])}
 
                     # Always restore radio_stats regardless of node count
                     saved_radio_stats = data.get('tracker', {}).get('radio_stats')
@@ -2397,7 +2399,8 @@ class ListenBasedMapper:
                 'messages': self.messages,
                 'known_names': self.known_names,
                 'neighbor_graph': self.stats_db.get_neighbor_graph(),
-                'relay_nodes': relay_nodes
+                'relay_nodes': relay_nodes,
+                'ignored_nodes': list(self.ignored_nodes.values())
             }
             
             temp_path = self.json_path + '.tmp'
@@ -3607,11 +3610,23 @@ async def websocket_handler(websocket):
                                 p.set_ignored_node = node_num
                                 iface.localNode._sendAdmin(p)
                                 print(f"[CONFIG] Ignored node set: {node_id}")
+                                # Save to mapper's ignored list
+                                node_name = mapper.nodes.get(node_id, {}).get('name') or \
+                                            mapper.nodes_no_position.get(node_id, {}).get('name') or \
+                                            mapper.known_names.get(node_id) or node_id
+                                mapper.ignored_nodes[node_id] = {
+                                    'id': node_id,
+                                    'name': node_name,
+                                    'ts': int(time.time())
+                                }
+                                mapper.save_nodes()
                                 await websocket.send(json.dumps({
                                     'type': 'ignored_node_result',
                                     'success': True,
                                     'action': 'set',
-                                    'node_id': node_id
+                                    'node_id': node_id,
+                                    'node_name': node_name,
+                                    'ignored_nodes': list(mapper.ignored_nodes.values())
                                 }, ensure_ascii=False))
                         except Exception as e:
                             print(f"[CONFIG] Error setting ignored node: {e}")
@@ -3638,11 +3653,15 @@ async def websocket_handler(websocket):
                                 p.remove_ignored_node = node_num
                                 iface.localNode._sendAdmin(p)
                                 print(f"[CONFIG] Ignored node removed: {node_id}")
+                                # Remove from mapper's ignored list
+                                mapper.ignored_nodes.pop(node_id, None)
+                                mapper.save_nodes()
                                 await websocket.send(json.dumps({
                                     'type': 'ignored_node_result',
                                     'success': True,
                                     'action': 'remove',
-                                    'node_id': node_id
+                                    'node_id': node_id,
+                                    'ignored_nodes': list(mapper.ignored_nodes.values())
                                 }, ensure_ascii=False))
                         except Exception as e:
                             print(f"[CONFIG] Error removing ignored node: {e}")
@@ -3652,6 +3671,13 @@ async def websocket_handler(websocket):
                                 'error': str(e),
                                 'node_id': node_id
                             }, ensure_ascii=False))
+
+                elif data.get('type') == 'get_ignored_nodes':
+                    if mapper:
+                        await websocket.send(json.dumps({
+                            'type': 'ignored_nodes_list',
+                            'ignored_nodes': list(mapper.ignored_nodes.values())
+                        }, ensure_ascii=False))
 
                 elif data.get('type') == 'save_channel':
                     try:
