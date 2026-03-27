@@ -240,6 +240,23 @@
             <label for="device.led_heartbeat_disabled">Disable LED Heartbeat</label>
         </div>
     </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">🚫 Ignored Nodes</div>
+        <div class="alert alert-warning" style="margin-bottom:10px">
+            ⚠️ Ignored nodes will not be relayed by your router. Use this to block spammy nodes that waste airtime.
+        </div>
+        <div class="field">
+            <label>Node ID</label>
+            <div class="desc">Enter node ID to ignore (e.g. !1a2b3c4d)</div>
+            <div style="display:flex;gap:10px;margin-top:6px;">
+                <input type="text" id="ignore-node-id" placeholder="e.g. !1a2b3c4d"
+                    style="flex:1" oninput="updateIgnoreButtons()">
+                <button class="btn btn-danger" id="btn-set-ignore" onclick="setIgnoredNode()" disabled>🚫 Ignore</button>
+                <button class="btn btn-secondary" id="btn-remove-ignore" onclick="removeIgnoredNode()" disabled>✓ Unignore</button>
+            </div>
+        </div>
+        <div id="ignore-result" style="margin-top:10px"></div>
+    </div>
 </div>
 
 <!-- LoRa tab -->
@@ -1372,6 +1389,30 @@ function removeFavorite() {
     showAlert('✕ Removing favorite...', 'info');
 }
 
+// ── Ignored Nodes ─────────────────────────────────────────────────
+function updateIgnoreButtons() {
+    const val = document.getElementById('ignore-node-id').value.trim();
+    const valid = /^!?[0-9a-fA-F]{8}$/.test(val);
+    document.getElementById('btn-set-ignore').disabled = !valid;
+    document.getElementById('btn-remove-ignore').disabled = !valid;
+}
+
+function setIgnoredNode() {
+    const nodeId = document.getElementById('ignore-node-id').value.trim();
+    if (!nodeId || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const id = nodeId.startsWith('!') ? nodeId : '!' + nodeId;
+    ws.send(JSON.stringify({type: 'set_ignored_node', node_id: id}));
+    showAlert('🚫 Setting ignored node...', 'info');
+}
+
+function removeIgnoredNode() {
+    const nodeId = document.getElementById('ignore-node-id').value.trim();
+    if (!nodeId || !ws || ws.readyState !== WebSocket.OPEN) return;
+    const id = nodeId.startsWith('!') ? nodeId : '!' + nodeId;
+    ws.send(JSON.stringify({type: 'remove_ignored_node', node_id: id}));
+    showAlert('✓ Removing ignored node...', 'info');
+}
+
 // ── Tooltips ─────────────────────────────────────────────────────
 const gTip = document.getElementById('g-tooltip');
 function showTip(text, e) {
@@ -1471,6 +1512,19 @@ function connectWS() {
                 showAlert(msg, 'success');
                 const resultEl = document.getElementById('favorite-result');
                 if (resultEl) resultEl.innerHTML = '';
+            } else {
+                showAlert('❌ Error: ' + d.error, 'error');
+            }
+        } else if (d.type === 'ignored_node_result') {
+            if (d.success) {
+                const msg = d.action === 'set'
+                    ? `🚫 Node ${d.node_id} added to ignore list`
+                    : `✓ Node ${d.node_id} removed from ignore list`;
+                showAlert(msg, 'success');
+                document.getElementById('ignore-result').innerHTML =
+                    `<div class="alert alert-success">${msg}</div>`;
+                document.getElementById('ignore-node-id').value = '';
+                updateIgnoreButtons();
             } else {
                 showAlert('❌ Error: ' + d.error, 'error');
             }

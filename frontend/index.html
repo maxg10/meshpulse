@@ -73,13 +73,19 @@
             <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
         </label><br>
         <label class="filter-label">
-            <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()"> Show direct lines
+            <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
+            Show direct lines
+            <span title="Lines from YOUR tracker to nodes it hears directly (hops=0). Shows your personal radio range." style="cursor:help;color:#9ca3af"> ⓘ</span>
         </label><br>
         <label class="filter-label">
-            <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()"> Show neighbor links
+            <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()">
+            Show neighbor links
+            <span title="Lines between ALL nodes that hear each other directly. Shows the full mesh topology. Data from NeighborInfo packets (broadcast every 4h)." style="cursor:help;color:#9ca3af"> ⓘ</span>
         </label><br>
         <label class="filter-label">
-            <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()"> Show relay nodes
+            <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()">
+            Show relay nodes
+            <span title="Lines from YOUR tracker to nodes whose packets passed through your node as relay. Shows your contribution to the mesh." style="cursor:help;color:#9ca3af"> ⓘ</span>
         </label><br>
         <label class="filter-label">
             <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops

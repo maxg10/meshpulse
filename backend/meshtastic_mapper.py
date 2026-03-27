@@ -3591,6 +3591,68 @@ async def websocket_handler(websocket):
                         except Exception as e:
                             await websocket.send(json.dumps({'type': 'favorite_result', 'success': False, 'error': str(e)}, ensure_ascii=False))
 
+                elif data.get('type') == 'set_ignored_node':
+                    node_id = data.get('node_id')
+                    if mapper and node_id:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface.interface
+                            if iface:
+                                from meshtastic.protobuf import admin_pb2
+                                node_num = int(node_id.replace('!', ''), 16)
+                                p = admin_pb2.AdminMessage()
+                                p.set_ignored_node = node_num
+                                iface.localNode._sendAdmin(p)
+                                print(f"[CONFIG] Ignored node set: {node_id}")
+                                await websocket.send(json.dumps({
+                                    'type': 'ignored_node_result',
+                                    'success': True,
+                                    'action': 'set',
+                                    'node_id': node_id
+                                }, ensure_ascii=False))
+                        except Exception as e:
+                            print(f"[CONFIG] Error setting ignored node: {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'ignored_node_result',
+                                'success': False,
+                                'error': str(e),
+                                'node_id': node_id
+                            }, ensure_ascii=False))
+
+                elif data.get('type') == 'remove_ignored_node':
+                    node_id = data.get('node_id')
+                    if mapper and node_id:
+                        try:
+                            iface = None
+                            if mapper.connection_type == 'serial' and mapper._serial_iface:
+                                iface = mapper._serial_iface.iface
+                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
+                                iface = mapper._tcp_iface.interface
+                            if iface:
+                                from meshtastic.protobuf import admin_pb2
+                                node_num = int(node_id.replace('!', ''), 16)
+                                p = admin_pb2.AdminMessage()
+                                p.remove_ignored_node = node_num
+                                iface.localNode._sendAdmin(p)
+                                print(f"[CONFIG] Ignored node removed: {node_id}")
+                                await websocket.send(json.dumps({
+                                    'type': 'ignored_node_result',
+                                    'success': True,
+                                    'action': 'remove',
+                                    'node_id': node_id
+                                }, ensure_ascii=False))
+                        except Exception as e:
+                            print(f"[CONFIG] Error removing ignored node: {e}")
+                            await websocket.send(json.dumps({
+                                'type': 'ignored_node_result',
+                                'success': False,
+                                'error': str(e),
+                                'node_id': node_id
+                            }, ensure_ascii=False))
+
                 elif data.get('type') == 'save_channel':
                     try:
                         iface = None

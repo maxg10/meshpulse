@@ -415,6 +415,10 @@ function connectWS() {
             }
             return;
         }
+        if (d.type === 'ignored_node_result') {
+            if (!d.success) showAlert('❌ Error ignoring node: ' + d.error, 'error');
+            return;
+        }
         if (d.type === 'stats_data') {
             // If data looks empty (no packets, no nodes), retry once after 5s
             const isEmpty = !d.data || ((!d.data.total_packets || d.data.total_packets === 0) && (!d.data.top_senders || d.data.top_senders.length === 0));
@@ -1063,6 +1067,11 @@ function renderAnomalies(anomalies) {
         const badgeClass = a.severity==='error' ? 'badge-red' : a.severity==='info' ? 'badge-info-sev' : 'badge-warn';
         const secAgo = Math.floor(Date.now()/1000) - a.latest_ts;
         const agoStr = secAgo < 60 ? `${secAgo}s ago` : secAgo < 3600 ? `${Math.floor(secAgo/60)}m ago` : `${Math.floor(secAgo/3600)}h ago`;
+        const nodeIdMatch = a.node_id ? a.node_id : null;
+        const ignoreBtn = nodeIdMatch ?
+            `<button onclick="ignoreNodeFromStats('${escHtml(a.node_id)}', '${escHtml(a.node_name || a.node_id)}')"
+             style="margin-top:4px;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5;border-radius:4px;padding:2px 8px;font-size:10px;cursor:pointer">
+             🚫 Ignore this node</button>` : '';
         return `
         <div class="anomaly-item ${sevClass}">
             <span class="anomaly-time">${new Date(a.latest_ts*1000).toLocaleTimeString()} · ${agoStr}</span>
@@ -1070,8 +1079,17 @@ function renderAnomalies(anomalies) {
             ${countBadge}
             <strong style="margin-left:6px">${escHtml(a.node_name||a.node_id)}</strong>
             <div style="color:#374151;margin-top:4px">${escHtml(desc)}</div>
+            ${ignoreBtn}
         </div>`;
     }).join('');
+}
+
+function ignoreNodeFromStats(nodeId, nodeName) {
+    if (!confirm(`🚫 Ignore node "${nodeName}" (${nodeId})?\n\nThis node will no longer be relayed by your router.`)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'set_ignored_node', node_id: nodeId}));
+        showAlert(`🚫 Node ${nodeName} added to ignore list`, 'success');
+    }
 }
 
 function clearNodeStats(nodeId, nodeName) {
