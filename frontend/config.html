@@ -1605,8 +1605,10 @@ function connectWS() {
             if (d.status === 'disconnected' || d.status === 'reconnecting') {
                 updateDeviceStatus(false);
                 originalConfig = {};
-                showAlert('⚠️ Device disconnected — reconnecting...', 'warning');
+                showAlert('⚠️ Device disconnected — reconnecting...', 'warning', true);
             } else if (d.status === 'connected') {
+                updateDeviceStatus(true);
+                clearAlert();
                 if (Object.keys(originalConfig).length === 0) {
                     if (_pendingConfigReloadAfterReboot) {
                         // Device just rebooted after MQTT save — wait 8s for flash to settle
@@ -1905,7 +1907,7 @@ function rebootDevice() {
         return;
     }
     ws.send(JSON.stringify({type: 'set_config', changes: {}, reboot: true}));
-    showAlert('🔄 Rebooting device...', 'warning');
+    showAlert('🔄 Rebooting device...', 'warning', true);
 }
 
 // ── Tab switching ────────────────────────────────────────────────
@@ -1929,11 +1931,18 @@ window.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── Alert helper ─────────────────────────────────────────────────
-function showAlert(msg, type) {
+function clearAlert() {
+    const bar = document.getElementById('status-bar');
+    if (bar) bar.innerHTML = '';
+}
+
+function showAlert(msg, type, persistent = false) {
     const bar = document.getElementById('status-bar');
     bar.innerHTML = `<div class="alert alert-${type}" style="margin-bottom:12px">${msg}</div>`;
-    if (type === 'success' || type === 'info') {
-        setTimeout(() => { bar.innerHTML = ''; }, 4000);
+    if (!persistent && (type === 'success' || type === 'info')) {
+        setTimeout(() => {
+            if (bar.textContent.trim() === msg.trim()) clearAlert();
+        }, 5000);
     }
 }
 
