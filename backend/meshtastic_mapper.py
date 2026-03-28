@@ -915,8 +915,8 @@ class ListenBasedMapper:
                 'tls_enabled': getattr(m, 'tls_enabled', False),
                 'proxy_to_client_enabled': getattr(m, 'proxy_to_client_enabled', False),
                 'root': getattr(m, 'root', 'msh'),
-                'map_reporting_enabled': mrs.publish_secs > 0 if mrs else False,
-                'map_publish_interval_secs': getattr(mrs, 'publish_secs', 900) if mrs else 900,
+                'map_reporting_enabled': mrs.publish_interval_secs > 0 if mrs else False,
+                'map_publish_interval_secs': getattr(mrs, 'publish_interval_secs', 3600) if mrs else 3600,
                 'position_precision': getattr(mrs, 'position_precision', 32) if mrs else 32,
             }
         except Exception as e:
@@ -1209,9 +1209,9 @@ class ListenBasedMapper:
                 if 'map_reporting_enabled' in mqtt_changes or 'map_publish_interval_secs' in mqtt_changes:
                     if hasattr(m, 'map_report_settings'):
                         if mqtt_changes.get('map_reporting_enabled'):
-                            m.map_report_settings.publish_secs = int(mqtt_changes.get('map_publish_interval_secs', 900))
+                            m.map_report_settings.publish_interval_secs = int(mqtt_changes.get('map_publish_interval_secs', 3600))
                         else:
-                            m.map_report_settings.publish_secs = 0
+                            m.map_report_settings.publish_interval_secs = 0
                 if 'position_precision' in mqtt_changes:
                     if hasattr(m, 'map_report_settings'):
                         m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])

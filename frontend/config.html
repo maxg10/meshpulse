@@ -664,9 +664,9 @@
         </div>
         <div class="field-row">
             <div class="field">
-                <label>Publish Interval (seconds) <span class="tip" onmouseenter="showTip('How often to publish position to the map. Default: 900s (15 min). Lower = more traffic.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
-                <div class="desc">Default: 900s (15 min)</div>
-                <input type="number" id="mqtt.map_publish_interval_secs" min="60" max="86400" oninput="markChanged(this)">
+                <label>Publish Interval (seconds) <span class="tip" onmouseenter="showTip('How often to publish position to the map. Default and minimum: 3600s (1 hour).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">Default: 3600s (1 hour). Minimum value is 3600s — firmware ignores lower values.</div>
+                <input type="number" id="mqtt.map_publish_interval_secs" min="3600" max="86400" oninput="markChanged(this)">
             </div>
             <div class="field">
                 <label>Approximate Location <span class="tip" onmouseenter="showTip('Precision bits for approximate location on public map. Higher = more precise. Lower = more private. Default: 32 (exact). Use 10-16 for privacy.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
@@ -1720,7 +1720,7 @@ function populateForm(config) {
     setField('mqtt.json_enabled', config.mqtt?.json_enabled ?? false);
     setField('mqtt.proxy_to_client_enabled', config.mqtt?.proxy_to_client_enabled ?? false);
     setField('mqtt.map_reporting_enabled', config.mqtt?.map_reporting_enabled ?? false);
-    setField('mqtt.map_publish_interval_secs', config.mqtt?.map_publish_interval_secs ?? 900);
+    setField('mqtt.map_publish_interval_secs', config.mqtt?.map_publish_interval_secs ?? 3600);
     setField('mqtt.position_precision', config.mqtt?.position_precision ?? 32);
 
     // Power
