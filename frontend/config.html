@@ -1197,6 +1197,16 @@ function renderChannels(channels) {
                     </select>
                 </div>
             </div>
+            <div class="field-row">
+                <div class="field-check">
+                    <input type="checkbox" id="ch-uplink-${ch.index}" ${ch.uplink_enabled?'checked':''} onchange="chMarkChanged(${ch.index})">
+                    <label for="ch-uplink-${ch.index}">Uplink to MQTT <span class="tip" onmouseenter="showTip('Send messages from this channel to MQTT broker. Required for MQTT bridge.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                </div>
+                <div class="field-check">
+                    <input type="checkbox" id="ch-downlink-${ch.index}" ${ch.downlink_enabled?'checked':''} onchange="chMarkChanged(${ch.index})">
+                    <label for="ch-downlink-${ch.index}">Downlink from MQTT <span class="tip" onmouseenter="showTip('Receive messages from MQTT broker into this channel.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                </div>
+            </div>
             <div class="field">
                 <label>PSK (encryption key) <span class="tip" onmouseenter="showTip('Current PSK shown as Base64. Select an option to change it, or leave as-is to keep current key. Changing PSK will disconnect all other users!',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:4px">
@@ -1299,7 +1309,9 @@ function saveChannel(index) {
         index: index,
         name: name,
         role: role,
-        psk: pskValue
+        psk: pskValue,
+        uplink_enabled: document.getElementById(`ch-uplink-${index}`)?.checked ?? false,
+        downlink_enabled: document.getElementById(`ch-downlink-${index}`)?.checked ?? false
     }));
     document.getElementById(`ch-save-btn-${index}`).disabled = true;
     document.getElementById(`ch-status-${index}`).textContent = 'Saving...';
@@ -1515,7 +1527,13 @@ function connectWS() {
     };
     ws.onerror = () => ws.close();
     ws.onmessage = e => {
-        const d = JSON.parse(e.data);
+        let d;
+        try {
+            d = JSON.parse(e.data);
+        } catch (err) {
+            console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
+            return;
+        }
         if (d.type === 'config_data') {
             originalConfig = d.config;
             pendingChanges = {};
@@ -1523,12 +1541,18 @@ function connectWS() {
             updateChangesInfo();
         } else if (d.type === 'config_saved') {
             if (d.success) {
-                showAlert(d.rebooting ? '✅ Config saved! Device is rebooting...' : '✅ Config saved successfully!', 'success');
-                // Merge saved changes into originalConfig immediately
-                for (const [section, fields] of Object.entries(pendingChanges)) {
-                    if (!originalConfig[section]) originalConfig[section] = {};
-                    for (const [key, val] of Object.entries(fields)) {
-                        originalConfig[section][key] = val;
+                if (d.rebooting) {
+                    showAlert('🔄 Config saved! Device is rebooting — config will reload automatically after reconnect.', 'warning');
+                    updateDeviceStatus(false);
+                    originalConfig = {};
+                } else {
+                    showAlert('✅ Config saved successfully!', 'success');
+                    // Merge saved changes into originalConfig immediately
+                    for (const [section, fields] of Object.entries(pendingChanges)) {
+                        if (!originalConfig[section]) originalConfig[section] = {};
+                        for (const [key, val] of Object.entries(fields)) {
+                            originalConfig[section][key] = val;
+                        }
                     }
                 }
                 pendingChanges = {};
@@ -1574,13 +1598,19 @@ function connectWS() {
             if (d.tracker) {
                 document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
             }
-            if (d.status === 'connected' && Object.keys(originalConfig).length === 0) {
-                // Retry get_config with a delay to allow TCP to fully establish
-                setTimeout(() => {
-                    if (ws && ws.readyState === WebSocket.OPEN) {
-                        ws.send(JSON.stringify({type: 'get_config'}));
-                    }
-                }, 2000);
+            if (d.status === 'disconnected' || d.status === 'reconnecting') {
+                updateDeviceStatus(false);
+                originalConfig = {};
+                showAlert('⚠️ Device disconnected — reconnecting...', 'warning');
+            } else if (d.status === 'connected') {
+                if (Object.keys(originalConfig).length === 0) {
+                    // Retry get_config with a delay to allow TCP to fully establish
+                    setTimeout(() => {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'get_config'}));
+                        }
+                    }, 2000);
+                }
             }
         } else if (d.type === 'channel_save_result') {
             const statusEl = document.getElementById(`ch-status-${d.index}`);

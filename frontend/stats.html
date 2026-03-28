@@ -404,7 +404,13 @@ function connectWS() {
     };
     ws.onerror = () => ws.close();
     ws.onmessage = e => {
-        const d = JSON.parse(e.data);
+        let d;
+        try {
+            d = JSON.parse(e.data);
+        } catch (err) {
+            console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
+            return;
+        }
         if (d.type === 'clear_node_stats_result') {
             if (d.success) {
                 if (ws && ws.readyState === WebSocket.OPEN) {

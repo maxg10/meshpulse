@@ -1046,6 +1046,8 @@ class ListenBasedMapper:
                     'role': ch.role,
                     'role_name': channel_pb2.Channel.Role.Name(ch.role),
                     'psk': base64.b64encode(ch.settings.psk).decode('utf-8') if ch.settings.psk else '',
+                    'uplink_enabled': getattr(ch.settings, 'uplink_enabled', False),
+                    'downlink_enabled': getattr(ch.settings, 'downlink_enabled', False),
                 })
             config['channels'] = channels
         except Exception as e:
@@ -1203,15 +1205,18 @@ class ListenBasedMapper:
             for key in simple_fields:
                 if key in mqtt_changes:
                     setattr(m, key, mqtt_changes[key])
-            if 'map_reporting_enabled' in mqtt_changes or 'map_publish_interval_secs' in mqtt_changes:
-                if hasattr(m, 'map_report_settings'):
-                    if mqtt_changes.get('map_reporting_enabled'):
-                        m.map_report_settings.publish_secs = int(mqtt_changes.get('map_publish_interval_secs', 900))
-                    else:
-                        m.map_report_settings.publish_secs = 0
-            if 'position_precision' in mqtt_changes:
-                if hasattr(m, 'map_report_settings'):
-                    m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
+            try:
+                if 'map_reporting_enabled' in mqtt_changes or 'map_publish_interval_secs' in mqtt_changes:
+                    if hasattr(m, 'map_report_settings'):
+                        if mqtt_changes.get('map_reporting_enabled'):
+                            m.map_report_settings.publish_secs = int(mqtt_changes.get('map_publish_interval_secs', 900))
+                        else:
+                            m.map_report_settings.publish_secs = 0
+                if 'position_precision' in mqtt_changes:
+                    if hasattr(m, 'map_report_settings'):
+                        m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
+            except Exception as e:
+                print(f"[CONFIG] map_report_settings not supported: {e}")
             node.writeConfig('mqtt')
             applied.append('mqtt')
 
@@ -3444,7 +3449,7 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
-                                'rebooting': reboot,
+                                'rebooting': reboot or 'mqtt' in result,
                                 'applied': result
                             }, ensure_ascii=False))
                         except (BrokenPipeError, OSError) as e:
@@ -3727,6 +3732,14 @@ async def websocket_handler(websocket):
                                     channel.settings.psk = bytes.fromhex(hex_str)
                                 else:
                                     channel.settings.psk = base64.b64decode(raw)
+
+                        try:
+                            if 'uplink_enabled' in data:
+                                channel.settings.uplink_enabled = bool(data['uplink_enabled'])
+                            if 'downlink_enabled' in data:
+                                channel.settings.downlink_enabled = bool(data['downlink_enabled'])
+                        except Exception as e:
+                            print(f"[CONFIG] uplink/downlink_enabled not supported: {e}")
 
                         node.writeChannel(ch_index)
                         print(f"[CONFIG] Channel {ch_index} saved: name={ch_name!r} role={ch_role} psk={'changed' if ch_psk else 'unchanged'}")
