@@ -1075,6 +1075,8 @@ let ws = null;
 let originalConfig = {};
 let pendingChanges = {};
 let channelPsks = {};
+let _pendingConfigReloadAfterReboot = false;
+let _mqttRebootTimestamp = null;
 
 // ── Fixed position helpers ───────────────────────────────────────
 function updateNetworkInfo(config) {
@@ -1542,7 +1544,9 @@ function connectWS() {
         } else if (d.type === 'config_saved') {
             if (d.success) {
                 if (d.rebooting) {
-                    showAlert('🔄 Config saved! Device is rebooting — config will reload automatically after reconnect.', 'warning');
+                    _pendingConfigReloadAfterReboot = true;
+                    _mqttRebootTimestamp = Date.now();
+                    showAlert('🔄 Config saved! Device is rebooting — config will reload in ~15s after reconnect.', 'success');
                     updateDeviceStatus(false);
                     originalConfig = {};
                 } else {
@@ -1604,12 +1608,24 @@ function connectWS() {
                 showAlert('⚠️ Device disconnected — reconnecting...', 'warning');
             } else if (d.status === 'connected') {
                 if (Object.keys(originalConfig).length === 0) {
-                    // Retry get_config with a delay to allow TCP to fully establish
-                    setTimeout(() => {
-                        if (ws && ws.readyState === WebSocket.OPEN) {
-                            ws.send(JSON.stringify({type: 'get_config'}));
-                        }
-                    }, 2000);
+                    if (_pendingConfigReloadAfterReboot) {
+                        // Device just rebooted after MQTT save — wait 8s for flash to settle
+                        showAlert('⏳ Device reconnected — loading config in 8s...', 'info');
+                        setTimeout(() => {
+                            _pendingConfigReloadAfterReboot = false;
+                            _mqttRebootTimestamp = null;
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({type: 'get_config'}));
+                            }
+                        }, 8000);
+                    } else {
+                        // Normal reconnect — short delay to allow TCP to fully establish
+                        setTimeout(() => {
+                            if (ws && ws.readyState === WebSocket.OPEN) {
+                                ws.send(JSON.stringify({type: 'get_config'}));
+                            }
+                        }, 2000);
+                    }
                 }
             }
         } else if (d.type === 'channel_save_result') {

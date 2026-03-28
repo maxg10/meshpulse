@@ -1217,7 +1217,9 @@ class ListenBasedMapper:
                         m.map_report_settings.position_precision = int(mqtt_changes['position_precision'])
             except Exception as e:
                 print(f"[CONFIG] map_report_settings not supported: {e}")
+            time.sleep(0.5)   # Allow protobuf message to be queued
             node.writeConfig('mqtt')
+            time.sleep(2.5)   # Wait for device to ACK and begin flash write before reboot
             applied.append('mqtt')
 
         if 'power' in changes:
