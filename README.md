@@ -186,10 +186,15 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.10 — Docker Fix
+## What's New in v2.0.11 — Stats Improvements & Docker Fixes
 
-**🐳 Docker**
-- Fixed critical issue where updating the Docker container did not update frontend files — the data volume was overwriting new HTML/CSS files from the updated image. Frontend files are now always synced from the image on container startup, so `docker compose pull && docker compose up -d` correctly updates to the new version.
+**✨ New Features**
+- **Radio vs MQTT breakdown** — Stats page Packets (24h) card now shows split between radio and MQTT received packets with percentages (e.g. Radio: 8,502 100% / MQTT: 0 0%)
+- **Okay to MQTT** — Config → MQTT tab has new checkbox controlling whether your node's packets can be forwarded to MQTT broker by other nodes. Disable for privacy — your packets stay in local mesh only
+
+**🐳 Docker Fixes**
+- **Apple Silicon support** — Docker image now built for both `linux/amd64` and `linux/arm64`. Mac M1/M2/M3 users can now run `docker compose pull && docker compose up -d` without errors
+- **Frontend always updated** — Fixed critical issue where `docker compose pull && docker compose up -d` did not update frontend files. Fresh HTML/CSS is now always copied from the image on container startup
 
 ---
 

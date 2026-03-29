@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.0.11
+- Feature: Radio vs MQTT packet breakdown in Stats — Packets (24h) card now shows split between radio and MQTT received packets with percentages
+- Feature: okay_to_mqtt checkbox in Config → MQTT tab — controls whether your node packets can be forwarded to MQTT by other nodes
+- Fix: Docker image now supports Apple Silicon (arm64) — multi-platform build (linux/amd64 + linux/arm64)
+- Fix: Docker frontend files always updated on container restart — fresh HTML/CSS copied from image on startup (fixes stale version after docker compose pull)
+
 ## v2.0.10
 - Fix: Docker volume no longer overwrites frontend files on container update — fresh HTML/CSS copied from image on every startup
 - Fix: entrypoint.sh version string updated
