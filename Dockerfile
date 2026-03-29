@@ -17,6 +17,9 @@ COPY backend/ /app/backend/
 # Copy frontend to web root
 COPY frontend/ /var/www/html/meshtastic/
 
+# Keep a copy of frontend files in image for volume-safe updates
+COPY frontend/ /app/frontend_dist/
+
 # Copy docker support files
 COPY docker/lighttpd.conf /etc/lighttpd/lighttpd.conf
 COPY docker/entrypoint.sh /app/entrypoint.sh

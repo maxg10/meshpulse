@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Meshtastic Network Mapper v2.0.8 starting..."
+echo "🚀 Meshtastic Network Mapper v2.0.10 starting..."
 
 DATA_DIR="/var/www/html/meshtastic"
 
@@ -19,6 +19,13 @@ else
     echo "{\"connection_type\":\"tcp\",\"host\":null,\"port\":null}" > "$DATA_DIR/config.json"
     echo "⚠️  No TRACKER_HOST set — configure via web UI after startup"
 fi
+
+# Always sync fresh frontend files from image (fixes stale files after volume update)
+echo "📦 Syncing frontend files from image..."
+cp -f /app/frontend_dist/*.html "$DATA_DIR/"
+cp -f /app/frontend_dist/*.css "$DATA_DIR/"
+cp -f /app/frontend_dist/*.ico "$DATA_DIR/" 2>/dev/null || true
+echo "✅ Frontend files updated"
 
 # Start lighttpd in background
 echo "🌐 Starting web server on port 80..."

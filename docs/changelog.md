@@ -1,5 +1,9 @@
 # Changelog
 
+## v2.0.10
+- Fix: Docker volume no longer overwrites frontend files on container update — fresh HTML/CSS copied from image on every startup
+- Fix: entrypoint.sh version string updated
+
 ## v2.0.9
 - Fix: WebSocket JSON parse errors no longer crash message handlers in config.html, stats.html, messages.html (try/catch added, matching index.html pattern)
 - Fix: Device disconnect banner in config.html now clears automatically when device reconnects

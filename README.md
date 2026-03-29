@@ -186,18 +186,10 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.9 — Reliability & Config Fixes
+## What's New in v2.0.10 — Docker Fix
 
-**🐛 Bug Fixes**
-- **WebSocket stability** — JSON parse errors in config/stats/messages pages no longer silently kill the message handler. All pages now match index.html's try/catch pattern
-- **Device reconnect UX** — Config page shows yellow "Device disconnected" banner during serial/TCP reconnect cycle; banner clears automatically on reconnect
-- **MQTT Map Reporting** — Fixed `publish_secs` → `publish_interval_secs` protobuf field name (was causing silent save failure on all firmware versions). Minimum interval corrected to 3600s
-- **MQTT config persistence** — Config now reloads automatically after device reboots following an MQTT save, with proper delay to ensure flash write completes
-- **Stats "Via" column** — Fixed false relay node name resolution: last-byte relay IDs (≤0xFF) no longer matched against wrong nodes via birthday-problem hash collision. With 100+ nodes the old code had ~30% chance of showing wrong relay name
-- **Alert auto-dismiss** — Success/info alerts auto-dismiss after 5s; warning/error alerts persist until resolved
-
-**✨ New Features**
-- **MQTT Uplink/Downlink per channel** — Config → Channels tab now has Uplink to MQTT and Downlink from MQTT checkboxes for each channel. Required for MQTT bridging to work correctly
+**🐳 Docker**
+- Fixed critical issue where updating the Docker container did not update frontend files — the data volume was overwriting new HTML/CSS files from the updated image. Frontend files are now always synced from the image on container startup, so `docker compose pull && docker compose up -d` correctly updates to the new version.
 
 ---
 
