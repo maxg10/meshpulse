@@ -427,6 +427,12 @@ class StatsDB:
 
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
             relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
+            radio_total = c.execute(
+                'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND via_mqtt = 0',
+                (since_24h,)).fetchone()['cnt']
+            mqtt_total = c.execute(
+                'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND via_mqtt = 1',
+                (since_24h,)).fetchone()['cnt']
             top_senders = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt,
                 AVG(snr) as avg_snr, AVG(rssi) as avg_rssi, MAX(ts) as last_seen, portnum,
                 (SELECT relay_node_id FROM packets p2
@@ -488,6 +494,8 @@ class StatsDB:
 
             return {
                 'total_packets': total,
+                'radio_packets': radio_total,
+                'mqtt_packets': mqtt_total,
                 'relayed_packets': relayed,
                 'relay_percentage': round(relayed / total * 100, 1) if total > 0 else 0,
                 'top_senders': [dict(r) for r in top_senders],

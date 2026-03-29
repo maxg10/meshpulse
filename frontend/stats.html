@@ -148,11 +148,21 @@
     <div class="card">
         <div class="card-title">
             📦 Packets (24h)
-            <span class="info-icon" data-tip="Total LoRa packets received by your tracker in the last 24 hours. Includes all types: position, telemetry, messages, nodeinfo.">ⓘ</span>
+            <span class="info-icon" data-tip="Total packets received in 24h, split by source: Radio (direct LoRa) vs MQTT (internet bridge).">ⓘ</span>
         </div>
         <div class="data-win" id="dw-summary"></div>
         <div class="stat-big" id="stat-total">-</div>
         <div class="stat-label">received</div>
+        <div style="margin-top:8px;font-size:12px;color:#6b7280;line-height:1.8">
+            <div style="display:flex;justify-content:space-between">
+                <span>📻 Radio</span>
+                <span><b id="stat-radio-packets">-</b> <span id="stat-radio-pct" style="color:#22c55e;font-size:11px"></span></span>
+            </div>
+            <div style="display:flex;justify-content:space-between">
+                <span>📡 MQTT</span>
+                <span><b id="stat-mqtt-packets">-</b> <span id="stat-mqtt-pct" style="color:#3b82f6;font-size:11px"></span></span>
+            </div>
+        </div>
     </div>
     <div class="card">
         <div class="card-title">
@@ -574,6 +584,13 @@ function renderAll(data) {
 
     // Summary cards
     document.getElementById('stat-total').textContent   = (data.total_packets||0).toLocaleString();
+    const radioP = data.radio_packets || 0;
+    const mqttP  = data.mqtt_packets  || 0;
+    const tot    = radioP + mqttP || 1;
+    document.getElementById('stat-radio-packets').textContent = radioP.toLocaleString();
+    document.getElementById('stat-mqtt-packets').textContent  = mqttP.toLocaleString();
+    document.getElementById('stat-radio-pct').textContent = (radioP/tot*100).toFixed(0) + '%';
+    document.getElementById('stat-mqtt-pct').textContent  = (mqttP/tot*100).toFixed(0) + '%';
     document.getElementById('stat-relayed').textContent = (data.relayed_packets||0).toLocaleString();
     document.getElementById('stat-relay-pct').textContent = data.relay_percentage||0;
     document.getElementById('stat-nodes').textContent   = data.active_node_count || 0;
