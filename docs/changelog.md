@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.0.9
+- Fix: WebSocket JSON parse errors no longer crash message handlers in config.html, stats.html, messages.html (try/catch added, matching index.html pattern)
+- Fix: Device disconnect banner in config.html now clears automatically when device reconnects
+- Fix: MapReportSettings field name corrected: `publish_secs` → `publish_interval_secs` (fixes MQTT Map Reporting save error)
+- Fix: Map Reporting publish interval minimum set to 3600s (firmware enforced minimum)
+- Fix: MQTT config persistence after device reboot — added write delay before reboot, config reloads automatically after reconnect
+- Fix: Relay node name collision in Stats "Via" column — last-byte relay IDs (≤0xFF) no longer falsely resolved to wrong node names
+- Fix: Config page shows yellow "Device disconnected" banner during serial reconnect cycle
+- Fix: showAlert() auto-dismisses success/info alerts after 5s; warning/error alerts persist until resolved
+- Feature: MQTT Uplink/Downlink toggles per channel in Config → Channels tab
+- Feature: Config → MQTT tab now includes `okay_to_mqtt` field
+
 ## v2.0.8
 - Power/MQTT/Display/Modules config tabs in config.html
 - Device disconnect indicator (yellow "reconnecting" status)

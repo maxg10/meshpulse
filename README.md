@@ -186,22 +186,18 @@ sudo journalctl -u meshtastic-mapper -f
 
 ### What's New in Latest Version
 
-## What's New in v2.0.8 — Config Expansion & Reliability
-
-**⚙️ Config Page — New Tabs**
-- ⚡ **Power** — is_powered (USB/Solar), light sleep, Bluetooth wait timeout, SDS sleep, ADC multiplier
-- 📡 **MQTT** — broker address, credentials, TLS, encryption, proxy to client, map reporting with position precision
-- 🖥️ **Display** — screen timeout, GPS format (DEC/DMS/UTM/MGRS/OLC/OSGR), units (metric/imperial), OLED type, display mode, flip screen, compass north top, wake on tap, heading bold
-- 🧩 **Modules** — Store & Forward, External Notification (buzzer/LED), Range Test, Canned Messages, Paxcounter (crowd counting), Serial Module (UART bridge)
-
-**🔌 Device Disconnect Detection**
-- Map and Config pages now show yellow "reconnecting" status when the device serial/TCP connection drops
-- Status updates in real-time as device reconnects
+## What's New in v2.0.9 — Reliability & Config Fixes
 
 **🐛 Bug Fixes**
-- Config checkboxes (Power, MQTT) no longer reset after saving — fixed silent `AttributeError` on firmware 2.7.15 that replaced entire config sections with error objects
-- Config form no longer reloads from device after save — prevents stale cache from overwriting saved values
-- All config fields now use safe `getattr()` access — compatible with all firmware versions
+- **WebSocket stability** — JSON parse errors in config/stats/messages pages no longer silently kill the message handler. All pages now match index.html's try/catch pattern
+- **Device reconnect UX** — Config page shows yellow "Device disconnected" banner during serial/TCP reconnect cycle; banner clears automatically on reconnect
+- **MQTT Map Reporting** — Fixed `publish_secs` → `publish_interval_secs` protobuf field name (was causing silent save failure on all firmware versions). Minimum interval corrected to 3600s
+- **MQTT config persistence** — Config now reloads automatically after device reboots following an MQTT save, with proper delay to ensure flash write completes
+- **Stats "Via" column** — Fixed false relay node name resolution: last-byte relay IDs (≤0xFF) no longer matched against wrong nodes via birthday-problem hash collision. With 100+ nodes the old code had ~30% chance of showing wrong relay name
+- **Alert auto-dismiss** — Success/info alerts auto-dismiss after 5s; warning/error alerts persist until resolved
+
+**✨ New Features**
+- **MQTT Uplink/Downlink per channel** — Config → Channels tab now has Uplink to MQTT and Downlink from MQTT checkboxes for each channel. Required for MQTT bridging to work correctly
 
 ---
 

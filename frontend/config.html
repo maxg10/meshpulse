@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.8">
+    <link rel="stylesheet" href="styles.css?v=2.0.9">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -134,7 +134,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.8 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.9 — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -1994,7 +1994,7 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.0.8';
+const CURRENT_VERSION = '2.0.9';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
