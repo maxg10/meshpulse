@@ -914,6 +914,7 @@ class ListenBasedMapper:
                 'json_enabled': getattr(m, 'json_enabled', False),
                 'tls_enabled': getattr(m, 'tls_enabled', False),
                 'proxy_to_client_enabled': getattr(m, 'proxy_to_client_enabled', False),
+                'okay_to_mqtt': getattr(m, 'okay_to_mqtt', True),
                 'root': getattr(m, 'root', 'msh'),
                 'map_reporting_enabled': mrs.publish_interval_secs > 0 if mrs else False,
                 'map_publish_interval_secs': getattr(mrs, 'publish_interval_secs', 3600) if mrs else 3600,
@@ -1201,7 +1202,7 @@ class ListenBasedMapper:
             mqtt_changes = changes['mqtt']
             simple_fields = ['enabled', 'address', 'username', 'password',
                              'encryption_enabled', 'json_enabled', 'tls_enabled',
-                             'proxy_to_client_enabled', 'root']
+                             'proxy_to_client_enabled', 'root', 'okay_to_mqtt']
             for key in simple_fields:
                 if key in mqtt_changes:
                     setattr(m, key, mqtt_changes[key])

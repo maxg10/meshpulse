@@ -650,6 +650,12 @@
             <input type="checkbox" id="mqtt.proxy_to_client_enabled" onchange="markChanged(this)">
             <label for="mqtt.proxy_to_client_enabled">Proxy to Client Enabled <span class="tip" onmouseenter="showTip('Allow the connected client app to handle MQTT connection instead of the device. Useful when device has no WiFi.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
+        <div class="field-check">
+            <input type="checkbox" id="mqtt.okay_to_mqtt" onchange="markChanged(this)">
+            <label for="mqtt.okay_to_mqtt">Okay to MQTT
+                <span class="tip" onmouseenter="showTip('Allow your node packets to be forwarded to MQTT broker by other nodes. Disable for privacy — your packets will stay in local mesh only.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span>
+            </label>
+        </div>
     </div>
 
     <div class="card" style="margin-top:12px">
@@ -1737,6 +1743,7 @@ function populateForm(config) {
     setField('mqtt.encryption_enabled', config.mqtt?.encryption_enabled ?? true);
     setField('mqtt.json_enabled', config.mqtt?.json_enabled ?? false);
     setField('mqtt.proxy_to_client_enabled', config.mqtt?.proxy_to_client_enabled ?? false);
+    setField('mqtt.okay_to_mqtt', config.mqtt?.okay_to_mqtt ?? true);
     setField('mqtt.map_reporting_enabled', config.mqtt?.map_reporting_enabled ?? false);
     setField('mqtt.map_publish_interval_secs', config.mqtt?.map_publish_interval_secs ?? 3600);
     setField('mqtt.position_precision', config.mqtt?.position_precision ?? 32);
