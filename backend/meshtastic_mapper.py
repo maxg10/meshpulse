@@ -1429,33 +1429,27 @@ class ListenBasedMapper:
         if relay_node_raw is not None and self.local_node_id:
             our_num = int(self.local_node_id.replace('!', ''), 16)
             if relay_node_raw > 0xFF:
-                # Full node number (Python API)
-                is_our_relay = (relay_node_raw == our_num)
-                is_not_self = (from_id != self.local_node_id)
-                relayed_by_us = is_our_relay and is_not_self
+                # Full node number (Python API) — safe to resolve exactly, no collision possible
+                relayed_by_us = (relay_node_raw == our_num) and (from_id != self.local_node_id)
                 relay_node_id = f"!{relay_node_raw:08x}"
+                for nid in {**self.nodes, **self.nodes_no_position}:
+                    try:
+                        if int(nid.replace('!', ''), 16) == relay_node_raw:
+                            relay_node_id = nid
+                            break
+                    except:
+                        pass
+                # Final check: if relay_node_id resolved to our own node ID string, mark as relayed by us
+                if relay_node_id == self.local_node_id and from_id != self.local_node_id:
+                    relayed_by_us = True
             else:
-                # Last byte only (legacy CLI mode)
+                # Last byte only (legacy CLI mode) — DO NOT attempt full node resolution.
+                # With 100+ nodes, last-byte collision probability is ~30% — would show
+                # a completely wrong node name in Stats.
                 our_last_byte = our_num & 0xFF
                 relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
                 relay_node_id = f"relay_{relay_node_raw:02x}"
-            # Try to resolve full node ID from known nodes
-            for nid in {**self.nodes, **self.nodes_no_position}:
-                try:
-                    nid_num = int(nid.replace('!', ''), 16)
-                    if relay_node_raw > 0xFF:
-                        if nid_num == relay_node_raw:
-                            relay_node_id = nid
-                            break
-                    else:
-                        if nid_num & 0xFF == relay_node_raw:
-                            relay_node_id = nid
-                            break
-                except:
-                    pass
-            # Final check: if relay_node_id resolved to our own node ID string, mark as relayed by us
-            if relay_node_id == self.local_node_id and from_id != self.local_node_id:
-                relayed_by_us = True
+                # Keep as opaque relay_XX — unresolvable without full 32-bit ID
 
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
