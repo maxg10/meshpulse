@@ -1496,7 +1496,8 @@
             } else {
                 noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
             }
-            
+            updateNoGpsFabBadge();
+
             // Remove outdated markers
             Object.keys(markers).forEach(id=>{
                 if(!filteredNodes.find(n=>n.id===id)){
@@ -1625,6 +1626,22 @@
         setTimeout(repositionNoGpsPanel, 100);
         window.addEventListener('resize', repositionNoGpsPanel);
 
+        // Update NoGPS FAB badge with node count
+        function updateNoGpsFabBadge() {
+            const fab = document.getElementById('mobile-nogps-fab');
+            if (!fab) return;
+            const count = allNodesNoGps ? allNodesNoGps.length : 0;
+            if (count > 0 && window.innerWidth <= 768) {
+                fab.innerHTML = `📍<span style="position:absolute;top:-4px;right:-4px;
+                    background:#ef4444;color:white;border-radius:50%;
+                    width:18px;height:18px;font-size:10px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-weight:bold">${count > 99 ? '99+' : count}</span>`;
+            } else {
+                fab.textContent = '📍';
+            }
+        }
+
         // Mobile drawer toggles
         function toggleMeshInfoDrawer() {
             const panel = document.getElementById('stats');
@@ -1635,15 +1652,18 @@
             // Close NoGPS if open
             if (noGpsPanel.classList.contains('drawer-open')) {
                 noGpsPanel.classList.remove('drawer-open');
-                document.getElementById('mobile-nogps-fab').textContent = '📍';
+                updateNoGpsFabBadge();
             }
         }
         function toggleNoGpsDrawer() {
             const panel = document.getElementById('no-gps-panel');
             const meshPanel = document.getElementById('stats');
             panel.classList.toggle('drawer-open');
-            document.getElementById('mobile-nogps-fab').textContent =
-                panel.classList.contains('drawer-open') ? '✕' : '📍';
+            if (panel.classList.contains('drawer-open')) {
+                document.getElementById('mobile-nogps-fab').textContent = '✕';
+            } else {
+                updateNoGpsFabBadge();
+            }
             // Close MeshInfo if open
             if (meshPanel.classList.contains('drawer-open')) {
                 meshPanel.classList.remove('drawer-open');
@@ -1657,9 +1677,8 @@
                 document.getElementById('stats')?.classList.remove('drawer-open');
                 document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
                 const mfab = document.getElementById('mobile-meshinfo-fab');
-                const nfab = document.getElementById('mobile-nogps-fab');
                 if (mfab) mfab.textContent = '📶';
-                if (nfab) nfab.textContent = '📍';
+                updateNoGpsFabBadge();
             }
         });
 
