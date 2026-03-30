@@ -104,21 +104,21 @@
               <label style="color:#ccc;min-width:32px">Gain</label>
               <input type="number" id="antenna-gain" value="2" min="0" max="20" step="0.5"
                 style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
-                onchange="saveCoverageParams()" title="Antenna gain in dBi">
+                onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna gain in dBi">
               <span style="color:#9ca3af">dBi</span>
             </div>
             <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
               <label style="color:#ccc;min-width:32px">Alt</label>
               <input type="number" id="antenna-height" value="10" min="0" max="500" step="1"
                 style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
-                onchange="saveCoverageParams()" title="Antenna height above ground in meters">
+                onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna height above ground in meters">
               <span style="color:#9ca3af">m</span>
             </div>
-            <button id="coverage-btn" onclick="toggleCoverageOverlay()"
+            <button id="coverage-btn" onclick="event.stopPropagation(); toggleCoverageOverlay()"
               style="width:100%;padding:4px 6px;font-size:11px;background:#1d4ed8;color:white;
               border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;
               justify-content:center;gap:4px;">
-              📡 Show coverage
+              ↗ Open Site Planner
             </button>
             <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
           </div>
@@ -1300,20 +1300,11 @@
             const btn = document.getElementById('coverage-btn');
             const statusEl = document.getElementById('coverage-status');
 
-            if (coverageActive && coverageLayer) {
-                map.removeLayer(coverageLayer);
-                coverageLayer = null;
-                coverageActive = false;
-                btn.textContent = '📡 Show coverage';
-                btn.style.background = '#1d4ed8';
-                statusEl.textContent = '';
-                return;
-            }
-
             const lat = trackerInfo?.lat;
             const lon = trackerInfo?.lon;
             if (!lat || !lon) {
                 statusEl.textContent = '⚠️ No tracker position';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
                 return;
             }
 
@@ -1322,52 +1313,20 @@
             const txPowerDbm = trackerInfo?.tx_power || 27;
             const txPowerW = parseFloat((Math.pow(10, (txPowerDbm - 30) / 10)).toFixed(3));
 
-            btn.textContent = '⏳ Loading...';
-            btn.style.background = '#374151';
-            statusEl.textContent = 'Requesting simulation...';
+            const params = new URLSearchParams({
+                lat: lat.toFixed(6),
+                lon: lon.toFixed(6),
+                power: txPowerW,
+                frequency: 868,
+                height: height,
+                gain: gain
+            });
 
-            try {
-                if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket not connected');
+            const url = `https://site.meshtastic.org/#${params.toString()}`;
+            window.open(url, '_blank');
 
-                const coverageData = await new Promise((resolve, reject) => {
-                    const timeout = setTimeout(() => reject(new Error('Timeout after 30s')), 30000);
-                    const handler = (event) => {
-                        try {
-                            const msg = JSON.parse(event.data);
-                            if (msg.type === 'coverage_data') {
-                                clearTimeout(timeout);
-                                ws.removeEventListener('message', handler);
-                                if (msg.error) reject(new Error(msg.error));
-                                else resolve(msg);
-                            }
-                        } catch(e) {}
-                    };
-                    ws.addEventListener('message', handler);
-                    ws.send(JSON.stringify({
-                        type: 'get_coverage',
-                        lat: lat, lon: lon,
-                        power_w: txPowerW,
-                        frequency_mhz: 868,
-                        height_agl_m: height,
-                        antenna_gain_dbi: gain
-                    }));
-                });
-
-                if (!coverageData.image_url || !coverageData.bounds) throw new Error('Invalid response');
-                const bounds = [[coverageData.bounds[0], coverageData.bounds[1]], [coverageData.bounds[2], coverageData.bounds[3]]];
-                coverageLayer = L.imageOverlay(coverageData.image_url, bounds, { opacity: 0.5 });
-                coverageLayer.addTo(map);
-                coverageActive = true;
-                btn.textContent = '📡 Hide coverage';
-                btn.style.background = '#059669';
-                statusEl.textContent = 'Coverage shown (50% opacity)';
-            } catch (err) {
-                console.error('[Coverage]', err);
-                btn.textContent = '📡 Show coverage';
-                btn.style.background = '#dc2626';
-                statusEl.textContent = '❌ ' + err.message;
-                setTimeout(() => { btn.style.background = '#1d4ed8'; statusEl.textContent = ''; }, 4000);
-            }
+            statusEl.textContent = '↗ Opened in new tab';
+            setTimeout(() => { statusEl.textContent = ''; }, 3000);
         }
 
         function updateDirectLines() {
