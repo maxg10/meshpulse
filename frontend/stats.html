@@ -204,7 +204,7 @@
     <div class="card">
         <div class="card-title">
             📻 Radio Health
-            <span class="info-icon" data-tip="Live radio stats from your tracker's last telemetry. Channel util: fraction of airtime used. Air TX: fraction you transmit. Bad pkts: corrupted or failed packets.">ⓘ</span>
+            <span class="info-icon" data-tip="Radio stats from your tracker's last localStats packet (sent every ~30 min). Values persist until next restart. TX/RX = 0 means tracker just restarted and hasn't sent localStats yet.">ⓘ</span>
         </div>
         <div id="radio-stats-content" style="color:#6b7280;font-size:12px">Waiting for connection_status…</div>
     </div>
@@ -388,6 +388,7 @@ function escHtml(s) {
 
 let ws = null;
 let radioStats = null;
+let _lastKnownRadioStats = null;  // persists last non-zero values
 let charts = {};
 let topoState = null;
 // Global topology zoom state
@@ -454,8 +455,12 @@ function connectWS() {
                 d.tracker.node_id ? `Tracker: ${d.tracker.node_id}` : '';
             if (d.tracker.radio_stats) {
                 radioStats = d.tracker.radio_stats;
-                renderRadioHealth(radioStats);
-                renderHealthScore(radioStats, null);
+                // Only update last known if values are non-zero
+                const hasValues = radioStats.numPacketsTx > 0 || radioStats.numPacketsRx > 0
+                    || radioStats.numOnlineNodes > 0;
+                if (hasValues) _lastKnownRadioStats = radioStats;
+                renderRadioHealth(_lastKnownRadioStats || radioStats);
+                renderHealthScore(_lastKnownRadioStats || radioStats, null);
             }
         }
     };
@@ -609,8 +614,12 @@ function renderAll(data) {
     document.getElementById('geo-avg-dist').textContent =
         geo.avg_direct_dist_km != null ? geo.avg_direct_dist_km : '-';
 
-    // Health score (uses radio_stats if available)
-    renderHealthScore(radioStats, data);
+    // Health score (uses last known non-zero radio_stats to avoid reset to 0/0)
+    const rsToRender = (data.tracker_info?.radio_stats?.numPacketsRx > 0
+        ? data.tracker_info.radio_stats
+        : null) || _lastKnownRadioStats || radioStats;
+    renderRadioHealth(rsToRender);
+    renderHealthScore(rsToRender, data);
 
     // Hourly chart
     const h24 = fill24h(data.hourly_activity||[]);
