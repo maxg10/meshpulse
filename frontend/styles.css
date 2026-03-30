@@ -234,13 +234,14 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
     /* Fullscreen map below navbar */
     #map {
         position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        height: 100dvh !important;
+        top: 72px; left: 0; right: 0; bottom: 0;
+        height: calc(100dvh - 72px) !important;
         margin-top: 0;
         z-index: 1;
     }
     #topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 1001; }
-    .leaflet-top.leaflet-left { top: 56px; }
+    .leaflet-top.leaflet-left { top: 8px; }
+    #search-bar { top: 80px; }
 
     /* MeshInfo bottom drawer */
     #stats {
@@ -304,16 +305,51 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
     #mobile-meshinfo-fab { display: flex !important; bottom: 90px; }
     #mobile-nogps-fab    { display: flex !important; bottom: 150px; }
 
-    /* Navbar */
-    .topnav-logo { font-size: 13px; }
+    /* Navbar — 2-row grid for portrait phones */
+    #topnav {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        padding: 4px 8px;
+        gap: 2px;
+        height: auto;
+    }
+    .topnav-logo {
+        grid-column: 1;
+        grid-row: 1;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .topnav-logo span { display: none; } /* hide version string */
+    .topnav-status {
+        grid-column: 2;
+        grid-row: 1;
+        font-size: 10px;
+        white-space: nowrap;
+        text-align: right;
+    }
+    .topnav-links {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        display: flex;
+        justify-content: space-around;
+        width: 100%;
+        border-top: 1px solid #374151;
+        padding-top: 4px;
+        margin-top: 2px;
+    }
     .topnav-links a {
         font-size: 11px;
-        padding: 6px 8px;
-        min-height: 36px;
+        padding: 4px 8px;
+        flex: 1;
+        text-align: center;
+        min-height: 32px;
         display: flex;
         align-items: center;
+        justify-content: center;
     }
-    .topnav-status { font-size: 11px; }
 
     /* Touch targets */
     button, .btn, input[type="button"], input[type="submit"] {
