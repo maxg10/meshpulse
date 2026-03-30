@@ -159,30 +159,12 @@ sudo systemctl status meshtastic-mapper
 
 
 ## Updating
-
-If you already have meshtastic-network-mapper installed and want to update to the latest version:
 ```bash
-# 1. Navigate to repository
 cd ~/meshtastic-network-mapper
-
-# 2. Pull latest changes from GitHub
-git pull origin main
-
-# 3. Check what changed
-git log --oneline -5
-
-# 4. Re-run installer (updates service and frontend)
-./install.sh
-
-# 5. Restart service
-sudo systemctl restart meshtastic-mapper
-
-# 6. Verify it's running
-sudo systemctl status meshtastic-mapper
-
-# 7. Check logs for new features
-sudo journalctl -u meshtastic-mapper -f
+./update.sh
 ```
+
+That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
