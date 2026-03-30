@@ -65,34 +65,64 @@
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
         <small id="tracker-battery-line" style="display:none"><b>Battery:</b> <span id="tracker-battery">-</span></small><br>
         <hr style="margin:5px 0">
-        <hr style="margin:5px 0">
-        <label class="filter-label">
-            <input type="checkbox" id="show-mqtt-nodes" onchange="updateDisplay()"> Show MQTT nodes
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
-            Show direct lines
-            <span title="Lines from YOUR tracker to nodes it hears directly (hops=0). Shows your personal radio range." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()">
-            Show neighbor links
-            <span title="Lines between ALL nodes that hear each other directly. Shows the full mesh topology. Data from NeighborInfo packets (broadcast every 4h)." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()">
-            Show relay nodes
-            <span title="Lines from YOUR tracker to nodes whose packets passed through your node as relay. Shows your contribution to the mesh." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
-        </label><br>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;align-items:start">
+          <!-- LEFT column: filters/checkboxes -->
+          <div>
+            <label class="filter-label">
+                <input type="checkbox" id="show-mqtt-nodes" onchange="updateDisplay()"> Show MQTT nodes
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
+                Show direct lines
+                <span title="Lines from YOUR tracker to nodes it hears directly (hops=0)." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()">
+                Show neighbor links
+                <span title="Lines between ALL nodes that hear each other directly." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()">
+                Show relay nodes
+                <span title="Lines from YOUR tracker to nodes whose packets passed through your node as relay." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
+            </label><br>
+          </div>
+
+          <!-- RIGHT column: antenna params + coverage -->
+          <div style="font-size:11px;">
+            <div style="margin-bottom:4px;color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:0.05em">📡 Antenna</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+              <label style="color:#ccc;min-width:32px">Gain</label>
+              <input type="number" id="antenna-gain" value="2" min="0" max="20" step="0.5"
+                style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
+                onchange="saveCoverageParams()" title="Antenna gain in dBi">
+              <span style="color:#9ca3af">dBi</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
+              <label style="color:#ccc;min-width:32px">Alt</label>
+              <input type="number" id="antenna-height" value="10" min="0" max="500" step="1"
+                style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
+                onchange="saveCoverageParams()" title="Antenna height above ground in meters">
+              <span style="color:#9ca3af">m</span>
+            </div>
+            <button id="coverage-btn" onclick="toggleCoverageOverlay()"
+              style="width:100%;padding:4px 6px;font-size:11px;background:#1d4ed8;color:white;
+              border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;
+              justify-content:center;gap:4px;">
+              📡 Show coverage
+            </button>
+            <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
+          </div>
+        </div>
         </div>
     </div>
     <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
@@ -387,6 +417,11 @@
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
+                                    // Pre-fill antenna height from tracker altitude if not manually set
+                                    if (!localStorage.getItem('antenna-height') && trackerInfo.alt && trackerInfo.alt > 0) {
+                                        const el = document.getElementById('antenna-height');
+                                        if (el) el.value = trackerInfo.alt;
+                                    }
                                 }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
@@ -1241,6 +1276,100 @@
             return '#ef4444';
         }
 
+        // ── Coverage overlay ──────────────────────────────────────────────
+        let coverageLayer = null;
+        let coverageActive = false;
+
+        function saveCoverageParams() {
+            localStorage.setItem('antenna-gain', document.getElementById('antenna-gain').value);
+            localStorage.setItem('antenna-height', document.getElementById('antenna-height').value);
+        }
+
+        function loadCoverageParams() {
+            const gain = localStorage.getItem('antenna-gain');
+            const height = localStorage.getItem('antenna-height');
+            if (gain) document.getElementById('antenna-gain').value = gain;
+            if (height) {
+                document.getElementById('antenna-height').value = height;
+            } else if (trackerInfo && trackerInfo.alt && trackerInfo.alt > 0) {
+                document.getElementById('antenna-height').value = trackerInfo.alt;
+            }
+        }
+
+        async function toggleCoverageOverlay() {
+            const btn = document.getElementById('coverage-btn');
+            const statusEl = document.getElementById('coverage-status');
+
+            if (coverageActive && coverageLayer) {
+                map.removeLayer(coverageLayer);
+                coverageLayer = null;
+                coverageActive = false;
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#1d4ed8';
+                statusEl.textContent = '';
+                return;
+            }
+
+            const lat = trackerInfo?.lat;
+            const lon = trackerInfo?.lon;
+            if (!lat || !lon) {
+                statusEl.textContent = '⚠️ No tracker position';
+                return;
+            }
+
+            const gain = parseFloat(document.getElementById('antenna-gain').value) || 2;
+            const height = parseFloat(document.getElementById('antenna-height').value) || 10;
+            const txPowerDbm = trackerInfo?.tx_power || 27;
+            const txPowerW = parseFloat((Math.pow(10, (txPowerDbm - 30) / 10)).toFixed(3));
+
+            btn.textContent = '⏳ Loading...';
+            btn.style.background = '#374151';
+            statusEl.textContent = 'Requesting simulation...';
+
+            try {
+                if (!ws || ws.readyState !== WebSocket.OPEN) throw new Error('WebSocket not connected');
+
+                const coverageData = await new Promise((resolve, reject) => {
+                    const timeout = setTimeout(() => reject(new Error('Timeout after 30s')), 30000);
+                    const handler = (event) => {
+                        try {
+                            const msg = JSON.parse(event.data);
+                            if (msg.type === 'coverage_data') {
+                                clearTimeout(timeout);
+                                ws.removeEventListener('message', handler);
+                                if (msg.error) reject(new Error(msg.error));
+                                else resolve(msg);
+                            }
+                        } catch(e) {}
+                    };
+                    ws.addEventListener('message', handler);
+                    ws.send(JSON.stringify({
+                        type: 'get_coverage',
+                        lat: lat, lon: lon,
+                        power_w: txPowerW,
+                        frequency_mhz: 868,
+                        height_agl_m: height,
+                        antenna_gain_dbi: gain
+                    }));
+                });
+
+                if (!coverageData.image_url || !coverageData.bounds) throw new Error('Invalid response');
+                const bounds = [[coverageData.bounds[0], coverageData.bounds[1]], [coverageData.bounds[2], coverageData.bounds[3]]];
+                coverageLayer = L.imageOverlay(coverageData.image_url, bounds, { opacity: 0.5 });
+                coverageLayer.addTo(map);
+                coverageActive = true;
+                btn.textContent = '📡 Hide coverage';
+                btn.style.background = '#059669';
+                statusEl.textContent = 'Coverage shown (50% opacity)';
+            } catch (err) {
+                console.error('[Coverage]', err);
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#dc2626';
+                statusEl.textContent = '❌ ' + err.message;
+                setTimeout(() => { btn.style.background = '#1d4ed8'; statusEl.textContent = ''; }, 4000);
+            }
+        }
+
         function updateDirectLines() {
             // Remove existing lines
             directLines.forEach(line => map.removeLayer(line));
@@ -1686,7 +1815,8 @@
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
             mapReady = true;
-            
+            loadCoverageParams();
+
             // CRITICAL: Force initial data load BEFORE connecting WebSocket
             console.log('[MAP] Force loading initial data...');
             fetchNodesJSON(0);

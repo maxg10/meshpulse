@@ -643,7 +643,8 @@ class ListenBasedMapper:
                 'host': self.host,
                 'hw_model': hw_model,
                 'firmware': firmware,
-                'channels': channels
+                'channels': channels,
+                'tx_power': 27
             }
 
             print(f"[INFO] Local node ID: {node_id}")
@@ -663,7 +664,8 @@ class ListenBasedMapper:
             'port': self.port,
             'host': self.host,
             'hw_model': 'Unknown',
-            'firmware': 'Unknown'
+            'firmware': 'Unknown',
+            'tx_power': 27
         }
         return None
 
@@ -3874,6 +3876,70 @@ async def websocket_handler(websocket):
                         await websocket.send(json.dumps({
                             'type': 'pong_device',
                             'connected': False
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'get_coverage':
+                    try:
+                        import urllib.request
+                        import json as json_lib
+
+                        lat = float(data.get('lat', 0))
+                        lon = float(data.get('lon', 0))
+                        power_w = float(data.get('power_w', 0.5))
+                        freq_mhz = float(data.get('frequency_mhz', 868))
+                        height_m = float(data.get('height_agl_m', 10))
+                        gain_dbi = float(data.get('antenna_gain_dbi', 2))
+
+                        payload = json_lib.dumps({
+                            "site": {
+                                "latitude": lat,
+                                "longitude": lon,
+                                "tx_power_w": power_w,
+                                "frequency_mhz": freq_mhz,
+                                "height_agl_m": height_m,
+                                "antenna_gain_dbi": gain_dbi
+                            },
+                            "receiver": {
+                                "sensitivity_dbm": -130,
+                                "height_agl_m": 1.5,
+                                "antenna_gain_dbi": 1.0
+                            },
+                            "simulation": {
+                                "max_range_km": 50,
+                                "resolution": 90
+                            },
+                            "display": {
+                                "min_dbm": -130,
+                                "max_dbm": -80,
+                                "colormap": "plasma",
+                                "transparency": 50
+                            }
+                        }).encode('utf-8')
+
+                        req = urllib.request.Request(
+                            'https://api.site.meshtastic.org/coverage',
+                            data=payload,
+                            headers={
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json'
+                            },
+                            method='POST'
+                        )
+
+                        with urllib.request.urlopen(req, timeout=30) as resp:
+                            result = json_lib.loads(resp.read().decode('utf-8'))
+
+                        await websocket.send(json_lib.dumps({
+                            'type': 'coverage_data',
+                            'image_url': result.get('image_url') or result.get('png_url'),
+                            'bounds': result.get('bounds')
+                        }, ensure_ascii=False))
+
+                    except Exception as e:
+                        print(f"[COVERAGE] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'coverage_data',
+                            'error': str(e)
                         }, ensure_ascii=False))
 
                 else:
