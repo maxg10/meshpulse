@@ -124,6 +124,18 @@
         <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
 </div>
+    <!-- Mobile FABs (hidden on desktop via CSS) -->
+    <button id="mobile-meshinfo-fab" onclick="toggleMeshInfoDrawer()"
+        style="display:none;position:fixed;bottom:70px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#3b82f6;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">📶</button>
+    <button id="mobile-nogps-fab" onclick="toggleNoGpsDrawer()"
+        style="display:none;position:fixed;bottom:126px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#6b7280;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">📍</button>
+
     <div id="los-panel" style="display:none;">
         <div id="los-header">
             <span id="los-title">RF Line of Sight</span>
@@ -1599,8 +1611,9 @@
             document.getElementById('tcp-host').value = savedTcpHost;
         }
 
-        // Dynamically position No GPS panel below the Stats panel
+        // Dynamically position No GPS panel below the Stats panel (desktop only)
         function repositionNoGpsPanel() {
+            if (window.innerWidth <= 768) return;
             const stats = document.getElementById('stats');
             const noGps = document.getElementById('no-gps-panel');
             const bottom = stats.getBoundingClientRect().bottom;
@@ -1611,6 +1624,44 @@
         // Run immediately on load
         setTimeout(repositionNoGpsPanel, 100);
         window.addEventListener('resize', repositionNoGpsPanel);
+
+        // Mobile drawer toggles
+        function toggleMeshInfoDrawer() {
+            const panel = document.getElementById('stats');
+            const noGpsPanel = document.getElementById('no-gps-panel');
+            panel.classList.toggle('drawer-open');
+            document.getElementById('mobile-meshinfo-fab').textContent =
+                panel.classList.contains('drawer-open') ? '✕' : '📶';
+            // Close NoGPS if open
+            if (noGpsPanel.classList.contains('drawer-open')) {
+                noGpsPanel.classList.remove('drawer-open');
+                document.getElementById('mobile-nogps-fab').textContent = '📍';
+            }
+        }
+        function toggleNoGpsDrawer() {
+            const panel = document.getElementById('no-gps-panel');
+            const meshPanel = document.getElementById('stats');
+            panel.classList.toggle('drawer-open');
+            document.getElementById('mobile-nogps-fab').textContent =
+                panel.classList.contains('drawer-open') ? '✕' : '📍';
+            // Close MeshInfo if open
+            if (meshPanel.classList.contains('drawer-open')) {
+                meshPanel.classList.remove('drawer-open');
+                document.getElementById('mobile-meshinfo-fab').textContent = '📶';
+            }
+        }
+
+        // Close drawers when tapping map (mobile)
+        map.on('click', function() {
+            if (window.innerWidth <= 768) {
+                document.getElementById('stats')?.classList.remove('drawer-open');
+                document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
+                const mfab = document.getElementById('mobile-meshinfo-fab');
+                const nfab = document.getElementById('mobile-nogps-fab');
+                if (mfab) mfab.textContent = '📶';
+                if (nfab) nfab.textContent = '📍';
+            }
+        });
 
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
