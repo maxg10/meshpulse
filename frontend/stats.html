@@ -204,9 +204,10 @@
     <div class="card">
         <div class="card-title">
             📻 Radio Health
-            <span class="info-icon" data-tip="Radio stats from your tracker's last localStats packet (sent every ~30 min). Values persist until next restart. TX/RX = 0 means tracker just restarted and hasn't sent localStats yet.">ⓘ</span>
+            <span class="info-icon" data-tip="Radio stats from your tracker's last localStats packet (sent every ~30 min). Values persist until next restart. TX/RX = 0 means tracker just restarted.">ⓘ</span>
         </div>
         <div id="radio-stats-content" style="color:#6b7280;font-size:12px">Waiting for connection_status…</div>
+        <div id="radio-stats-age" style="color:#9ca3af;font-size:10px;margin-top:6px;text-align:right"></div>
     </div>
 </div>
 
@@ -389,6 +390,7 @@ function escHtml(s) {
 let ws = null;
 let radioStats = null;
 let _lastKnownRadioStats = null;  // persists last non-zero values
+let _lastRadioStatsTime = null;   // timestamp of last non-zero update
 let charts = {};
 let topoState = null;
 // Global topology zoom state
@@ -458,8 +460,11 @@ function connectWS() {
                 // Only update last known if values are non-zero
                 const hasValues = radioStats.numPacketsTx > 0 || radioStats.numPacketsRx > 0
                     || radioStats.numOnlineNodes > 0;
-                if (hasValues) _lastKnownRadioStats = radioStats;
-                renderRadioHealth(_lastKnownRadioStats || radioStats);
+                if (hasValues) {
+                    _lastKnownRadioStats = radioStats;
+                    _lastRadioStatsTime = Date.now();
+                }
+                renderRadioHealth(_lastKnownRadioStats || radioStats, _lastRadioStatsTime);
                 renderHealthScore(_lastKnownRadioStats || radioStats, null);
             }
         }
@@ -618,7 +623,7 @@ function renderAll(data) {
     const rsToRender = (data.tracker_info?.radio_stats?.numPacketsRx > 0
         ? data.tracker_info.radio_stats
         : null) || _lastKnownRadioStats || radioStats;
-    renderRadioHealth(rsToRender);
+    renderRadioHealth(rsToRender, _lastRadioStatsTime);
     renderHealthScore(rsToRender, data);
 
     // Hourly chart
@@ -711,8 +716,18 @@ function renderAll(data) {
     renderAnomalies(data.anomalies||[]);
 }
 
+function formatTimeAgo(ts) {
+    if (!ts) return '';
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return `updated ${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `updated ${min}m ago`;
+    const hr = Math.floor(min / 60);
+    return `updated ${hr}h ago`;
+}
+
 // ── Radio Health ─────────────────────────────────────────────────
-function renderRadioHealth(rs) {
+function renderRadioHealth(rs, ts) {
     if (!rs) return;
     const el = document.getElementById('radio-stats-content');
     const pct = v => v != null ? (typeof v === 'number' && v < 1 ? (v*100).toFixed(1) : Number(v).toFixed(1)) + '%' : '-';
@@ -728,6 +743,10 @@ function renderRadioHealth(rs) {
         <div class="radio-row"><span>TX relay</span><span class="radio-val">${rs.numTxRelay||0}</span></div>
         <div class="radio-row"><span>Online / Total nodes</span><span class="radio-val">${rs.numOnlineNodes||0} / ${rs.numTotalNodes||0}</span></div>
     `;
+    const ageEl = document.getElementById('radio-stats-age');
+    if (ageEl) {
+        ageEl.textContent = ts ? formatTimeAgo(ts) : (_lastRadioStatsTime ? formatTimeAgo(_lastRadioStatsTime) : '');
+    }
 }
 
 // ── Health Score ─────────────────────────────────────────────────
@@ -1155,6 +1174,14 @@ function updateNavUnread() {
 }
 setInterval(updateNavUnread, 2000);
 updateNavUnread();
+
+// Keep radio stats age display fresh
+setInterval(() => {
+    const ageEl = document.getElementById('radio-stats-age');
+    if (ageEl && _lastRadioStatsTime) {
+        ageEl.textContent = formatTimeAgo(_lastRadioStatsTime);
+    }
+}, 10000); // update every 10s
 
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
