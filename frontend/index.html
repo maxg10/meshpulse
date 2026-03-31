@@ -114,11 +114,12 @@
                 onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna height above ground in meters">
               <span style="color:#9ca3af">m</span>
             </div>
-            <button id="coverage-btn" onclick="event.stopPropagation(); toggleCoverageOverlay()"
-              style="width:100%;padding:4px 6px;font-size:11px;background:#1d4ed8;color:white;
-              border:none;border-radius:4px;cursor:pointer;display:flex;align-items:center;
-              justify-content:center;gap:4px;">
-              ↗ Open Site Planner
+            <button id="coverage-btn"
+              onclick="toggleCoverageOverlay()"
+              style="width:100%;padding:4px 6px;font-size:11px;
+              background:#1d4ed8;color:white;border:none;border-radius:4px;
+              cursor:pointer;margin-top:4px">
+              📡 Show coverage
             </button>
             <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
           </div>
@@ -418,7 +419,8 @@
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
                                     // Pre-fill antenna height from tracker altitude if not manually set
-                                    if (!localStorage.getItem('antenna-height') && trackerInfo.alt && trackerInfo.alt > 0) {
+                                    if (!localStorage.getItem('mesh-antenna-height')
+                                        && trackerInfo.alt && trackerInfo.alt > 0) {
                                         const el = document.getElementById('antenna-height');
                                         if (el) el.value = trackerInfo.alt;
                                     }
@@ -1281,29 +1283,53 @@
         let coverageActive = false;
 
         function saveCoverageParams() {
-            localStorage.setItem('antenna-gain', document.getElementById('antenna-gain').value);
-            localStorage.setItem('antenna-height', document.getElementById('antenna-height').value);
+            localStorage.setItem('mesh-antenna-gain',
+                document.getElementById('antenna-gain').value);
+            localStorage.setItem('mesh-antenna-height',
+                document.getElementById('antenna-height').value);
         }
 
         function loadCoverageParams() {
-            const gain = localStorage.getItem('antenna-gain');
-            const height = localStorage.getItem('antenna-height');
+            const gain = localStorage.getItem('mesh-antenna-gain');
+            const height = localStorage.getItem('mesh-antenna-height');
             if (gain) document.getElementById('antenna-gain').value = gain;
             if (height) {
                 document.getElementById('antenna-height').value = height;
-            } else if (trackerInfo && trackerInfo.alt && trackerInfo.alt > 0) {
+            } else if (trackerInfo?.alt && trackerInfo.alt > 0) {
                 document.getElementById('antenna-height').value = trackerInfo.alt;
             }
         }
 
-        async function toggleCoverageOverlay() {
+        function toggleCoverageOverlay() {
+            event.stopPropagation();
             const btn = document.getElementById('coverage-btn');
             const statusEl = document.getElementById('coverage-status');
 
+            // Toggle OFF
+            if (coverageActive && coverageLayer) {
+                map.removeLayer(coverageLayer);
+                coverageLayer = null;
+                coverageActive = false;
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#1d4ed8';
+                statusEl.textContent = '';
+                return;
+            }
+
+            // Check tracker position
             const lat = trackerInfo?.lat;
             const lon = trackerInfo?.lon;
             if (!lat || !lon) {
                 statusEl.textContent = '⚠️ No tracker position';
+                statusEl.style.color = '#eab308';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                return;
+            }
+
+            // Check WebSocket
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                statusEl.textContent = '❌ WebSocket not connected';
+                statusEl.style.color = '#ef4444';
                 setTimeout(() => { statusEl.textContent = ''; }, 3000);
                 return;
             }
@@ -1311,22 +1337,63 @@
             const gain = parseFloat(document.getElementById('antenna-gain').value) || 2;
             const height = parseFloat(document.getElementById('antenna-height').value) || 10;
             const txPowerDbm = trackerInfo?.tx_power || 27;
-            const txPowerW = parseFloat((Math.pow(10, (txPowerDbm - 30) / 10)).toFixed(3));
 
-            const params = new URLSearchParams({
-                lat: lat.toFixed(6),
-                lon: lon.toFixed(6),
-                power: txPowerW,
-                frequency: 868,
-                height: height,
-                gain: gain
+            btn.textContent = '⏳ Simulating...';
+            btn.style.background = '#374151';
+            statusEl.textContent = 'Running RF simulation (~30s)...';
+            statusEl.style.color = '#9ca3af';
+
+            // Send via WebSocket, wait for coverage_data response
+            const coveragePromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() =>
+                    reject(new Error('Timeout after 120s')), 120000);
+                const handler = (e) => {
+                    try {
+                        const msg = JSON.parse(e.data);
+                        if (msg.type === 'coverage_data') {
+                            clearTimeout(timeout);
+                            ws.removeEventListener('message', handler);
+                            if (msg.error) reject(new Error(msg.error));
+                            else resolve(msg);
+                        }
+                    } catch(err) {}
+                };
+                ws.addEventListener('message', handler);
+                ws.send(JSON.stringify({
+                    type: 'get_coverage',
+                    lat: lat,
+                    lon: lon,
+                    tx_power_dbm: txPowerDbm,
+                    frequency_mhz: 868,
+                    height_agl_m: height,
+                    antenna_gain_dbi: gain,
+                    max_range_km: 50
+                }));
             });
 
-            const url = `https://site.meshtastic.org/#${params.toString()}`;
-            window.open(url, '_blank');
-
-            statusEl.textContent = '↗ Opened in new tab';
-            setTimeout(() => { statusEl.textContent = ''; }, 3000);
+            coveragePromise.then(data => {
+                const imgUrl = `data:image/png;base64,${data.png_base64}`;
+                const b = data.bounds; // [south, west, north, east]
+                const leafletBounds = [[b[0], b[1]], [b[2], b[3]]];
+                coverageLayer = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.5 });
+                coverageLayer.addTo(map);
+                coverageActive = true;
+                btn.textContent = '📡 Hide coverage';
+                btn.style.background = '#059669';
+                const dur = data.duration_ms
+                    ? ` (${(data.duration_ms/1000).toFixed(1)}s)` : '';
+                statusEl.textContent = `✅ Coverage shown${dur}`;
+                statusEl.style.color = '#22c55e';
+            }).catch(err => {
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#dc2626';
+                statusEl.textContent = '❌ ' + err.message;
+                statusEl.style.color = '#ef4444';
+                setTimeout(() => {
+                    btn.style.background = '#1d4ed8';
+                    statusEl.textContent = '';
+                }, 5000);
+            });
         }
 
         function updateDirectLines() {

@@ -529,9 +529,15 @@ def load_config():
     """Load connection config from JSON file"""
     try:
         with open(CONFIG_PATH, 'r') as f:
-            return json.load(f)
+            config = json.load(f)
     except Exception:
-        return {'connection_type': 'serial', 'port': None, 'host': None}
+        config = {'connection_type': 'serial', 'port': None, 'host': None}
+    config.setdefault('coverage_server_url', '')
+    config.setdefault('coverage_api_key', '')
+    config.setdefault('coverage_antenna_gain', 2.0)
+    config.setdefault('coverage_antenna_height', 10.0)
+    config.setdefault('coverage_max_range_km', 50)
+    return config
 
 
 def save_config(connection_type, host=None, port=None):
@@ -554,6 +560,7 @@ class ListenBasedMapper:
         self._serial_iface = None
         self._tcp_iface = None
         self._pending_traceroute_result = None
+        self.config = {}  # Populated with load_config() after construction
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = shutil.which('meshtastic') or os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age
@@ -1115,6 +1122,14 @@ class ListenBasedMapper:
         except Exception as e:
             config['user'] = {'error': str(e)}
 
+        config['coverage'] = {
+            'server_url': self.config.get('coverage_server_url', ''),
+            'api_key': self.config.get('coverage_api_key', ''),
+            'antenna_gain': self.config.get('coverage_antenna_gain', 2.0),
+            'antenna_height': self.config.get('coverage_antenna_height', 10.0),
+            'max_range_km': self.config.get('coverage_max_range_km', 50),
+        }
+
         return config
 
     def apply_device_config(self, changes, reboot=False):
@@ -1316,6 +1331,36 @@ class ListenBasedMapper:
                     setattr(sr, key, int(val))
             node.writeConfig('serial')
             applied.append('serial_module')
+
+        if 'coverage' in changes:
+            cov = changes['coverage']
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    full_config = json.load(f)
+            except Exception:
+                full_config = {}
+            if 'server_url' in cov:
+                full_config['coverage_server_url'] = cov['server_url']
+                self.config['coverage_server_url'] = cov['server_url']
+            if 'api_key' in cov:
+                full_config['coverage_api_key'] = cov['api_key']
+                self.config['coverage_api_key'] = cov['api_key']
+            if 'antenna_gain' in cov:
+                full_config['coverage_antenna_gain'] = float(cov['antenna_gain'])
+                self.config['coverage_antenna_gain'] = float(cov['antenna_gain'])
+            if 'antenna_height' in cov:
+                full_config['coverage_antenna_height'] = float(cov['antenna_height'])
+                self.config['coverage_antenna_height'] = float(cov['antenna_height'])
+            if 'max_range_km' in cov:
+                full_config['coverage_max_range_km'] = int(cov['max_range_km'])
+                self.config['coverage_max_range_km'] = int(cov['max_range_km'])
+            try:
+                with open(CONFIG_PATH, 'w') as f:
+                    json.dump(full_config, f, indent=2)
+                print(f"[CONFIG] Coverage config saved")
+            except Exception as e:
+                print(f"[CONFIG] Coverage save error: {e}")
+            applied.append('coverage')
 
         if reboot:
             try:
@@ -3878,6 +3923,50 @@ async def websocket_handler(websocket):
                             'connected': False
                         }, ensure_ascii=False))
 
+                elif data.get('type') == 'get_coverage':
+                    try:
+                        import urllib.request
+                        import urllib.error
+                        cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshtastic.world'
+                        cov_key = (mapper.config.get('coverage_api_key', '') if mapper else '')
+                        payload = json.dumps({
+                            'lat': data.get('lat'),
+                            'lon': data.get('lon'),
+                            'tx_power_dbm': data.get('tx_power_dbm', 27),
+                            'frequency_mhz': data.get('frequency_mhz', 868),
+                            'height_agl_m': data.get('height_agl_m', 10),
+                            'antenna_gain_dbi': data.get('antenna_gain_dbi', 2),
+                            'max_range_km': data.get('max_range_km', 50),
+                        }).encode('utf-8')
+                        req = urllib.request.Request(
+                            f"{cov_url.rstrip('/')}/coverage",
+                            data=payload,
+                            method='POST',
+                            headers={
+                                'Content-Type': 'application/json',
+                                'X-Api-Key': cov_key,
+                                'User-Agent': f'MeshtasticMapper/{VERSION}',
+                            }
+                        )
+                        loop = asyncio.get_event_loop()
+                        def _do_coverage_request():
+                            with urllib.request.urlopen(req, timeout=120) as resp:
+                                return json.loads(resp.read().decode())
+                        result = await loop.run_in_executor(None, _do_coverage_request)
+                        print(f"[COVERAGE] Done in {result.get('duration_ms', '?')}ms")
+                        await websocket.send(json.dumps({
+                            'type': 'coverage_data',
+                            'png_base64': result.get('png_base64'),
+                            'bounds': result.get('bounds'),
+                            'duration_ms': result.get('duration_ms'),
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        print(f"[COVERAGE] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'coverage_data',
+                            'error': str(e)
+                        }, ensure_ascii=False))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
@@ -3967,6 +4056,7 @@ if __name__ == '__main__':
                 host=host,
                 max_age=86400
             )
+            mapper.config = load_config()
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()
