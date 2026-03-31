@@ -122,6 +122,34 @@
               📡 Show coverage
             </button>
             <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
+            <div id="coverage-legend" style="display:none;margin-top:6px;font-size:9px;color:#9ca3af">
+                <div style="font-size:9px;color:#6b7280;margin-bottom:2px">Signal strength:</div>
+                <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(255,0,0);border-radius:2px"></span>
+                    <span>Strong</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(0,220,0);border-radius:2px"></span>
+                    <span>Medium</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:2px;margin-bottom:1px">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(0,100,255);border-radius:2px"></span>
+                    <span>Weak</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:2px">
+                    <span style="display:inline-block;width:10px;height:10px;background:rgb(80,0,140);border-radius:2px"></span>
+                    <span>Very weak</span>
+                </div>
+            </div>
+            <div id="coverage-opacity-ctrl" style="display:none;margin-top:4px">
+                <label style="font-size:9px;color:#9ca3af">Opacity:
+                    <input type="range" id="coverage-opacity" min="10" max="100" value="65"
+                        style="width:80px;vertical-align:middle"
+                        oninput="if(coverageLayer) coverageLayer.setOpacity(this.value/100);
+                                 document.getElementById('coverage-opacity-val').textContent=this.value+'%'">
+                    <span id="coverage-opacity-val" style="font-size:9px">65%</span>
+                </label>
+            </div>
           </div>
         </div>
         </div>
@@ -1313,6 +1341,8 @@
                 btn.textContent = '📡 Show coverage';
                 btn.style.background = '#1d4ed8';
                 statusEl.textContent = '';
+                document.getElementById('coverage-legend').style.display = 'none';
+                document.getElementById('coverage-opacity-ctrl').style.display = 'none';
                 return;
             }
 
@@ -1375,11 +1405,14 @@
                 const imgUrl = `data:image/png;base64,${data.png_base64}`;
                 const b = data.bounds; // [south, west, north, east]
                 const leafletBounds = [[b[0], b[1]], [b[2], b[3]]];
-                coverageLayer = L.imageOverlay(imgUrl, leafletBounds, { opacity: 0.5 });
+                const opacityVal = document.getElementById('coverage-opacity').value / 100;
+                coverageLayer = L.imageOverlay(imgUrl, leafletBounds, { opacity: opacityVal });
                 coverageLayer.addTo(map);
                 coverageActive = true;
                 btn.textContent = '📡 Hide coverage';
                 btn.style.background = '#059669';
+                document.getElementById('coverage-legend').style.display = 'block';
+                document.getElementById('coverage-opacity-ctrl').style.display = 'block';
                 const dur = data.duration_ms
                     ? ` (${(data.duration_ms/1000).toFixed(1)}s)` : '';
                 statusEl.textContent = `✅ Coverage shown${dur}`;
