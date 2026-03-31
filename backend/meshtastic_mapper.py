@@ -3936,7 +3936,7 @@ async def websocket_handler(websocket):
                             'frequency_mhz': data.get('frequency_mhz', 868),
                             'height_agl_m': data.get('height_agl_m', 10),
                             'antenna_gain_dbi': data.get('antenna_gain_dbi', 2),
-                            'max_range_km': data.get('max_range_km', 50),
+                            'max_range_km': data.get('max_range_km', mapper.config.get('coverage_max_range_km', 25)),
                         }).encode('utf-8')
                         req = urllib.request.Request(
                             f"{cov_url.rstrip('/')}/coverage",
