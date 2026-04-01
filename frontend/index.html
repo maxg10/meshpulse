@@ -1376,7 +1376,7 @@
             // Send via WebSocket, wait for coverage_data response
             const coveragePromise = new Promise((resolve, reject) => {
                 const timeout = setTimeout(() =>
-                    reject(new Error('Timeout after 120s')), 120000);
+                    reject(new Error('Timeout after 120s')), 200000);
                 const handler = (e) => {
                     try {
                         const msg = JSON.parse(e.data);
