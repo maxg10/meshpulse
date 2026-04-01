@@ -3950,7 +3950,7 @@ async def websocket_handler(websocket):
                         )
                         loop = asyncio.get_event_loop()
                         def _do_coverage_request():
-                            with urllib.request.urlopen(req, timeout=120) as resp:
+                            with urllib.request.urlopen(req, timeout=180) as resp:
                                 return json.loads(resp.read().decode())
                         result = await loop.run_in_executor(None, _do_coverage_request)
                         print(f"[COVERAGE] Done in {result.get('duration_ms', '?')}ms")
