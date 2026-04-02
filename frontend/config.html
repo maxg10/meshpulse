@@ -1072,23 +1072,6 @@
             <input type="password" id="coverage.api_key" placeholder="Your API key"
                 onchange="markChanged(this)">
         </div>
-        <div class="field-row">
-            <div class="field">
-                <label>Antenna Gain (dBi)</label>
-                <input type="number" id="coverage.antenna_gain" value="2" min="0" max="20" step="0.5"
-                    onchange="markChanged(this)">
-            </div>
-            <div class="field">
-                <label>Antenna Height (m AGL)</label>
-                <input type="number" id="coverage.antenna_height" value="10" min="0" max="500" step="1"
-                    onchange="markChanged(this)">
-            </div>
-        </div>
-        <div class="field">
-            <label>Max Range (km)</label>
-            <input type="number" id="coverage.max_range_km" value="50" min="1" max="200" step="1"
-                onchange="markChanged(this)">
-        </div>
         <div class="field">
             <button class="btn btn-secondary" onclick="testCoverageConnection()">🔌 Test Connection</button>
             <span id="coverage-test-result" style="margin-left:10px;font-size:12px;color:#374151"></span>
@@ -1897,9 +1880,7 @@ function populateForm(config) {
     // Coverage
     setField('coverage.server_url', config.coverage?.server_url || '');
     setField('coverage.api_key', config.coverage?.api_key || '');
-    setField('coverage.antenna_gain', config.coverage?.antenna_gain ?? 2);
-    setField('coverage.antenna_height', config.coverage?.antenna_height ?? 10);
-    setField('coverage.max_range_km', config.coverage?.max_range_km ?? 50);
+
 
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
