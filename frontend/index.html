@@ -124,7 +124,7 @@
             <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
             <div id="coverage-legend" style="display:none;margin-top:6px;font-size:9px;color:#9ca3af">
                 <div style="font-size:9px;color:#6b7280;margin-bottom:2px">Signal strength:</div>
-                <div style="height:10px;background:linear-gradient(to right,#0d0887,#7e03a8,#cc4778,#f89540,#f0f921);border-radius:2px;margin-bottom:2px"></div>
+                <div style="height:10px;background:linear-gradient(to right,#3b049a,#8b0aa5,#cc4778,#ed7953,#f0f921);border-radius:2px;margin-bottom:2px"></div>
                 <div style="display:flex;justify-content:space-between">
                     <span>Weak</span>
                     <span>Strong</span>
@@ -132,11 +132,11 @@
             </div>
             <div id="coverage-opacity-ctrl" style="display:none;margin-top:4px">
                 <label style="font-size:9px;color:#9ca3af">Opacity:
-                    <input type="range" id="coverage-opacity" min="10" max="100" value="65"
+                    <input type="range" id="coverage-opacity" min="10" max="75" value="50"
                         style="width:80px;vertical-align:middle"
                         oninput="if(coverageLayer) coverageLayer.setOpacity(this.value/100);
                                  document.getElementById('coverage-opacity-val').textContent=this.value+'%'">
-                    <span id="coverage-opacity-val" style="font-size:9px">65%</span>
+                    <span id="coverage-opacity-val" style="font-size:9px">50%</span>
                 </label>
             </div>
           </div>
