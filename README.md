@@ -1,4 +1,6 @@
 cat README.md 
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+
 # Meshtastic Network Mapper
 
 Real-time web-based visualization of Meshtastic mesh network nodes. Optimized for low-power devices like Raspberry Pi Model B+.
@@ -508,6 +510,11 @@ Pull requests welcome! Areas for improvement:
 - [ ] WebSocket authentication (currently assumes trusted LAN)
 
 
+## License
+
+This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
+
+
 ## Author
 
 **Mariusz "Max" Gieparda**
@@ -519,11 +526,6 @@ Pull requests welcome! Areas for improvement:
 Built with ❤️ for the Meshtastic community in Poland 🇵🇱
 
 *Feel free to reach out with questions, bug reports, or feature requests!*
-
-
-## License
-
-MIT License - See [LICENSE](LICENSE) file
 
 
 ## Credits
@@ -545,4 +547,4 @@ Built for the Polish Meshtastic community around Poznań 🇵🇱
 
 ---
 
-© 2025 Max Gieparda | MIT License
+© 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd) | GPL-3.0 License
