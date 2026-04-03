@@ -228,6 +228,9 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
             attribution:'© OSM'
         }).addTo(map);
+
+        map.createPane('trackerPane');
+        map.getPane('trackerPane').style.zIndex = 650;
         
         let markers = {};
         let allNodes = [];
@@ -1750,13 +1753,15 @@
                     // Store node id for click handler to look up fresh data
                     markers[n.id]._nodeId = n.id;
                 }else{
-                    markers[n.id] = L.marker([displayLat, displayLon], {
+                    const markerOpts = {
                         icon: L.divIcon({
                             className: getMarkerClass(n),
                             iconSize: [14, 14],
                             iconAnchor: [7, 7]
                         })
-                    }).addTo(map);
+                    };
+                    if (isOwnTracker(n.id)) markerOpts.pane = 'trackerPane';
+                    markers[n.id] = L.marker([displayLat, displayLon], markerOpts).addTo(map);
                     markers[n.id]._nodeId = n.id;
                     markers[n.id].bindPopup(pop);
                     markers[n.id].on('click', function() {
