@@ -1,3 +1,20 @@
+<!--
+  Meshtastic Network Mapper
+  Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
 <!DOCTYPE html>
 <html>
 <head>
@@ -8,12 +25,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.0.11">
+    <link rel="stylesheet" href="styles.css?v=2.1.0">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.11 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -65,34 +82,82 @@
         <small><b>Uptime:</b> <span id="tracker-uptime">-</span></small><br>
         <small id="tracker-battery-line" style="display:none"><b>Battery:</b> <span id="tracker-battery">-</span></small><br>
         <hr style="margin:5px 0">
-        <hr style="margin:5px 0">
-        <label class="filter-label">
-            <input type="checkbox" id="show-mqtt-nodes" onchange="updateDisplay()"> Show MQTT nodes
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct (hops=0)
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
-            Show direct lines
-            <span title="Lines from YOUR tracker to nodes it hears directly (hops=0). Shows your personal radio range." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()">
-            Show neighbor links
-            <span title="Lines between ALL nodes that hear each other directly. Shows the full mesh topology. Data from NeighborInfo packets (broadcast every 4h)." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()">
-            Show relay nodes
-            <span title="Lines from YOUR tracker to nodes whose packets passed through your node as relay. Shows your contribution to the mesh." style="cursor:help;color:#9ca3af"> ⓘ</span>
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
-        </label><br>
-        <label class="filter-label">
-            <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
-        </label><br>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 8px;align-items:start">
+          <!-- LEFT column: filters/checkboxes -->
+          <div>
+            <label class="filter-label">
+                <input type="checkbox" id="show-mqtt-nodes" onchange="updateDisplay()"> Show MQTT nodes
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
+                Show direct lines
+                <span title="Lines from YOUR tracker to nodes it hears directly (hops=0)." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-neighbor-links" onchange="updateNeighborLinks()">
+                Show neighbor links
+                <span title="Lines between ALL nodes that hear each other directly." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-relay-nodes" onchange="updateRelayVisualization()">
+                Show relay nodes
+                <span title="Lines from YOUR tracker to nodes whose packets passed through your node as relay." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="hide-unknown-hops" onchange="updateDisplay()"> Hide unknown hops
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
+            </label><br>
+          </div>
+
+          <!-- RIGHT column: antenna params + coverage -->
+          <div style="font-size:11px;">
+            <div style="margin-bottom:4px;color:#9ca3af;font-size:10px;text-transform:uppercase;letter-spacing:0.05em">📡 Antenna</div>
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:4px;">
+              <label style="color:#ccc;min-width:32px">Gain</label>
+              <input type="number" id="antenna-gain" value="2" min="0" max="20" step="0.5"
+                style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
+                onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna gain in dBi">
+              <span style="color:#9ca3af">dBi</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
+              <label style="color:#ccc;min-width:32px">Alt</label>
+              <input type="number" id="antenna-height" value="10" min="0" max="500" step="1"
+                style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
+                onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna height above ground in meters">
+              <span style="color:#9ca3af">m</span>
+            </div>
+            <button id="coverage-btn"
+              onclick="toggleCoverageOverlay()"
+              style="width:100%;padding:4px 6px;font-size:11px;
+              background:#1d4ed8;color:white;border:none;border-radius:4px;
+              cursor:pointer;margin-top:4px">
+              📡 Show coverage
+            </button>
+            <div id="coverage-status" style="font-size:9px;color:#9ca3af;margin-top:3px;text-align:center"></div>
+            <div id="coverage-legend" style="display:none;margin-top:6px;font-size:9px;color:#9ca3af">
+                <div style="font-size:9px;color:#6b7280;margin-bottom:2px">Signal strength:</div>
+                <div style="height:10px;background:linear-gradient(to right,#3b049a,#8b0aa5,#cc4778,#ed7953,#f0f921);border-radius:2px;margin-bottom:2px"></div>
+                <div style="display:flex;justify-content:space-between">
+                    <span>Weak</span>
+                    <span>Strong</span>
+                </div>
+            </div>
+            <div id="coverage-opacity-ctrl" style="display:none;margin-top:4px">
+                <label style="font-size:9px;color:#9ca3af">Opacity:
+                    <input type="range" id="coverage-opacity" min="10" max="75" value="50"
+                        style="width:80px;vertical-align:middle"
+                        oninput="if(coverageLayer) coverageLayer.setOpacity(this.value/100);
+                                 document.getElementById('coverage-opacity-val').textContent=this.value+'%'">
+                    <span id="coverage-opacity-val" style="font-size:9px">50%</span>
+                </label>
+            </div>
+          </div>
+        </div>
         </div>
     </div>
     <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
@@ -124,6 +189,18 @@
         <div class="row"><span style="color:#ef4444;">●</span> Disconnected</div>
     </div>
 </div>
+    <!-- Mobile FABs (hidden on desktop via CSS) -->
+    <button id="mobile-meshinfo-fab" onclick="toggleMeshInfoDrawer()"
+        style="display:none;position:fixed;bottom:70px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#3b82f6;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">📶</button>
+    <button id="mobile-nogps-fab" onclick="toggleNoGpsDrawer()"
+        style="display:none;position:fixed;bottom:126px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#6b7280;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">📍</button>
+
     <div id="los-panel" style="display:none;">
         <div id="los-header">
             <span id="los-title">RF Line of Sight</span>
@@ -151,6 +228,9 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
             attribution:'© OSM'
         }).addTo(map);
+
+        map.createPane('trackerPane');
+        map.getPane('trackerPane').style.zIndex = 650;
         
         let markers = {};
         let allNodes = [];
@@ -172,8 +252,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.0.11 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.0.11';
+        // Meshtastic Mapper v2.1.0 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.1.0';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -375,6 +455,12 @@
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
+                                    // Pre-fill antenna height from tracker altitude if not manually set
+                                    if (!localStorage.getItem('mesh-antenna-height')
+                                        && trackerInfo.alt && trackerInfo.alt > 0) {
+                                        const el = document.getElementById('antenna-height');
+                                        if (el) el.value = trackerInfo.alt;
+                                    }
                                 }
                                 // Reload data after connection change
                                 setTimeout(() => fetchNodesJSON(0), 500);
@@ -1229,6 +1315,129 @@
             return '#ef4444';
         }
 
+        // ── Coverage overlay ──────────────────────────────────────────────
+        let coverageLayer = null;
+        let coverageActive = false;
+
+        function saveCoverageParams() {
+            localStorage.setItem('mesh-antenna-gain',
+                document.getElementById('antenna-gain').value);
+            localStorage.setItem('mesh-antenna-height',
+                document.getElementById('antenna-height').value);
+        }
+
+        function loadCoverageParams() {
+            const gain = localStorage.getItem('mesh-antenna-gain');
+            const height = localStorage.getItem('mesh-antenna-height');
+            if (gain) document.getElementById('antenna-gain').value = gain;
+            if (height) {
+                document.getElementById('antenna-height').value = height;
+            } else if (trackerInfo?.alt && trackerInfo.alt > 0) {
+                document.getElementById('antenna-height').value = trackerInfo.alt;
+            }
+        }
+
+        function toggleCoverageOverlay() {
+            event.stopPropagation();
+            const btn = document.getElementById('coverage-btn');
+            const statusEl = document.getElementById('coverage-status');
+
+            // Toggle OFF
+            if (coverageActive && coverageLayer) {
+                map.removeLayer(coverageLayer);
+                coverageLayer = null;
+                coverageActive = false;
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#1d4ed8';
+                statusEl.textContent = '';
+                document.getElementById('coverage-legend').style.display = 'none';
+                document.getElementById('coverage-opacity-ctrl').style.display = 'none';
+                return;
+            }
+
+            // Check tracker position
+            const lat = trackerInfo?.lat;
+            const lon = trackerInfo?.lon;
+            if (!lat || !lon) {
+                statusEl.textContent = '⚠️ No tracker position';
+                statusEl.style.color = '#eab308';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                return;
+            }
+
+            // Check WebSocket
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                statusEl.textContent = '❌ WebSocket not connected';
+                statusEl.style.color = '#ef4444';
+                setTimeout(() => { statusEl.textContent = ''; }, 3000);
+                return;
+            }
+
+            const gain = parseFloat(document.getElementById('antenna-gain').value) || 2;
+            const height = parseFloat(document.getElementById('antenna-height').value) || 10;
+            const txPowerDbm = trackerInfo?.tx_power || 27;
+
+            btn.textContent = '⏳ Simulating...';
+            btn.style.background = '#374151';
+            statusEl.textContent = 'Running RF simulation (~30s)...';
+            statusEl.style.color = '#9ca3af';
+
+            // Send via WebSocket, wait for coverage_data response
+            const coveragePromise = new Promise((resolve, reject) => {
+                const timeout = setTimeout(() =>
+                    reject(new Error('Timeout after 120s')), 200000);
+                const handler = (e) => {
+                    try {
+                        const msg = JSON.parse(e.data);
+                        if (msg.type === 'coverage_data') {
+                            clearTimeout(timeout);
+                            ws.removeEventListener('message', handler);
+                            if (msg.error) reject(new Error(msg.error));
+                            else resolve(msg);
+                        }
+                    } catch(err) {}
+                };
+                ws.addEventListener('message', handler);
+                ws.send(JSON.stringify({
+                    type: 'get_coverage',
+                    lat: lat,
+                    lon: lon,
+                    tx_power_dbm: txPowerDbm,
+                    frequency_mhz: 868,
+                    height_agl_m: height,
+                    antenna_gain_dbi: gain,
+                    max_range_km: 15
+                }));
+            });
+
+            coveragePromise.then(data => {
+                const imgUrl = `data:image/png;base64,${data.png_base64}`;
+                const b = data.bounds; // [south, west, north, east]
+                const leafletBounds = [[b[0], b[1]], [b[2], b[3]]];
+                const opacityVal = document.getElementById('coverage-opacity').value / 100;
+                coverageLayer = L.imageOverlay(imgUrl, leafletBounds, { opacity: opacityVal });
+                coverageLayer.addTo(map);
+                coverageActive = true;
+                btn.textContent = '📡 Hide coverage';
+                btn.style.background = '#059669';
+                document.getElementById('coverage-legend').style.display = 'block';
+                document.getElementById('coverage-opacity-ctrl').style.display = 'block';
+                const dur = data.duration_ms
+                    ? ` (${(data.duration_ms/1000).toFixed(1)}s)` : '';
+                statusEl.textContent = `✅ Coverage shown${dur}`;
+                statusEl.style.color = '#22c55e';
+            }).catch(err => {
+                btn.textContent = '📡 Show coverage';
+                btn.style.background = '#dc2626';
+                statusEl.textContent = '❌ ' + err.message;
+                statusEl.style.color = '#ef4444';
+                setTimeout(() => {
+                    btn.style.background = '#1d4ed8';
+                    statusEl.textContent = '';
+                }, 5000);
+            });
+        }
+
         function updateDirectLines() {
             // Remove existing lines
             directLines.forEach(line => map.removeLayer(line));
@@ -1484,7 +1693,8 @@
             } else {
                 noGpsList.innerHTML = '<div class="no-gps-item meta">No nodes</div>';
             }
-            
+            updateNoGpsFabBadge();
+
             // Remove outdated markers
             Object.keys(markers).forEach(id=>{
                 if(!filteredNodes.find(n=>n.id===id)){
@@ -1543,13 +1753,15 @@
                     // Store node id for click handler to look up fresh data
                     markers[n.id]._nodeId = n.id;
                 }else{
-                    markers[n.id] = L.marker([displayLat, displayLon], {
+                    const markerOpts = {
                         icon: L.divIcon({
                             className: getMarkerClass(n),
                             iconSize: [14, 14],
                             iconAnchor: [7, 7]
                         })
-                    }).addTo(map);
+                    };
+                    if (isOwnTracker(n.id)) markerOpts.pane = 'trackerPane';
+                    markers[n.id] = L.marker([displayLat, displayLon], markerOpts).addTo(map);
                     markers[n.id]._nodeId = n.id;
                     markers[n.id].bindPopup(pop);
                     markers[n.id].on('click', function() {
@@ -1599,8 +1811,9 @@
             document.getElementById('tcp-host').value = savedTcpHost;
         }
 
-        // Dynamically position No GPS panel below the Stats panel
+        // Dynamically position No GPS panel below the Stats panel (desktop only)
         function repositionNoGpsPanel() {
+            if (window.innerWidth <= 768) return;
             const stats = document.getElementById('stats');
             const noGps = document.getElementById('no-gps-panel');
             const bottom = stats.getBoundingClientRect().bottom;
@@ -1612,11 +1825,68 @@
         setTimeout(repositionNoGpsPanel, 100);
         window.addEventListener('resize', repositionNoGpsPanel);
 
+        // Update NoGPS FAB badge with node count
+        function updateNoGpsFabBadge() {
+            const fab = document.getElementById('mobile-nogps-fab');
+            if (!fab) return;
+            const count = allNodesNoGps ? allNodesNoGps.length : 0;
+            if (count > 0 && window.innerWidth <= 768) {
+                fab.innerHTML = `📍<span style="position:absolute;top:-4px;right:-4px;
+                    background:#ef4444;color:white;border-radius:50%;
+                    width:18px;height:18px;font-size:10px;
+                    display:flex;align-items:center;justify-content:center;
+                    font-weight:bold">${count > 99 ? '99+' : count}</span>`;
+            } else {
+                fab.textContent = '📍';
+            }
+        }
+
+        // Mobile drawer toggles
+        function toggleMeshInfoDrawer() {
+            const panel = document.getElementById('stats');
+            const noGpsPanel = document.getElementById('no-gps-panel');
+            panel.classList.toggle('drawer-open');
+            document.getElementById('mobile-meshinfo-fab').textContent =
+                panel.classList.contains('drawer-open') ? '✕' : '📶';
+            // Close NoGPS if open
+            if (noGpsPanel.classList.contains('drawer-open')) {
+                noGpsPanel.classList.remove('drawer-open');
+                updateNoGpsFabBadge();
+            }
+        }
+        function toggleNoGpsDrawer() {
+            const panel = document.getElementById('no-gps-panel');
+            const meshPanel = document.getElementById('stats');
+            panel.classList.toggle('drawer-open');
+            if (panel.classList.contains('drawer-open')) {
+                document.getElementById('mobile-nogps-fab').textContent = '✕';
+            } else {
+                updateNoGpsFabBadge();
+            }
+            // Close MeshInfo if open
+            if (meshPanel.classList.contains('drawer-open')) {
+                meshPanel.classList.remove('drawer-open');
+                document.getElementById('mobile-meshinfo-fab').textContent = '📶';
+            }
+        }
+
+        // Close drawers when tapping map (mobile)
+        map.on('click', function() {
+            if (window.innerWidth <= 768) {
+                document.getElementById('stats')?.classList.remove('drawer-open');
+                document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
+                const mfab = document.getElementById('mobile-meshinfo-fab');
+                if (mfab) mfab.textContent = '📶';
+                updateNoGpsFabBadge();
+            }
+        });
+
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
             mapReady = true;
-            
+            loadCoverageParams();
+
             // CRITICAL: Force initial data load BEFORE connecting WebSocket
             console.log('[MAP] Force loading initial data...');
             fetchNodesJSON(0);
@@ -1640,7 +1910,7 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
-        const CURRENT_VERSION = '2.0.11';
+        const CURRENT_VERSION = '2.1.0';
 
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;

@@ -21,6 +21,12 @@ sudo systemctl status meshtastic-mapper
 sudo journalctl -u meshtastic-mapper -f
 ```
 
+## Updating
+```bash
+cd ~/meshtastic-network-mapper
+./update.sh   # git pull + install + restart in one command
+```
+
 ## Docker (TCP-only, no USB)
 ```bash
 # Option A — tracker IP upfront:

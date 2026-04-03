@@ -1,3 +1,20 @@
+/*
+ * Meshtastic Network Mapper
+ * Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program. If not, see <https://www.gnu.org/licenses/>.
+ */
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
 *{margin:0;padding:0}
 body{font-family:Arial,sans-serif}
@@ -228,3 +245,148 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
 #dm-selector.active{background:#dbeafe}
 #dm-node-id{font-size:11px;padding:2px 4px;border:1px solid #93c5fd;border-radius:3px}
 #send-status{margin-top:4px;min-height:14px;font-size:10px;color:#666}
+
+/* ── Mobile responsive (≤ 768px) ─────────────────────────────────── */
+@media (max-width: 768px) {
+    /* Fullscreen map below navbar */
+    #map {
+        position: fixed;
+        top: 72px; left: 0; right: 0; bottom: 0;
+        height: calc(100dvh - 72px) !important;
+        margin-top: 0;
+        z-index: 1;
+    }
+    #topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 1001; }
+    .leaflet-top.leaflet-left { top: 8px; }
+    #search-bar { top: 80px; }
+
+    /* MeshInfo bottom drawer */
+    #stats {
+        position: fixed;
+        bottom: 0; left: 0; right: 0; top: auto;
+        width: 100%;
+        max-height: 60vh;
+        overflow-y: auto;
+        border-radius: 16px 16px 0 0;
+        transform: translateY(100%);
+        transition: transform 0.3s ease;
+        z-index: 1000;
+        background: #1f2937;
+        color: #e5e7eb;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        padding: 0 12px 16px;
+    }
+    #stats.drawer-open { transform: translateY(0); }
+    #stats::before {
+        content: '';
+        display: block;
+        width: 40px; height: 4px;
+        background: #4b5563;
+        border-radius: 2px;
+        margin: 8px auto 4px;
+    }
+    #stats-content { display: block; }
+    #stats h3 { padding-top: 4px; }
+
+    /* NoGPS bottom drawer */
+    #no-gps-panel {
+        position: fixed;
+        bottom: 0; left: 0; right: 0; top: auto;
+        width: 100%;
+        max-height: 60vh;
+        overflow-y: auto;
+        border-radius: 16px 16px 0 0;
+        transform: translateY(100%);
+        transition: transform 0.3s ease;
+        z-index: 999;
+        background: #1f2937;
+        color: #e5e7eb;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+        padding: 0 12px 16px;
+        min-width: unset;
+        max-width: unset;
+    }
+    #no-gps-panel.drawer-open { transform: translateY(0); }
+    #no-gps-panel::before {
+        content: '';
+        display: block;
+        width: 40px; height: 4px;
+        background: #4b5563;
+        border-radius: 2px;
+        margin: 8px auto 4px;
+    }
+    #no-gps-content { display: block; }
+    #no-gps-panel h4 { padding-top: 4px; }
+
+    /* Mobile FABs */
+    #mobile-meshinfo-fab { display: flex !important; bottom: 90px; }
+    #mobile-nogps-fab    { display: flex !important; bottom: 150px; }
+
+    /* Navbar — 2-row grid for portrait phones */
+    #topnav {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        padding: 4px 8px;
+        gap: 2px;
+        height: auto;
+    }
+    .topnav-logo {
+        grid-column: 1;
+        grid-row: 1;
+        font-size: 12px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .topnav-logo span { display: none; } /* hide version string */
+    .topnav-status {
+        grid-column: 2;
+        grid-row: 1;
+        font-size: 10px;
+        white-space: nowrap;
+        text-align: right;
+    }
+    .topnav-links {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        display: flex;
+        justify-content: space-around;
+        width: 100%;
+        border-top: 1px solid #374151;
+        padding-top: 4px;
+        margin-top: 2px;
+    }
+    .topnav-links a {
+        font-size: 11px;
+        padding: 4px 8px;
+        flex: 1;
+        text-align: center;
+        min-height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    /* Touch targets */
+    button, .btn, input[type="button"], input[type="submit"] {
+        min-height: 44px;
+        min-width: 44px;
+        padding: 10px 14px;
+        font-size: 14px;
+    }
+    #search-input {
+        height: 44px;
+        font-size: 16px; /* prevents iOS zoom on focus */
+        padding: 0 12px;
+    }
+    .filter-label {
+        padding: 8px 0;
+        font-size: 14px;
+    }
+    input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin-right: 8px;
+    }
+}

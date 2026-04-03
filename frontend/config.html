@@ -1,10 +1,27 @@
+<!--
+  Meshtastic Network Mapper
+  Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.11">
+    <link rel="stylesheet" href="styles.css?v=2.1.0">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -134,7 +151,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.11 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -167,6 +184,7 @@
     <button class="tab" onclick="switchTab('modules', this)">🧩 Modules</button>
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
+    <button class="tab" onclick="switchTab('coverage', this)">📡 Coverage</button>
 </div>
 
 <!-- User tab -->
@@ -1055,6 +1073,29 @@
     </div>
 </div>
 
+<!-- Coverage tab -->
+<div id="tab-coverage" class="tab-content">
+    <div class="card">
+        <div class="card-title">📡 Coverage Server Settings</div>
+        <div class="field">
+            <label>Server URL</label>
+            <div class="desc">Coverage simulation server (e.g. https://coverage.meshtastic.world)</div>
+            <input type="text" id="coverage.server_url" placeholder="https://coverage.meshtastic.world"
+                onchange="markChanged(this)">
+        </div>
+        <div class="field">
+            <label>API Key</label>
+            <div class="desc">API key for authentication with the coverage server</div>
+            <input type="password" id="coverage.api_key" placeholder="Your API key"
+                onchange="markChanged(this)">
+        </div>
+        <div class="field">
+            <button class="btn btn-secondary" onclick="testCoverageConnection()">🔌 Test Connection</button>
+            <span id="coverage-test-result" style="margin-left:10px;font-size:12px;color:#374151"></span>
+        </div>
+    </div>
+</div>
+
 <!-- Action bar -->
 <div class="action-bar">
     <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
@@ -1363,6 +1404,29 @@ function toggleFixedPosition() {
     }
 }
 
+// ── Coverage ─────────────────────────────────────────────────────
+function testCoverageConnection() {
+    const urlEl = document.getElementById('coverage.server_url');
+    const resultEl = document.getElementById('coverage-test-result');
+    const url = (urlEl?.value || '').trim() || 'https://coverage.meshtastic.world';
+    resultEl.textContent = '⏳ Testing...';
+    resultEl.style.color = '#6b7280';
+    fetch(`${url.replace(/\/$/, '')}/health`, {method: 'GET'})
+        .then(r => {
+            if (r.ok) {
+                resultEl.textContent = '✅ Server reachable';
+                resultEl.style.color = '#22c55e';
+            } else {
+                resultEl.textContent = `⚠️ HTTP ${r.status}`;
+                resultEl.style.color = '#eab308';
+            }
+        })
+        .catch(e => {
+            resultEl.textContent = '❌ ' + e.message;
+            resultEl.style.color = '#ef4444';
+        });
+}
+
 // ── Favorites ────────────────────────────────────────────────────
 function loadFavorites() {
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -1600,6 +1664,12 @@ function connectWS() {
             renderIgnoredNodes(d.ignored_nodes);
         } else if (d.type === 'favorites_list') {
             renderFavoritesList(d.favorites);
+        } else if (d.type === 'coverage_saved') {
+            if (d.success) {
+                showAlert('✅ Coverage settings saved!', 'success');
+            } else {
+                showAlert('❌ Error saving coverage: ' + d.error, 'error');
+            }
         } else if (d.type === 'fixed_position_result') {
             showAlert(d.success ? '✅ Fixed position set!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
         } else if (d.type === 'clear_position_result') {
@@ -1824,6 +1894,11 @@ function populateForm(config) {
 
     updateNetworkInfo(config);
 
+    // Coverage
+    setField('coverage.server_url', config.coverage?.server_url || '');
+    setField('coverage.api_key', config.coverage?.api_key || '');
+
+
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
     toggleFixedPosition();
@@ -2001,7 +2076,7 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.0.11';
+const CURRENT_VERSION = '2.1.0';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;

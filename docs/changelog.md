@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.1.0-stable
+- Feature: RF Coverage overlay — terrain-aware propagation map overlaid directly on the Leaflet map via Coverage Server API (coverage.meshtastic.world). Plasma colormap, opacity slider, coverage legend
+- Feature: Coverage tab in Config — server URL, API key, antenna gain, height AGL, test connection button
+- Feature: Ignored Nodes — manage ignored/blocked nodes in Config → Device tab. Set/remove ignored nodes, see current ignore list
+- Feature: Mobile responsive UI — bottom drawer panels for MeshInfo and NoGPS, floating action buttons (FAB), fullscreen map, two-row navbar in portrait mode
+- Feature: PWA support — manifest.json, service worker with static asset caching, app icons, "Install as App" banner on mobile
+- Feature: update.sh — one-command update script (git pull + install + restart)
+- Feature: Radio Health memory — stats remember last non-zero values instead of resetting to 0/0, shows "updated Xm ago" timestamp
+- Feature: Project website at meshtastic.world
+- Fix: Tracker marker always rendered on top of other node markers (custom Leaflet pane with higher z-index)
+- License: Changed from MIT to GPL-3.0, added GPL headers to all source files, added GitHub Sponsors funding config
+- Meta: Added .github/FUNDING.yml for GitHub Sponsors
+
 ## v2.0.11
 - Feature: Radio vs MQTT packet breakdown in Stats — Packets (24h) card now shows split between radio and MQTT received packets with percentages
 - Feature: okay_to_mqtt checkbox in Config → MQTT tab — controls whether your node packets can be forwarded to MQTT by other nodes

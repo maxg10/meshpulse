@@ -1,10 +1,27 @@
+<!--
+  Meshtastic Network Mapper
+  Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.11">
+    <link rel="stylesheet" href="styles.css?v=2.1.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -125,7 +142,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.11 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -204,9 +221,10 @@
     <div class="card">
         <div class="card-title">
             📻 Radio Health
-            <span class="info-icon" data-tip="Live radio stats from your tracker's last telemetry. Channel util: fraction of airtime used. Air TX: fraction you transmit. Bad pkts: corrupted or failed packets.">ⓘ</span>
+            <span class="info-icon" data-tip="Radio stats from your tracker's last localStats packet (sent every ~30 min). Values persist until next restart. TX/RX = 0 means tracker just restarted.">ⓘ</span>
         </div>
         <div id="radio-stats-content" style="color:#6b7280;font-size:12px">Waiting for connection_status…</div>
+        <div id="radio-stats-age" style="color:#9ca3af;font-size:10px;margin-top:6px;text-align:right"></div>
     </div>
 </div>
 
@@ -388,6 +406,8 @@ function escHtml(s) {
 
 let ws = null;
 let radioStats = null;
+let _lastKnownRadioStats = null;  // persists last non-zero values
+let _lastRadioStatsTime = null;   // timestamp of last non-zero update
 let charts = {};
 let topoState = null;
 // Global topology zoom state
@@ -454,8 +474,15 @@ function connectWS() {
                 d.tracker.node_id ? `Tracker: ${d.tracker.node_id}` : '';
             if (d.tracker.radio_stats) {
                 radioStats = d.tracker.radio_stats;
-                renderRadioHealth(radioStats);
-                renderHealthScore(radioStats, null);
+                // Only update last known if values are non-zero
+                const hasValues = radioStats.numPacketsTx > 0 || radioStats.numPacketsRx > 0
+                    || radioStats.numOnlineNodes > 0;
+                if (hasValues) {
+                    _lastKnownRadioStats = radioStats;
+                    _lastRadioStatsTime = Date.now();
+                }
+                renderRadioHealth(_lastKnownRadioStats || radioStats, _lastRadioStatsTime);
+                renderHealthScore(_lastKnownRadioStats || radioStats, null);
             }
         }
     };
@@ -609,8 +636,12 @@ function renderAll(data) {
     document.getElementById('geo-avg-dist').textContent =
         geo.avg_direct_dist_km != null ? geo.avg_direct_dist_km : '-';
 
-    // Health score (uses radio_stats if available)
-    renderHealthScore(radioStats, data);
+    // Health score (uses last known non-zero radio_stats to avoid reset to 0/0)
+    const rsToRender = (data.tracker_info?.radio_stats?.numPacketsRx > 0
+        ? data.tracker_info.radio_stats
+        : null) || _lastKnownRadioStats || radioStats;
+    renderRadioHealth(rsToRender, _lastRadioStatsTime);
+    renderHealthScore(rsToRender, data);
 
     // Hourly chart
     const h24 = fill24h(data.hourly_activity||[]);
@@ -702,8 +733,18 @@ function renderAll(data) {
     renderAnomalies(data.anomalies||[]);
 }
 
+function formatTimeAgo(ts) {
+    if (!ts) return '';
+    const sec = Math.floor((Date.now() - ts) / 1000);
+    if (sec < 60) return `updated ${sec}s ago`;
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `updated ${min}m ago`;
+    const hr = Math.floor(min / 60);
+    return `updated ${hr}h ago`;
+}
+
 // ── Radio Health ─────────────────────────────────────────────────
-function renderRadioHealth(rs) {
+function renderRadioHealth(rs, ts) {
     if (!rs) return;
     const el = document.getElementById('radio-stats-content');
     const pct = v => v != null ? (typeof v === 'number' && v < 1 ? (v*100).toFixed(1) : Number(v).toFixed(1)) + '%' : '-';
@@ -719,6 +760,10 @@ function renderRadioHealth(rs) {
         <div class="radio-row"><span>TX relay</span><span class="radio-val">${rs.numTxRelay||0}</span></div>
         <div class="radio-row"><span>Online / Total nodes</span><span class="radio-val">${rs.numOnlineNodes||0} / ${rs.numTotalNodes||0}</span></div>
     `;
+    const ageEl = document.getElementById('radio-stats-age');
+    if (ageEl) {
+        ageEl.textContent = ts ? formatTimeAgo(ts) : (_lastRadioStatsTime ? formatTimeAgo(_lastRadioStatsTime) : '');
+    }
 }
 
 // ── Health Score ─────────────────────────────────────────────────
@@ -1147,10 +1192,18 @@ function updateNavUnread() {
 setInterval(updateNavUnread, 2000);
 updateNavUnread();
 
+// Keep radio stats age display fresh
+setInterval(() => {
+    const ageEl = document.getElementById('radio-stats-age');
+    if (ageEl && _lastRadioStatsTime) {
+        ageEl.textContent = formatTimeAgo(_lastRadioStatsTime);
+    }
+}, 10000); // update every 10s
+
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.0.11';
+const CURRENT_VERSION = '2.1.0';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;

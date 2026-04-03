@@ -1,10 +1,27 @@
+<!--
+  Meshtastic Network Mapper
+  Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
+
+  This program is free software: you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation, either version 3 of the License, or
+  (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with this program. If not, see <https://www.gnu.org/licenses/>.
+-->
 <!DOCTYPE html>
 <html>
 <head>
     <meta charset="utf-8">
     <title>Meshtastic Messages</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.0.11">
+    <link rel="stylesheet" href="styles.css?v=2.1.0">
     <style>
         * { box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
@@ -154,7 +171,7 @@
 <body>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.0.11 — Messages</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Messages</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -531,7 +548,7 @@ connectWS();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.0.11';
+const CURRENT_VERSION = '2.1.0';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
