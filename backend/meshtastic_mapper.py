@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #!/usr/bin/env python3
-#ver 2.0.11
+#ver 2.1.0
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -90,7 +90,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-VERSION = '2.0.11'
+VERSION = '2.1.0'
 
 # Global set of connected WebSocket clients
 connected_clients = set()

@@ -8,7 +8,7 @@ Meshtastic Network Mapper — real-time web visualization for Meshtastic mesh ne
 Connects via USB serial or TCP, displays nodes on Leaflet.js map with WebSocket updates.
 Optimized for Raspberry Pi Model B+ (512MB RAM).
 
-**Current Version:** v2.0.11
+**Current Version:** v2.1.0-stable
 
 ## Key Paths & Ports
 
@@ -39,7 +39,7 @@ docs/
   architecture.md   ← backend/frontend/websocket/LOS/StatsDB details
   deployment.md     ← Docker, systemd, dependencies
   development.md    ← conventions, common tasks, known issues
-  changelog.md      ← full history v1.8→v2.0.11
+  changelog.md      ← full history v1.8→v2.1.0
 ```
 
 ## Architecture (summary)

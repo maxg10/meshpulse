@@ -3,6 +3,8 @@ cat README.md
 
 # Meshtastic Network Mapper
 
+🌐 **Website:** [meshtastic.world](https://meshtastic.world) · 📡 **Coverage Server:** [coverage.meshtastic.world](https://coverage.meshtastic.world)
+
 Real-time web-based visualization of Meshtastic mesh network nodes. Optimized for low-power devices like Raspberry Pi Model B+.
 
 ![Meshtastic Network Map](docs/screenshot.png)
@@ -170,15 +172,35 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
-## What's New in v2.0.11 — Stats Improvements & Docker Fixes
+## What's New in v2.1.0 — Coverage Maps, Mobile UI & PWA
 
-**✨ New Features**
-- **Radio vs MQTT breakdown** — Stats page Packets (24h) card now shows split between radio and MQTT received packets with percentages (e.g. Radio: 8,502 100% / MQTT: 0 0%)
-- **Okay to MQTT** — Config → MQTT tab has new checkbox controlling whether your node's packets can be forwarded to MQTT broker by other nodes. Disable for privacy — your packets stay in local mesh only
+**📡 RF Coverage Overlay**
+- Terrain-aware RF propagation maps overlaid directly on the Leaflet map
+- Powered by [Meshtastic Coverage Server](https://coverage.meshtastic.world) — SPLAT! ITM model with real SRTM elevation data
+- Plasma colormap with opacity slider and coverage legend
+- Configure server URL, API key, and antenna parameters in Config → Coverage tab
 
-**🐳 Docker Fixes**
-- **Apple Silicon support** — Docker image now built for both `linux/amd64` and `linux/arm64`. Mac M1/M2/M3 users can now run `docker compose pull && docker compose up -d` without errors
-- **Frontend always updated** — Fixed critical issue where `docker compose pull && docker compose up -d` did not update frontend files. Fresh HTML/CSS is now always copied from the image on container startup
+**📱 Mobile Responsive UI**
+- MeshInfo and NoGPS panels as swipeable bottom drawers on mobile
+- Floating action buttons for quick panel access
+- Fullscreen map with two-row navbar in portrait orientation
+- Touch-friendly 44px tap targets throughout
+
+**📲 PWA Support**
+- Install as a standalone app on mobile devices
+- Service worker caches static assets for faster loading
+- App icons, shortcuts to Stats/Messages/Config
+
+**🔧 New Features**
+- Ignored Nodes management — block spammy nodes in Config → Device tab
+- Radio Health stats remember last values across telemetry gaps
+- One-command update: `./update.sh`
+- Tracker marker always visible on top of overlapping nodes
+
+**📜 License & Project**
+- License changed from MIT to GPL-3.0
+- GitHub Sponsors support — [sponsor the project](https://github.com/sponsors/maxg10)
+- Project website: [meshtastic.world](https://meshtastic.world)
 
 ---
 
