@@ -25,12 +25,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.1.0">
+    <link rel="stylesheet" href="styles.css?v=2.1.1">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -252,8 +252,8 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.1.0 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.1.0';
+        // Meshtastic Mapper v2.1.1 - force reload: update this version number to bust cache
+        const MAPPER_VERSION = '2.1.1';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -451,7 +451,16 @@
                             if (data.status === 'connected') {
                                 // Update tracker info from WebSocket immediately
                                 if (data.tracker) {
+                                    const prevRadioStats = trackerInfo.radio_stats;
                                     trackerInfo = data.tracker;
+                                    // Merge radio_stats: preserve all fields ever received.
+                                    // Backend may only send channelUtilization/airUtilTx when
+                                    // packet counters are 0 (proto3 omits zero-value fields).
+                                    if (data.tracker.radio_stats && prevRadioStats) {
+                                        trackerInfo.radio_stats = Object.assign({}, prevRadioStats, data.tracker.radio_stats);
+                                    } else if (!data.tracker.radio_stats && prevRadioStats) {
+                                        trackerInfo.radio_stats = prevRadioStats;
+                                    }
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
@@ -606,11 +615,19 @@
                     allNodesNoGps = d.nodes_no_pos || [];
                     // Don't overwrite tracker info with empty data from nodes.json
                     if (d.tracker && Object.keys(d.tracker).length > 0) {
-                        // Preserve uptime if new data doesn't have it but old did
+                        // Preserve uptime and radio_stats if new data doesn't have them
                         const oldUptime = trackerInfo.uptime_seconds;
+                        const oldRadioStats = trackerInfo.radio_stats;
                         trackerInfo = d.tracker;
                         if (!trackerInfo.uptime_seconds && oldUptime) {
                             trackerInfo.uptime_seconds = oldUptime;
+                        }
+                        // Merge radio_stats: nodes.json may be stale (saved before the latest
+                        // telemetry arrived), so preserve all fields we've seen from WS too.
+                        if (trackerInfo.radio_stats && oldRadioStats) {
+                            trackerInfo.radio_stats = Object.assign({}, oldRadioStats, trackerInfo.radio_stats);
+                        } else if (!trackerInfo.radio_stats && oldRadioStats) {
+                            trackerInfo.radio_stats = oldRadioStats;
                         }
                         // Center map on tracker position on first load
                         if (!window._mapCentered && d.tracker && d.tracker.lat && d.tracker.lon) {
@@ -1923,7 +1940,7 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
-        const CURRENT_VERSION = '2.1.0';
+        const CURRENT_VERSION = '2.1.1';
 
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;

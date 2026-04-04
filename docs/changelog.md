@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.1.1-stable
+- Feature: Anonymous telemetry — opt-out daily ping with version, platform, OS, arch, uptime. No personal data collected. Disable in Config → Coverage tab
+- Feature: Export nodes to CSV — download all nodes as CSV file from Stats page
+- Feature: Sortable columns in Most Active Nodes table on Stats page
+- Feature: Bad packets percentage displayed next to Avg SNR in Mesh Info panel (shows when radio stats data is available)
+- Feature: Tooltip on Antenna Alt field explaining height Above Ground Level
+- Fix: Coverage simulation time hint changed from ~30s to ~60s
+- Meta: Privacy policy updated on meshtastic.world to document telemetry data collection
+- Meta: Telemetry admin dashboard at meshtastic.world/mcsadmin.html
+
 ## v2.1.0-stable
 - Feature: RF Coverage overlay — terrain-aware propagation map overlaid directly on the Leaflet map via Coverage Server API (coverage.meshtastic.world). Plasma colormap, opacity slider, coverage legend
 - Feature: Coverage tab in Config — server URL, API key, antenna gain, height AGL, test connection button
