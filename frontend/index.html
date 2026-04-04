@@ -55,7 +55,7 @@
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
-        <b>Avg SNR:</b> <span id="avgsnr">-</span> dB | <b>Bad:</b> <span id="bad-pct">—</span><br>
+        <b>Avg SNR:</b> <span id="avgsnr">-</span> dB <span id="bad-pct" style="color:#ef4444;font-size:11px"></span><br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
         <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
@@ -125,7 +125,7 @@
               <span style="color:#9ca3af">dBi</span>
             </div>
             <div style="display:flex;align-items:center;gap:4px;margin-bottom:8px;">
-              <label style="color:#ccc;min-width:32px">Alt</label>
+              <label style="color:#ccc;min-width:32px">Alt <span title="Antenna height Above Ground Level (AGL) in meters. This is how high the antenna is mounted above the ground at the node location. Used for RF coverage simulation." style="cursor:help;color:#9ca3af">ⓘ</span></label>
               <input type="number" id="antenna-height" value="10" min="0" max="500" step="1"
                 style="width:48px;padding:2px 4px;font-size:11px;background:#374151;color:#f9fafb;border:1px solid #4b5563;border-radius:3px"
                 onchange="saveCoverageParams()" onclick="event.stopPropagation()" title="Antenna height above ground in meters">
@@ -1622,12 +1622,19 @@
             document.getElementById('direct').textContent = direct;
             document.getElementById('relay').textContent = relay;
             document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
-            const rs = trackerInfo.radio_stats;
-            if (rs && rs.numPacketsRx > 0) {
-                document.getElementById('bad-pct').textContent = (rs.numPacketsRxBad / rs.numPacketsRx * 100).toFixed(1) + '%';
-            } else {
-                document.getElementById('bad-pct').textContent = '—';
-            }
+            // Bad packets percentage from radio stats
+            try {
+                const badEl = document.getElementById('bad-pct');
+                if (badEl && trackerInfo && trackerInfo.radio_stats) {
+                    const rxTotal = trackerInfo.radio_stats.numPacketsRx || 0;
+                    const rxBad = trackerInfo.radio_stats.numPacketsRxBad || 0;
+                    if (rxTotal > 0) {
+                        badEl.textContent = '| Bad: ' + (rxBad / rxTotal * 100).toFixed(1) + '%';
+                    } else {
+                        badEl.textContent = '';
+                    }
+                }
+            } catch(e) {}
 
             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
 
