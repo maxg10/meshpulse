@@ -55,7 +55,7 @@
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
-        <b>Avg SNR:</b> <span id="avgsnr">-</span> dB<br>
+        <b>Avg SNR:</b> <span id="avgsnr">-</span> dB | <b>Bad:</b> <span id="bad-pct">—</span><br>
         <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
         <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
@@ -1379,7 +1379,7 @@
 
             btn.textContent = '⏳ Simulating...';
             btn.style.background = '#374151';
-            statusEl.textContent = 'Running RF simulation (~30s)...';
+            statusEl.textContent = 'Running RF simulation (~60s)...';
             statusEl.style.color = '#9ca3af';
 
             // Send via WebSocket, wait for coverage_data response
@@ -1622,6 +1622,12 @@
             document.getElementById('direct').textContent = direct;
             document.getElementById('relay').textContent = relay;
             document.getElementById('avgsnr').textContent = snrCount > 0 ? (snrSum/snrCount).toFixed(1) : '-';
+            const rs = trackerInfo.radio_stats;
+            if (rs && rs.numPacketsRx > 0) {
+                document.getElementById('bad-pct').textContent = (rs.numPacketsRxBad / rs.numPacketsRx * 100).toFixed(1) + '%';
+            } else {
+                document.getElementById('bad-pct').textContent = '—';
+            }
 
             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
 
