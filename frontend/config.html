@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.1.0">
+    <link rel="stylesheet" href="styles.css?v=2.1.1">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -151,7 +151,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -1094,6 +1094,16 @@
             <span id="coverage-test-result" style="margin-left:10px;font-size:12px;color:#374151"></span>
         </div>
     </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">📊 Anonymous Telemetry</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ Meshtastic Mapper sends an anonymous ping once per day to help the developer understand how many installations are active. No personal data, node data, or location is ever sent. Only: version, connection type, platform, OS, and architecture.
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="telemetry_mapper.opt_out" onchange="markChanged(this)">
+            <label for="telemetry_mapper.opt_out">Disable anonymous telemetry</label>
+        </div>
+    </div>
 </div>
 
 <!-- Action bar -->
@@ -1898,6 +1908,9 @@ function populateForm(config) {
     setField('coverage.server_url', config.coverage?.server_url || '');
     setField('coverage.api_key', config.coverage?.api_key || '');
 
+    // Telemetry opt-out
+    setField('telemetry_mapper.opt_out', config.telemetry_mapper?.opt_out ?? false);
+
 
     document.getElementById('changes-info').textContent = 'Config loaded — no pending changes';
     document.getElementById('save-btn').disabled = true;
@@ -2076,7 +2089,7 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.1.0';
+const CURRENT_VERSION = '2.1.1';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;

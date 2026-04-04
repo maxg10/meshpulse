@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.1.0">
+    <link rel="stylesheet" href="styles.css?v=2.1.1">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -88,6 +88,12 @@
         .tbl td { padding: 4px 6px; border-bottom: 1px solid #e5e7eb; color: #1f2937; }
         .tbl tr:last-child td { border-bottom: none; }
         .tbl tr:hover td { background: #f9fafb; }
+        .tbl th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+        .tbl th.sortable:hover { background: #e5e7eb; }
+        .sort-arrow { margin-left: 2px; font-size: 9px; color: #9ca3af; }
+        .sort-arrow.active { color: #374151; }
+        .export-btn { font-size: 11px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #374151; margin-left: auto; flex-shrink: 0; }
+        .export-btn:hover { background: #e5e7eb; }
 
         /* Badge */
         .badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 9px; font-weight: bold; }
@@ -142,7 +148,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.0 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -322,10 +328,21 @@
         <div class="card-title">
             🔊 Most Active Nodes (24h)
             <span class="info-icon" data-tip="Nodes sending the most packets. Normal stationary nodes: ~1 packet per 15–30 min. High counts may indicate aggressive broadcast settings.">ⓘ</span>
+            <button class="export-btn" onclick="exportCSV()">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-senders"></div>
         <table class="tbl" id="top-senders-table">
-            <thead><tr><th>Node</th><th>ID</th><th>Pkts</th><th>Type</th><th>Via</th><th>Last Pkt</th><th></th><th></th></tr></thead>
+            <thead><tr>
+                <th class="sortable" data-col="from_name" onclick="sortTopSenders('from_name')">Node <span class="sort-arrow"></span></th>
+                <th>ID</th>
+                <th class="sortable" data-col="cnt" onclick="sortTopSenders('cnt')">Pkts <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="avg_snr" onclick="sortTopSenders('avg_snr')">SNR <span class="sort-arrow"></span></th>
+                <th class="sortable" data-col="avg_rssi" onclick="sortTopSenders('avg_rssi')">RSSI <span class="sort-arrow"></span></th>
+                <th>Type</th>
+                <th>Via</th>
+                <th class="sortable" data-col="last_seen" onclick="sortTopSenders('last_seen')">Last Pkt <span class="sort-arrow active">▼</span></th>
+                <th></th><th></th>
+            </tr></thead>
             <tbody></tbody>
         </table>
     </div>
@@ -410,6 +427,11 @@ let _lastKnownRadioStats = null;  // persists last non-zero values
 let _lastRadioStatsTime = null;   // timestamp of last non-zero update
 let charts = {};
 let topoState = null;
+let topSendersData = [];
+let topSendersNodesMap = {};
+let topSendersSortCol = 'last_seen';
+let topSendersSortDir = -1; // -1 = desc (newest first)
+let _trackerInfo = null;
 // Global topology zoom state
 let _topoScale = 1, _topoPanX = 0, _topoPanY = 0;
 
@@ -470,6 +492,7 @@ function connectWS() {
             document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
         }
         if (d.type === 'connection_status' && d.tracker) {
+            _trackerInfo = d.tracker;
             document.getElementById('tracker-label').textContent =
                 d.tracker.node_id ? `Tracker: ${d.tracker.node_id}` : '';
             if (d.tracker.radio_stats) {
@@ -687,30 +710,10 @@ function renderAll(data) {
         rssi.map(r => r.bucket >= -90 ? 'rgba(16,185,129,0.7)' : r.bucket >= -110 ? 'rgba(245,158,11,0.7)' : 'rgba(239,68,68,0.7)'));
 
     // Top senders table
-    const nodesMap = {};
-    Object.entries(data.nodes||{}).forEach(([id,n]) => { nodesMap[id] = n.name||id; });
-
-    const tbody1 = document.querySelector('#top-senders-table tbody');
-    tbody1.innerHTML = (data.top_senders||[]).slice(0,15).map(s => {
-        const tip = getNodeSuggestion(s);
-        const tipBtn = tip ? `<button class="tip-btn" data-ntip="${tip.replace(/"/g,'&quot;')}">💡</button>` : '';
-        return `<tr>
-            <td style="font-weight:500">${escHtml(s.from_name !== s.from_id ? s.from_name : '—')}</td>
-            <td style="font-size:11px;color:#6b7280;font-family:monospace">${escHtml(s.from_id)}</td>
-            <td>${s.cnt}</td>
-            <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
-            <td style="font-size:10px;color:#374151;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${s.last_relay && !s.last_relay.startsWith('relay_') ? (nodesMap[s.last_relay]||s.last_relay) : 'direct'}">${s.last_relay && !s.last_relay.startsWith('relay_') ? `<span style="color:#2563eb">${(nodesMap[s.last_relay]||s.last_relay).substring(0,15)}</span>` : '—'}</td>
-            <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
-            <td>${tipBtn}</td>
-            <td><button onclick="clearNodeStats('${escHtml(s.from_id)}', '${escHtml(s.from_name||s.from_id)}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
-        </tr>`;
-    }).join('');
-    // Attach tip listeners
-    tbody1.querySelectorAll('[data-ntip]').forEach(btn => {
-        btn.addEventListener('mouseenter', e => showTip(btn, btn.dataset.ntip, e));
-        btn.addEventListener('mousemove', positionTip);
-        btn.addEventListener('mouseleave', () => { gTip.style.display = 'none'; });
-    });
+    topSendersNodesMap = {};
+    Object.entries(data.nodes||{}).forEach(([id,n]) => { topSendersNodesMap[id] = n.name||id; });
+    topSendersData = data.top_senders || [];
+    renderTopSenders();
 
     // Relayed table
     const tbody2 = document.querySelector('#relayed-table tbody');
@@ -731,6 +734,134 @@ function renderAll(data) {
 
     // Anomalies
     renderAnomalies(data.anomalies||[]);
+}
+
+// ── Top Senders sort / render ────────────────────────────────────
+function sortTopSenders(col) {
+    if (topSendersSortCol === col) {
+        topSendersSortDir *= -1;
+    } else {
+        topSendersSortCol = col;
+        topSendersSortDir = -1;
+    }
+    renderTopSenders();
+}
+
+function renderTopSenders() {
+    const sorted = [...topSendersData].sort((a, b) => {
+        let va = a[topSendersSortCol];
+        let vb = b[topSendersSortCol];
+        if (topSendersSortCol === 'from_name') {
+            va = (va || '').toLowerCase();
+            vb = (vb || '').toLowerCase();
+        } else {
+            va = va ?? -Infinity;
+            vb = vb ?? -Infinity;
+        }
+        if (va < vb) return topSendersSortDir;
+        if (va > vb) return -topSendersSortDir;
+        return 0;
+    });
+
+    // Update header arrows
+    document.querySelectorAll('#top-senders-table th.sortable').forEach(th => {
+        const arrow = th.querySelector('.sort-arrow');
+        if (!arrow) return;
+        if (th.dataset.col === topSendersSortCol) {
+            arrow.textContent = topSendersSortDir === -1 ? '▼' : '▲';
+            arrow.className = 'sort-arrow active';
+        } else {
+            arrow.textContent = '';
+            arrow.className = 'sort-arrow';
+        }
+    });
+
+    const tbody = document.querySelector('#top-senders-table tbody');
+    tbody.innerHTML = sorted.slice(0, 15).map(s => {
+        const tip = getNodeSuggestion(s);
+        const tipBtn = tip ? `<button class="tip-btn" data-ntip="${tip.replace(/"/g,'&quot;')}">💡</button>` : '';
+        const snrVal = s.avg_snr != null ? s.avg_snr.toFixed(1) : '—';
+        const rssiVal = s.avg_rssi != null ? Math.round(s.avg_rssi) : '—';
+        const viaName = s.last_relay && !s.last_relay.startsWith('relay_')
+            ? (topSendersNodesMap[s.last_relay] || s.last_relay) : null;
+        return `<tr>
+            <td style="font-weight:500">${escHtml(s.from_name !== s.from_id ? s.from_name : '—')}</td>
+            <td style="font-size:11px;color:#6b7280;font-family:monospace">${escHtml(s.from_id)}</td>
+            <td>${s.cnt}</td>
+            <td style="font-size:11px;white-space:nowrap">${snrVal}</td>
+            <td style="font-size:11px;white-space:nowrap">${rssiVal}</td>
+            <td><span class="badge badge-blue">${(s.portnum||'').replace('_APP','')}</span></td>
+            <td style="font-size:10px;color:#374151;max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${viaName || 'direct'}">${viaName ? `<span style="color:#2563eb">${escHtml(viaName.substring(0,12))}</span>` : '—'}</td>
+            <td style="font-size:11px;color:#6b7280;white-space:nowrap">${formatLastSeen(s.last_seen)}</td>
+            <td>${tipBtn}</td>
+            <td><button onclick="clearNodeStats('${escHtml(s.from_id)}', '${escHtml(s.from_name||s.from_id)}')" style="background:none;border:none;cursor:pointer;font-size:13px;opacity:0.5;padding:0 2px" title="Clear packet history for this node">🗑️</button></td>
+        </tr>`;
+    }).join('');
+
+    tbody.querySelectorAll('[data-ntip]').forEach(btn => {
+        btn.addEventListener('mouseenter', e => showTip(btn, btn.dataset.ntip, e));
+        btn.addEventListener('mousemove', positionTip);
+        btn.addEventListener('mouseleave', () => { gTip.style.display = 'none'; });
+    });
+}
+
+// ── Export CSV ───────────────────────────────────────────────────
+async function exportCSV() {
+    let nodesWithGps = [], nodesNoGps = [];
+    try {
+        const resp = await fetch('/meshtastic/nodes.json?' + Date.now());
+        if (resp.ok) {
+            const d = await resp.json();
+            nodesWithGps = d.nodes || [];
+            nodesNoGps   = d.nodes_no_pos || [];
+        }
+    } catch(e) {}
+
+    const allNodes = [...nodesWithGps, ...nodesNoGps];
+    const trackerLat = _trackerInfo?.lat;
+    const trackerLon = _trackerInfo?.lon;
+
+    function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371, toRad = d => d * Math.PI / 180;
+        const dLat = toRad(lat2 - lat1), dLon = toRad(lon2 - lon1);
+        const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+        return (R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))).toFixed(2);
+    }
+
+    const headers = ['Name','ID','Role','SNR','RSSI','Battery','Voltage','Latitude','Longitude','Altitude','Hops','Via MQTT','Last Seen','Distance (km)'];
+    const rows = allNodes.map(n => {
+        const lastSeen = n.ts ? new Date(n.ts * 1000).toISOString().replace('T',' ').slice(0,19) + ' UTC' : '';
+        const distKm = (trackerLat != null && trackerLon != null && n.lat != null && n.lon != null)
+            ? haversineKm(trackerLat, trackerLon, n.lat, n.lon) : '';
+        return [
+            n.name  || '',
+            n.id    || '',
+            n.role  || '',
+            n.snr   != null ? n.snr   : '',
+            n.rssi  != null ? n.rssi  : '',
+            n.battery_level != null ? n.battery_level : '',
+            n.voltage       != null ? n.voltage       : '',
+            n.lat   != null ? n.lat   : '',
+            n.lon   != null ? n.lon   : '',
+            n.alt   != null ? n.alt   : '',
+            n.hops  != null ? n.hops  : '',
+            n.via_mqtt ? 'yes' : 'no',
+            lastSeen,
+            distKm
+        ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+    });
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const csv = [headers.join(','), ...rows].join('\n');
+    const blob = new Blob([csv], {type: 'text/csv'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meshtastic-nodes-${dateStr}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 function formatTimeAgo(ts) {
@@ -1203,7 +1334,7 @@ setInterval(() => {
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.1.0';
+const CURRENT_VERSION = '2.1.1';
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;

@@ -172,35 +172,23 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
-## What's New in v2.1.0 — Coverage Maps, Mobile UI & PWA
+## What's New in v2.1.1 — Telemetry, CSV Export & Stats Improvements
 
-**📡 RF Coverage Overlay**
-- Terrain-aware RF propagation maps overlaid directly on the Leaflet map
-- Powered by [Meshtastic Coverage Server](https://coverage.meshtastic.world) — SPLAT! ITM model with real SRTM elevation data
-- Plasma colormap with opacity slider and coverage legend
-- Configure server URL, API key, and antenna parameters in Config → Coverage tab
+**📊 Anonymous Telemetry**
+- Mapper now sends an anonymous ping once per day to help the developer understand how many installations are active
+- Collects only: version, connection type, platform, OS, architecture, uptime
+- No personal data, no node data, no GPS coordinates — fully anonymous
+- **Opt-out** available in Config → Coverage tab — disable with one checkbox
+- [Privacy Policy](https://meshtastic.world/privacy.html) updated with full details
 
-**📱 Mobile Responsive UI**
-- MeshInfo and NoGPS panels as swipeable bottom drawers on mobile
-- Floating action buttons for quick panel access
-- Fullscreen map with two-row navbar in portrait orientation
-- Touch-friendly 44px tap targets throughout
+**📥 CSV Export**
+- Export all visible nodes as a CSV file from the Stats page
+- Includes name, ID, role, SNR, RSSI, battery, position, hops, distance, and more
 
-**📲 PWA Support**
-- Install as a standalone app on mobile devices
-- Service worker caches static assets for faster loading
-- App icons, shortcuts to Stats/Messages/Config
-
-**🔧 New Features**
-- Ignored Nodes management — block spammy nodes in Config → Device tab
-- Radio Health stats remember last values across telemetry gaps
-- One-command update: `./update.sh`
-- Tracker marker always visible on top of overlapping nodes
-
-**📜 License & Project**
-- License changed from MIT to GPL-3.0
-- GitHub Sponsors support — [sponsor the project](https://github.com/sponsors/maxg10)
-- Project website: [meshtastic.world](https://meshtastic.world)
+**📊 Stats Improvements**
+- Sortable columns in Most Active Nodes table — click any header to sort
+- Bad packets percentage shown next to Avg SNR in Mesh Info panel
+- Coverage simulation time hint updated to ~60s
 
 ---
 
