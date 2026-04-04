@@ -451,7 +451,16 @@
                             if (data.status === 'connected') {
                                 // Update tracker info from WebSocket immediately
                                 if (data.tracker) {
+                                    const prevRadioStats = trackerInfo.radio_stats;
                                     trackerInfo = data.tracker;
+                                    // Merge radio_stats: preserve all fields ever received.
+                                    // Backend may only send channelUtilization/airUtilTx when
+                                    // packet counters are 0 (proto3 omits zero-value fields).
+                                    if (data.tracker.radio_stats && prevRadioStats) {
+                                        trackerInfo.radio_stats = Object.assign({}, prevRadioStats, data.tracker.radio_stats);
+                                    } else if (!data.tracker.radio_stats && prevRadioStats) {
+                                        trackerInfo.radio_stats = prevRadioStats;
+                                    }
                                     document.getElementById('tracker-model').textContent = data.tracker.hw_model || '-';
                                     document.getElementById('tracker-fw').textContent = data.tracker.firmware || '-';
                                     document.getElementById('tracker-id').textContent = data.tracker.node_id || '-';
@@ -606,11 +615,19 @@
                     allNodesNoGps = d.nodes_no_pos || [];
                     // Don't overwrite tracker info with empty data from nodes.json
                     if (d.tracker && Object.keys(d.tracker).length > 0) {
-                        // Preserve uptime if new data doesn't have it but old did
+                        // Preserve uptime and radio_stats if new data doesn't have them
                         const oldUptime = trackerInfo.uptime_seconds;
+                        const oldRadioStats = trackerInfo.radio_stats;
                         trackerInfo = d.tracker;
                         if (!trackerInfo.uptime_seconds && oldUptime) {
                             trackerInfo.uptime_seconds = oldUptime;
+                        }
+                        // Merge radio_stats: nodes.json may be stale (saved before the latest
+                        // telemetry arrived), so preserve all fields we've seen from WS too.
+                        if (trackerInfo.radio_stats && oldRadioStats) {
+                            trackerInfo.radio_stats = Object.assign({}, oldRadioStats, trackerInfo.radio_stats);
+                        } else if (!trackerInfo.radio_stats && oldRadioStats) {
+                            trackerInfo.radio_stats = oldRadioStats;
                         }
                         // Center map on tracker position on first load
                         if (!window._mapCentered && d.tracker && d.tracker.lat && d.tracker.lon) {
