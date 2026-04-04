@@ -36,6 +36,8 @@ import threading
 import base64
 import sqlite3
 import shutil
+import uuid
+import platform
 import meshtastic
 import meshtastic.tcp_interface
 import meshtastic.serial_interface
@@ -603,6 +605,10 @@ class ListenBasedMapper:
         self.stats_db = StatsDB()
         self._last_packet_times = {}  # for anomaly detection
         self._last_radio_packet_time = time.time()  # watchdog: last time we got any packet from radio
+
+        # Telemetry
+        self._start_time = time.time()
+        self._last_telemetry_ping = 0
 
         # Broadcast connection status to any already-connected WS clients
         if self.local_node_id:
@@ -1378,6 +1384,23 @@ class ListenBasedMapper:
                 print(f"[CONFIG] Coverage save error: {e}")
             applied.append('coverage')
 
+        if 'telemetry_mapper' in changes:
+            tel = changes['telemetry_mapper']
+            try:
+                with open(CONFIG_PATH, 'r') as f:
+                    full_config = json.load(f)
+            except Exception:
+                full_config = {}
+            full_config['telemetry_opt_out'] = bool(tel.get('opt_out', False))
+            self.config['telemetry_opt_out'] = bool(tel.get('opt_out', False))
+            try:
+                with open(CONFIG_PATH, 'w') as f:
+                    json.dump(full_config, f, indent=2)
+                print(f"[CONFIG] Telemetry opt-out saved: {full_config['telemetry_opt_out']}")
+            except Exception as e:
+                print(f"[CONFIG] Telemetry save error: {e}")
+            applied.append('telemetry_mapper')
+
         if reboot:
             try:
                 node.reboot()
@@ -1387,6 +1410,81 @@ class ListenBasedMapper:
 
         print(f"[CONFIG] Applied: {applied}")
         return applied
+
+    def _get_or_create_anonymous_id(self):
+        """Get or create a persistent anonymous ID for telemetry."""
+        anon_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '.anonymous_id')
+        try:
+            if os.path.exists(anon_file):
+                with open(anon_file, 'r') as f:
+                    anon_id = f.read().strip()
+                    if len(anon_id) >= 8:
+                        return anon_id
+        except Exception:
+            pass
+        anon_id = uuid.uuid4().hex
+        try:
+            with open(anon_file, 'w') as f:
+                f.write(anon_id)
+        except Exception:
+            pass
+        return anon_id
+
+    def _detect_platform(self):
+        """Detect if running on Raspberry Pi, Linux, or Docker."""
+        if os.path.exists('/.dockerenv') or os.environ.get('DOCKER_CONTAINER'):
+            return 'docker'
+        try:
+            with open('/proc/cpuinfo', 'r') as f:
+                if 'Raspberry Pi' in f.read() or 'BCM' in f.read():
+                    return 'raspberry_pi'
+        except Exception:
+            pass
+        return 'linux'
+
+    def _get_os_info(self):
+        """Get OS description."""
+        try:
+            import distro
+            return f"{distro.name()} {distro.version()}"
+        except Exception:
+            pass
+        try:
+            with open('/etc/os-release', 'r') as f:
+                for line in f:
+                    if line.startswith('PRETTY_NAME='):
+                        return line.split('=', 1)[1].strip().strip('"')
+        except Exception:
+            pass
+        return platform.platform()
+
+    def _send_telemetry_ping(self):
+        """Send anonymous telemetry ping. Called once per 24h."""
+        if self.config.get('telemetry_opt_out', False):
+            return
+        try:
+            import urllib.request
+            anon_id = self._get_or_create_anonymous_id()
+            uptime_hours = int((time.time() - self._start_time) / 3600)
+            payload = json.dumps({
+                'anonymous_id': anon_id,
+                'version': VERSION,
+                'connection_type': self.connection_type or 'unknown',
+                'platform': self._detect_platform(),
+                'os_info': self._get_os_info(),
+                'arch': platform.machine(),
+                'uptime_hours': uptime_hours,
+            }).encode('utf-8')
+            req = urllib.request.Request(
+                'https://meshtastic.world/api/ping',
+                data=payload,
+                method='POST',
+                headers={'Content-Type': 'application/json', 'User-Agent': f'MeshtasticMapper/{VERSION}'}
+            )
+            urllib.request.urlopen(req, timeout=10)
+            print(f"[TELEMETRY] Ping sent (v{VERSION}, {self.connection_type})")
+        except Exception as e:
+            print(f"[TELEMETRY] Ping failed (non-critical): {e}")
 
     def _watchdog_loop(self):
         """Restart meshtastic --listen subprocess if no packets received for WATCHDOG_TIMEOUT seconds."""
@@ -2612,6 +2710,14 @@ class ListenBasedMapper:
                         self.save_nodes()
                         last_clean = time.time()
 
+                    # Telemetry ping every 24h
+                    if time.time() - self._last_telemetry_ping > 86400:
+                        self._last_telemetry_ping = time.time()
+                        try:
+                            threading.Thread(target=self._send_telemetry_ping, daemon=True).start()
+                        except Exception:
+                            pass
+
                     # Health check — if no packet received for 60s after connection, assume disconnect
                     silence = time.time() - self._last_radio_packet_time
                     if silence > 60 and first_save_done:
@@ -2835,6 +2941,14 @@ class ListenBasedMapper:
                         self.clean_old_nodes()
                         self.save_nodes()
                         last_clean = time.time()
+
+                    # Telemetry ping every 24h
+                    if time.time() - self._last_telemetry_ping > 86400:
+                        self._last_telemetry_ping = time.time()
+                        try:
+                            threading.Thread(target=self._send_telemetry_ping, daemon=True).start()
+                        except Exception:
+                            pass
 
                     # Health check — if no packet received for 90s after connection, assume disconnect
                     silence = time.time() - self._last_radio_packet_time
