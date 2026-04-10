@@ -351,6 +351,18 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def clear_all_stats(self):
+        """Delete ALL data from all stats tables."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets')
+            conn.execute('DELETE FROM node_activity')
+            conn.execute('DELETE FROM anomalies')
+            conn.execute('DELETE FROM neighbors')
+            conn.execute('VACUUM')
+            conn.commit()
+            conn.close()
+
     def update_node_name(self, node_id, name):
         """Update from_name for all packets from this node where name was unknown (= node_id)."""
         if not name or name == node_id:
@@ -3952,6 +3964,41 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'clear_node_stats_result',
                                 'node_id': node_id,
+                                'success': False,
+                                'error': str(e)
+                            }, ensure_ascii=False))
+                elif data.get('type') == 'clear_all_stats':
+                    mode = data.get('mode', 'stats_only')  # 'stats_only' or 'full_reset'
+                    if mapper:
+                        try:
+                            mapper.stats_db.clear_all_stats()
+                            cleared = 'stats'
+                            if mode == 'full_reset':
+                                # Clear in-memory nodes + nodes.json
+                                mapper.nodes = {}
+                                mapper.nodes_no_position = {}
+                                mapper.known_names = {}
+                                mapper.messages = {}
+                                mapper.save_nodes_json()
+                                # Broadcast to all clients to clear their maps
+                                for client in list(connected_clients):
+                                    try:
+                                        await client.send(json.dumps({
+                                            'type': 'full_reset',
+                                            'timestamp': int(time.time())
+                                        }, ensure_ascii=False))
+                                    except Exception:
+                                        pass
+                                cleared = 'stats + nodes'
+                            await websocket.send(json.dumps({
+                                'type': 'clear_all_stats_result',
+                                'success': True,
+                                'mode': mode
+                            }, ensure_ascii=False))
+                            print(f"[STATS] Cleared ALL {cleared}")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_all_stats_result',
                                 'success': False,
                                 'error': str(e)
                             }, ensure_ascii=False))

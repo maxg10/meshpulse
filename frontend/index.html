@@ -377,6 +377,15 @@
 
                             // Odśwież wyświetlanie
                             updateDisplay();
+                        } else if (data.type === 'full_reset') {
+                            console.log('[WS] Full reset received — clearing map');
+                            allNodes = [];
+                            allNodesNoGps = [];
+                            Object.keys(markers).forEach(id => {
+                                map.removeLayer(markers[id]);
+                                delete markers[id];
+                            });
+                            updateDisplay();
                         } else if (data.type === 'new_message') {
                             console.log('[WS] New message from:', data.message.from_id);
                             if (document.hidden) {

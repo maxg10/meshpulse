@@ -163,6 +163,18 @@
     </div>
 </nav>
 
+<!-- Reset controls -->
+<div style="display:flex;gap:10px;padding:8px 16px;background:#1e293b;border-bottom:1px solid #334155">
+    <button onclick="clearAllStats('stats_only')"
+        style="font-size:11px;padding:4px 12px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
+        🗑️ Clear Statistics
+    </button>
+    <button onclick="clearAllStats('full_reset')"
+        style="font-size:11px;padding:4px 12px;background:#991b1b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
+        ⚠️ Full Reset (Stats + Nodes)
+    </button>
+</div>
+
 <div id="g-tooltip"></div>
 
 <span id="tracker-label" style="display:none"></span>
@@ -461,6 +473,19 @@ function connectWS() {
             d = JSON.parse(e.data);
         } catch (err) {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
+            return;
+        }
+        if (d.type === 'clear_all_stats_result') {
+            if (d.success) {
+                showAlert(d.mode === 'full_reset'
+                    ? '✅ Full reset complete — stats cleared, nodes removed'
+                    : '✅ All statistics cleared', 'success');
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'get_stats' }));
+                }
+            } else {
+                showAlert('❌ Failed to clear stats: ' + (d.error || 'unknown'), 'error');
+            }
             return;
         }
         if (d.type === 'clear_node_stats_result') {
@@ -1295,6 +1320,19 @@ function clearNodeStats(nodeId, nodeName) {
     if (!confirm(`Clear packet history for "${nodeName}"?\n\nThe node stays on the map but packet count resets to 0.`)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'clear_node_stats', node_id: nodeId }));
+    }
+}
+
+function clearAllStats(mode) {
+    const msg = mode === 'full_reset'
+        ? '⚠️ FULL RESET\n\nThis will delete ALL statistics AND remove all nodes from the map.\n\nAre you sure?'
+        : '🗑️ Clear all packet statistics?\n\nNodes on the map will NOT be affected.';
+    if (!confirm(msg)) return;
+    if (mode === 'full_reset') {
+        if (!confirm('⚠️ This cannot be undone! All data will be lost.\n\nReally proceed?')) return;
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'clear_all_stats', mode: mode }));
     }
 }
 
