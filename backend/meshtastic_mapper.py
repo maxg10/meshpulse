@@ -359,7 +359,6 @@ class StatsDB:
             conn.execute('DELETE FROM node_activity')
             conn.execute('DELETE FROM anomalies')
             conn.execute('DELETE FROM neighbors')
-            conn.execute('VACUUM')
             conn.commit()
             conn.close()
 
