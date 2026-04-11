@@ -95,6 +95,8 @@ def safe_json(obj):
 VERSION = '2.1.1'
 MAPPER_VERSION = '2.1.1'
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 # Plugin system
 try:
     from mapper.plugin_manager import PluginManager
