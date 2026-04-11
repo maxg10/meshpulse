@@ -155,6 +155,13 @@ sudo cp frontend/config.html /var/www/html/meshtastic/
 sudo cp frontend/messages.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
+# Create symlink for plugin frontend assets
+PLUGIN_DIR="$REPO_PATH/plugins"
+if [ -d "$PLUGIN_DIR" ]; then
+    sudo ln -sfn "$PLUGIN_DIR" /var/www/html/meshtastic/plugins
+    echo "🔌 Plugin assets symlinked"
+fi
+
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then
     echo "📄 Creating empty nodes.json..."
