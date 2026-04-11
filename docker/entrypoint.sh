@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Meshtastic Network Mapper v2.1.1 starting..."
+echo "🚀 Meshtastic Network Mapper v2.2.0 starting..."
 
 DATA_DIR="/var/www/html/meshtastic"
 

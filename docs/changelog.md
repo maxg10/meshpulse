@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.2.0
+- Feature: Plugin system — install, enable, disable, uninstall plugins from web UI
+- Feature: Plugin API — MeshPlugin base class with 11 hooks (on_message, on_node_update, on_position, on_telemetry, on_neighborinfo, on_connect, on_disconnect, on_node_expire, on_ws_client_connect, on_ws_client_disconnect)
+- Feature: Frontend Plugin API — MapperAPI proxy with map, nodes, messages, WebSocket, UI, and storage access
+- Feature: Plugins tab in Config — manage installed plugins, upload .meshplugin files
+- Feature: Plugin namespace isolation — each plugin's layers, controls, storage are automatically prefixed
+- Feature: Plugin config persistence — auto-generated settings UI from plugin manifest
+- Feature: Clear All Statistics button on Stats page (stats only or full reset with nodes)
+
 ## v2.1.1-stable
 - Feature: Anonymous telemetry — opt-out daily ping with version, platform, OS, arch, uptime. No personal data collected. Disable in Config → Coverage tab
 - Feature: Export nodes to CSV — download all nodes as CSV file from Stats page
