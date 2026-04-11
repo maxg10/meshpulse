@@ -11,3 +11,4 @@ config.json
 .anonymous_id
 plugins/*/
 !plugins/.gitkeep
+!plugins/maxg10/

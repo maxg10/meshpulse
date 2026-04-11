@@ -155,11 +155,30 @@ sudo cp frontend/config.html /var/www/html/meshtastic/
 sudo cp frontend/messages.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
-# Create symlink for plugin frontend assets
+# Copy plugin frontend assets (lighttpd doesn't follow symlinks)
 PLUGIN_DIR="$REPO_PATH/plugins"
 if [ -d "$PLUGIN_DIR" ]; then
-    sudo ln -sfn "$PLUGIN_DIR" /var/www/html/meshtastic/plugins
-    echo "🔌 Plugin assets symlinked"
+    # Remove old symlink if exists
+    if [ -L "/var/www/html/meshtastic/plugins" ]; then
+        sudo rm /var/www/html/meshtastic/plugins
+    fi
+    # Copy plugin files to web root
+    sudo mkdir -p /var/www/html/meshtastic/plugins
+    # Copy each installed plugin
+    for author_dir in "$PLUGIN_DIR"/*/; do
+        [ -d "$author_dir" ] || continue
+        author=$(basename "$author_dir")
+        [ "$author" = "enabled.json" ] && continue
+        for plugin_dir in "$author_dir"*/; do
+            [ -d "$plugin_dir" ] || continue
+            plugin=$(basename "$plugin_dir")
+            dest="/var/www/html/meshtastic/plugins/$author/$plugin"
+            sudo mkdir -p "$dest"
+            sudo cp -r "$plugin_dir"* "$dest/" 2>/dev/null || true
+        done
+    done
+    sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/plugins
+    echo "🔌 Plugin assets copied to web root"
 fi
 
 # Create empty nodes.json if it doesn't exist
