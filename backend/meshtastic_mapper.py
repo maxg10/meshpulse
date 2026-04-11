@@ -93,6 +93,15 @@ def safe_json(obj):
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
 VERSION = '2.1.1'
+MAPPER_VERSION = '2.1.1'
+
+# Plugin system
+try:
+    from mapper.plugin_manager import PluginManager
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+    print("[PLUGINS] Plugin system not available (mapper module not found)")
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -102,6 +111,7 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 
 # Runtime restart support
 mapper = None
+plugin_manager = None
 restart_event = threading.Event()
 restart_config = {}
 traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
@@ -1562,6 +1572,11 @@ class ListenBasedMapper:
                 print(f"[NEIGHBOR] {from_name} ({from_id}): {len(neighbors)} neighbors")
                 # Broadcast to frontend
                 asyncio.run(self.broadcast_neighbor_update(from_id, from_name, neighbors))
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_neighborinfo', {
+                        'node_id': from_id,
+                        'neighbors': neighbors
+                    })
         except Exception as e:
             print(f"[NEIGHBOR] Parse error: {e}")
 
@@ -1753,6 +1768,8 @@ class ListenBasedMapper:
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                     asyncio.run(self.broadcast_stats_update())
+                    if plugin_manager:
+                        plugin_manager.dispatch_hook_sync('on_node_update', self.nodes.get(node_id))
 
                     return True
 
@@ -1789,6 +1806,8 @@ class ListenBasedMapper:
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                     asyncio.run(self.broadcast_stats_update())
+                    if plugin_manager:
+                        plugin_manager.dispatch_hook_sync('on_node_update', self.nodes_no_position.get(node_id))
 
                     return True
 
@@ -1891,6 +1910,12 @@ class ListenBasedMapper:
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_position', {
+                    'node_id': node_id, 'lat': lat, 'lon': lon,
+                    'alt': 0, 'snr': snr, 'rssi': rssi, 'hops': hops,
+                    'timestamp': int(time.time())
+                })
 
             return True
 
@@ -1961,6 +1986,10 @@ class ListenBasedMapper:
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id, 'timestamp': int(time.time())
+                    })
 
                 return True
             elif node_id in self.nodes_no_position:
@@ -1972,9 +2001,13 @@ class ListenBasedMapper:
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
-                
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id, 'timestamp': int(time.time())
+                    })
+
             return True
-            
+
         except Exception as e:
             print(f"Telemetry parse error: {e}")
         
@@ -2052,6 +2085,8 @@ class ListenBasedMapper:
 
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_message', message)
 
             return True
 
@@ -2136,6 +2171,8 @@ class ListenBasedMapper:
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_node_update', self.nodes.get(node_id))
             else:
                 is_new = node_id not in self.nodes_no_position
                 self.nodes_no_position[node_id] = {
@@ -2156,6 +2193,8 @@ class ListenBasedMapper:
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_node_update', self.nodes_no_position.get(node_id))
             return True
         except Exception as e:
             print(f"[TCP] nodeinfo parse error: {e}")
@@ -2233,6 +2272,13 @@ class ListenBasedMapper:
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_position', {
+                    'node_id': node_id, 'lat': lat, 'lon': lon,
+                    'alt': pos.get('altitude', 0),
+                    'snr': snr, 'rssi': rssi, 'hops': hops,
+                    'timestamp': int(time.time())
+                })
             return True
         except Exception as e:
             print(f"[TCP] position parse error: {e}")
@@ -2333,6 +2379,18 @@ class ListenBasedMapper:
                 print(f"♡ {node_id} telemetry heartbeat [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id,
+                        'battery': battery_level,
+                        'voltage': voltage,
+                        'channel_util': None,
+                        'air_util_tx': None,
+                        'snr': None,
+                        'temperature': temperature,
+                        'uptime': uptime_seconds,
+                        'timestamp': int(time.time())
+                    })
                 return True
             elif node_id in self.nodes_no_position:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
@@ -2343,6 +2401,18 @@ class ListenBasedMapper:
                 print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id,
+                        'battery': battery_level,
+                        'voltage': voltage,
+                        'channel_util': None,
+                        'air_util_tx': None,
+                        'snr': None,
+                        'temperature': temperature,
+                        'uptime': uptime_seconds,
+                        'timestamp': int(time.time())
+                    })
             return True
         except Exception as e:
             print(f"[TCP] telemetry parse error: {e}")
@@ -2391,6 +2461,8 @@ class ListenBasedMapper:
             relay_node_raw = packet.get('relayNode')
             self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_message', message)
             return True
         except Exception as e:
             print(f"[TCP] text parse error: {e}")
@@ -3527,6 +3599,8 @@ async def websocket_handler(websocket):
     connected_clients.add(websocket)
     client_addr = websocket.remote_address
     print(f"[WS] Client connected: {client_addr}, total clients: {len(connected_clients)}")
+    if plugin_manager:
+        await plugin_manager.dispatch_hook('on_ws_client_connect', {'client_id': str(client_addr)})
 
     # Send current connection status and tracker info to newly connected client
     if mapper and hasattr(mapper, 'tracker_info'):
@@ -4001,6 +4075,69 @@ async def websocket_handler(websocket):
                                 'success': False,
                                 'error': str(e)
                             }, ensure_ascii=False))
+                # ── Plugin management ──────────────────────────────────
+                elif data.get('type') == 'get_plugins':
+                    if plugin_manager:
+                        plugins = plugin_manager.list_plugins()
+                        await websocket.send(json.dumps({
+                            'type': 'plugins_list',
+                            'plugins': plugins
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'enable_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.enable(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_enabled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'disable_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.disable(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_disabled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'install_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.install_from_upload(
+                            data.get('filename', 'plugin.meshplugin'),
+                            data.get('data', '')
+                        )
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_installed', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'uninstall_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.uninstall(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_uninstalled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'save_plugin_config':
+                    if plugin_manager:
+                        result = plugin_manager.save_plugin_config(
+                            data.get('plugin_id', ''),
+                            data.get('config', {})
+                        )
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_config_saved', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'plugin_message':
+                    # Forward plugin WebSocket message to plugin handler
+                    if plugin_manager:
+                        channel = data.get('channel', '')
+                        plugin_id = plugin_manager.ws_channels.get(channel)
+                        if plugin_id and plugin_id in plugin_manager.plugins:
+                            plugin = plugin_manager.plugins[plugin_id]
+                            try:
+                                if hasattr(plugin, 'on_ws_message'):
+                                    await plugin.on_ws_message(data.get('data', {}), channel)
+                            except Exception as e:
+                                print(f"[PLUGIN:{plugin_id}] WS message error: {e}")
+
                 elif data.get('type') == 'get_elevation':
                     locations = data.get('locations', [])
                     if locations and len(locations) <= 100:
@@ -4150,6 +4287,8 @@ async def websocket_handler(websocket):
     except websockets.exceptions.ConnectionClosed:
         print(f"[WS] Client disconnected: {client_addr}")
     finally:
+        if plugin_manager:
+            await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
@@ -4223,6 +4362,12 @@ if __name__ == '__main__':
             port = restart_config.get('port')
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
+        # Initialize plugin system (once, before mapper loop)
+        if PLUGINS_AVAILABLE:
+            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
+            plugin_manager._connected_clients = connected_clients
+            plugin_manager.load_enabled_plugins()
+
         # Mapper loop with runtime restart support
         _watchdog_started = False
         while True:
@@ -4233,6 +4378,9 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
+            # Update plugin_manager's mapper reference for each new mapper instance
+            if plugin_manager:
+                plugin_manager.mapper = mapper
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()

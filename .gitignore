@@ -9,3 +9,5 @@ systemd/meshtastic-mapper.service
 config.json
 .env
 .anonymous_id
+plugins/*/
+!plugins/.gitkeep
