@@ -590,6 +590,7 @@ class PluginManager:
                         'has_frontend': manifest.get('frontend') is not None,
                         'frontend': manifest.get('frontend'),
                         'config_schema': manifest.get('config', {}),
+                        'config': self._load_plugin_config(plugin_dir, manifest),
                     })
 
         return plugins
