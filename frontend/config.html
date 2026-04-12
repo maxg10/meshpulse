@@ -1790,6 +1790,9 @@ function connectWS() {
             } else {
                 showAlert('❌ ' + (d.error || 'Save failed'), 'error');
             }
+        } else if (d.type === 'plugin_config_updated') {
+            // Refresh plugin list to show updated config values
+            loadPluginsList();
         }
     };
 }

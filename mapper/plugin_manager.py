@@ -610,23 +610,44 @@ class PluginManager:
         }
 
     def save_plugin_config(self, plugin_id, config_updates):
-        """Save plugin config updates."""
+        """Save plugin config updates and notify running plugin.
+
+        Args:
+            plugin_id (str): Plugin ID
+            config_updates (dict): Config values to save
+
+        Returns:
+            dict: {success, plugin_id, error?}
+        """
         try:
             plugin_dir = self._get_plugin_dir(plugin_id)
             config_path = os.path.join(plugin_dir, 'config.json')
 
+            # Load existing config
             existing = {}
             if os.path.exists(config_path):
                 with open(config_path, 'r') as f:
                     existing = json.load(f)
 
+            # Merge updates
             existing.update(config_updates)
 
+            # Save
             with open(config_path, 'w') as f:
                 json.dump(existing, f, indent=2)
 
+            # Get full merged config (defaults + user overrides)
+            manifest = self._read_manifest(plugin_dir)
+            full_config = self._load_plugin_config(plugin_dir, manifest) if manifest else existing
+
+            # Notify running plugin instance if enabled
             if plugin_id in self.plugins:
-                self.plugins[plugin_id].config.update(config_updates)
+                plugin = self.plugins[plugin_id]
+                try:
+                    plugin.on_config_update(full_config)
+                    print(f"[PLUGINS] Config updated for {plugin_id}")
+                except Exception as e:
+                    print(f"[PLUGINS] {plugin_id} on_config_update error: {e}")
 
             return {'success': True, 'plugin_id': plugin_id}
         except Exception as e:

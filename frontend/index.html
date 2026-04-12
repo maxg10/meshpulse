@@ -434,6 +434,23 @@
                                 try { pluginWsCallbacks[channel](data.data); }
                                 catch(e) { console.error('[PLUGINS] WS callback error:', e); }
                             }
+                        } else if (data.type === 'plugin_config_updated') {
+                            // Live config reload for running plugins
+                            var pluginId = data.plugin_id;
+                            var loaded = loadedPlugins[pluginId];
+                            if (loaded && loaded.instance) {
+                                // Update the API info config
+                                loaded.api.info.config = data.config || {};
+                                // Call onConfigUpdate if plugin implements it
+                                if (typeof loaded.instance.onConfigUpdate === 'function') {
+                                    try {
+                                        loaded.instance.onConfigUpdate(data.config || {});
+                                        console.log('[PLUGINS] Config updated for ' + pluginId);
+                                    } catch(e) {
+                                        console.error('[PLUGINS] onConfigUpdate error for ' + pluginId + ':', e);
+                                    }
+                                }
+                            }
                         } else if (data.type === 'stats_update') {
                             console.log('[WS] Stats update:', data.max_distance_km, 'km to', data.farthest_node);
                             maxDistanceKm = data.max_distance_km;

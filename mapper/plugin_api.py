@@ -221,6 +221,17 @@ class MeshPlugin:
         """
         pass
 
+    def on_config_update(self, new_config):
+        """Called when plugin config is changed via the UI.
+
+        Override this to react to config changes without disable/enable.
+        The default implementation updates self.config.
+
+        Args:
+            new_config (dict): Full merged config (defaults + user overrides)
+        """
+        self.config = new_config
+
     def on_disable(self):
         """Called when plugin is disabled. Cleanup here.
 

@@ -4119,13 +4119,31 @@ async def websocket_handler(websocket):
 
                 elif data.get('type') == 'save_plugin_config':
                     if plugin_manager:
-                        result = plugin_manager.save_plugin_config(
-                            data.get('plugin_id', ''),
-                            data.get('config', {})
-                        )
+                        plugin_id = data.get('plugin_id', '')
+                        config_updates = data.get('config', {})
+                        result = plugin_manager.save_plugin_config(plugin_id, config_updates)
+                        # Respond to the requesting client
                         await websocket.send(json.dumps({
                             'type': 'plugin_config_saved', **result
                         }, ensure_ascii=False))
+                        # Broadcast config change to ALL other clients (so map page can reload plugin)
+                        if result.get('success'):
+                            full_config = {}
+                            plugin_dir = plugin_manager._get_plugin_dir(plugin_id)
+                            manifest = plugin_manager._read_manifest(plugin_dir)
+                            if manifest:
+                                full_config = plugin_manager._load_plugin_config(plugin_dir, manifest)
+                            broadcast_msg = json.dumps({
+                                'type': 'plugin_config_updated',
+                                'plugin_id': plugin_id,
+                                'config': full_config
+                            }, ensure_ascii=False)
+                            for client in list(connected_clients):
+                                if client != websocket:
+                                    try:
+                                        await client.send(broadcast_msg)
+                                    except Exception:
+                                        pass
 
                 elif data.get('type') == 'plugin_message':
                     # Forward plugin WebSocket message to plugin handler

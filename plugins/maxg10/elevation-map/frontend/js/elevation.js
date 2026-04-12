@@ -117,6 +117,20 @@ var ElevationMapPlugin = (function() {
         }
     };
 
+    ElevationMap.prototype.onConfigUpdate = function(newConfig) {
+        // Check if tile provider changed
+        var newProvider = newConfig.tile_provider || 'opentopomap';
+        if (newProvider !== this._currentProvider) {
+            this._switchProvider(newProvider);
+        }
+
+        // Update opacity if changed
+        var newOpacity = (newConfig.opacity || 70) / 100;
+        if (this.tileLayer) {
+            this.tileLayer.setOpacity(newOpacity);
+        }
+    };
+
     ElevationMap.prototype.onDisable = function(api) {
         // Restore original base if elevation is active
         var rawMap = api.map.getLeafletMap();
