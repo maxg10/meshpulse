@@ -4256,6 +4256,45 @@ async def websocket_handler(websocket):
                             'connected': False
                         }, ensure_ascii=False))
 
+                elif data.get('type') == 'test_coverage':
+                    try:
+                        import urllib.request
+                        import urllib.error
+                        cov_url = data.get('url', '').strip()
+                        cov_key = data.get('api_key', '').strip()
+                        if not cov_url:
+                            cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshtastic.world'
+                        if not cov_key:
+                            cov_key = (mapper.config.get('coverage_api_key', '') if mapper else '')
+
+                        health_url = f"{cov_url.rstrip('/')}/health"
+                        req = urllib.request.Request(
+                            health_url,
+                            method='GET',
+                            headers={
+                                'X-Api-Key': cov_key,
+                                'User-Agent': f'MeshtasticMapper/{VERSION}',
+                            }
+                        )
+                        loop = asyncio.get_event_loop()
+                        def _do_health_check():
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                return json.loads(resp.read().decode())
+                        result = await loop.run_in_executor(None, _do_health_check)
+                        print(f"[COVERAGE] Health check OK: {result}")
+                        await websocket.send(json.dumps({
+                            'type': 'test_coverage_result',
+                            'success': True,
+                            'data': result
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        print(f"[COVERAGE] Health check failed: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'test_coverage_result',
+                            'success': False,
+                            'error': str(e)
+                        }, ensure_ascii=False))
+
                 elif data.get('type') == 'get_coverage':
                     try:
                         import urllib.request

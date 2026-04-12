@@ -1436,24 +1436,28 @@ function toggleFixedPosition() {
 // ── Coverage ─────────────────────────────────────────────────────
 function testCoverageConnection() {
     const urlEl = document.getElementById('coverage.server_url');
+    const keyEl = document.getElementById('coverage.api_key');
     const resultEl = document.getElementById('coverage-test-result');
     const url = (urlEl?.value || '').trim() || 'https://coverage.meshtastic.world';
+    const apiKey = (keyEl?.value || '').trim();
+
     resultEl.textContent = '⏳ Testing...';
     resultEl.style.color = '#6b7280';
-    fetch(`${url.replace(/\/$/, '')}/health`, {method: 'GET'})
-        .then(r => {
-            if (r.ok) {
-                resultEl.textContent = '✅ Server reachable';
-                resultEl.style.color = '#22c55e';
-            } else {
-                resultEl.textContent = `⚠️ HTTP ${r.status}`;
-                resultEl.style.color = '#eab308';
-            }
-        })
-        .catch(e => {
-            resultEl.textContent = '❌ ' + e.message;
-            resultEl.style.color = '#ef4444';
-        });
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        resultEl.textContent = '❌ WebSocket not connected';
+        resultEl.style.color = '#ef4444';
+        return;
+    }
+
+    // Send test request via WebSocket to backend (avoids mixed content block)
+    ws.send(JSON.stringify({
+        type: 'test_coverage',
+        url: url,
+        api_key: apiKey
+    }));
+
+    // Response is handled in ws.onmessage
 }
 
 // ── Favorites ────────────────────────────────────────────────────
@@ -1694,6 +1698,21 @@ function connectWS() {
             renderIgnoredNodes(d.ignored_nodes);
         } else if (d.type === 'favorites_list') {
             renderFavoritesList(d.favorites);
+        } else if (d.type === 'test_coverage_result') {
+            const resultEl = document.getElementById('coverage-test-result');
+            if (d.success) {
+                const data = d.data || {};
+                const version = data.version || '?';
+                const splat = data.splat ? '✅' : '❌';
+                const tiles = data.srtm_tiles || 0;
+                resultEl.innerHTML = '✅ Connected! Server v' + escHtml(version) +
+                    ' · SPLAT: ' + splat +
+                    ' · Tiles: ' + tiles;
+                resultEl.style.color = '#22c55e';
+            } else {
+                resultEl.textContent = '❌ ' + (d.error || 'Connection failed');
+                resultEl.style.color = '#ef4444';
+            }
         } else if (d.type === 'coverage_saved') {
             if (d.success) {
                 showAlert('✅ Coverage settings saved!', 'success');
