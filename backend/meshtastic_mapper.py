@@ -129,6 +129,7 @@ class TCPMeshtasticInterface:
         self.port = port
         self.interface = None
         self._on_receive_ref = None
+        self._on_mqtt_proxy_ref = None
 
     def connect(self, on_receive=None):
         """Create TCPInterface and subscribe to incoming packets."""
@@ -144,8 +145,15 @@ class TCPMeshtasticInterface:
                 except Exception as e:
                     print(f"[TCP] Packet callback error: {e}")
 
+        def _on_mqtt_proxy(packet, interface):
+            if interface is iface_ref[0]:
+                if plugin_manager and plugin_manager.plugins:
+                    plugin_manager.dispatch_mqtt_proxy_sync(packet)
+
         self._on_receive_ref = _on_receive
+        self._on_mqtt_proxy_ref = _on_mqtt_proxy
         pub.subscribe(_on_receive, "meshtastic.receive")
+        pub.subscribe(_on_mqtt_proxy, "meshtastic.mqttclientproxymessage")
 
         def _create_interface():
             self.interface = meshtastic.tcp_interface.TCPInterface(
@@ -185,6 +193,12 @@ class TCPMeshtasticInterface:
             except Exception:
                 pass
             self._on_receive_ref = None
+        if self._on_mqtt_proxy_ref is not None:
+            try:
+                pub.unsubscribe(self._on_mqtt_proxy_ref, "meshtastic.mqttclientproxymessage")
+            except Exception:
+                pass
+            self._on_mqtt_proxy_ref = None
         if self.interface is not None:
             try:
                 self.interface.close()
@@ -206,6 +220,7 @@ class SerialMeshtasticInterface:
         self.port = port  # None = auto-detect
         self.iface = None
         self._on_receive_ref = None
+        self._on_mqtt_proxy_ref = None
 
     def connect(self, on_receive, on_connection_established=None):
         """Connect to serial device and start listening."""
@@ -220,8 +235,15 @@ class SerialMeshtasticInterface:
                 except Exception as e:
                     print(f"[SERIAL] Packet callback error: {e}")
 
+        def _on_mqtt_proxy(packet, interface):
+            if interface is iface_ref[0]:
+                if plugin_manager and plugin_manager.plugins:
+                    plugin_manager.dispatch_mqtt_proxy_sync(packet)
+
         self._on_receive_ref = _on_receive
+        self._on_mqtt_proxy_ref = _on_mqtt_proxy
         pub.subscribe(_on_receive, "meshtastic.receive")
+        pub.subscribe(_on_mqtt_proxy, "meshtastic.mqttclientproxymessage")
 
         self.iface = meshtastic.serial_interface.SerialInterface(devPath=self.port)
         iface_ref[0] = self.iface
@@ -240,6 +262,12 @@ class SerialMeshtasticInterface:
             except Exception:
                 pass
             self._on_receive_ref = None
+        if self._on_mqtt_proxy_ref is not None:
+            try:
+                pub.unsubscribe(self._on_mqtt_proxy_ref, "meshtastic.mqttclientproxymessage")
+            except Exception:
+                pass
+            self._on_mqtt_proxy_ref = None
         if self.iface is not None:
             try:
                 self.iface.close()
@@ -2753,6 +2781,8 @@ class ListenBasedMapper:
                     on_connection_established=on_connection_established
                 )
                 print(f"[SERIAL] Connected successfully")
+                if plugin_manager:
+                    plugin_manager.set_interface(serial_iface)
                 self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
@@ -2936,6 +2966,8 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
+                if plugin_manager:
+                    plugin_manager.set_interface(tcp_iface)
                 self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup

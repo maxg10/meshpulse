@@ -51,6 +51,9 @@ class PluginManager:
         # Reference to connected_clients set — set from meshtastic_mapper after init
         self._connected_clients = None
 
+        # Active radio interface wrapper (set by mapper after connect)
+        self._interface = None
+
         # Ensure plugins directory exists
         os.makedirs(self.plugins_dir, exist_ok=True)
 
@@ -549,6 +552,131 @@ class PluginManager:
             def _serial_send():
                 mapper._serial_iface.sendText(text, channelIndex=channel, destinationId=dest)
             await loop.run_in_executor(None, _serial_send)
+
+    # ── Interface Access ────────────────────────────────────────
+
+    def set_interface(self, interface):
+        """Set the active radio interface wrapper.
+
+        Called by the mapper after TCP/serial connects, or with None on disconnect.
+
+        Args:
+            interface: TCPMeshtasticInterface, SerialMeshtasticInterface, or None
+        """
+        self._interface = interface
+
+    def _get_raw_interface(self):
+        """Get the underlying meshtastic interface object.
+
+        Handles both TCPMeshtasticInterface (.interface) and
+        SerialMeshtasticInterface (.iface) wrappers.
+
+        Returns:
+            TCPInterface/SerialInterface or None
+        """
+        iface = self._interface
+        if iface is None:
+            return None
+        # TCPMeshtasticInterface stores raw interface as .interface
+        if hasattr(iface, 'interface') and iface.interface is not None:
+            return iface.interface
+        # SerialMeshtasticInterface stores raw interface as .iface
+        if hasattr(iface, 'iface') and iface.iface is not None:
+            return iface.iface
+        return None
+
+    def get_tracker_config(self, section):
+        """Get a device config section from the connected radio.
+
+        Args:
+            section (str): Config section name (e.g. 'mqtt', 'lora', 'device')
+
+        Returns:
+            dict: Config values for that section, or {} if unavailable
+        """
+        raw = self._get_raw_interface()
+        if raw is None:
+            return {}
+        try:
+            from google.protobuf.json_format import MessageToDict
+            local_node = raw.localNode
+            for cfg_attr in ('localConfig', 'moduleConfig'):
+                cfg = getattr(local_node, cfg_attr, None)
+                if cfg and hasattr(cfg, section):
+                    section_msg = getattr(cfg, section)
+                    return MessageToDict(section_msg)
+            return {}
+        except Exception as e:
+            print(f"[PLUGINS] get_tracker_config error: {e}")
+            return {}
+
+    async def send_mqtt_to_device(self, topic, data):
+        """Send MQTT downlink message to the mesh device.
+
+        Builds a ToRadio protobuf with mqttClientProxyMessage and sends it
+        to the radio via _sendToRadio.
+
+        Args:
+            topic (str): MQTT topic
+            data (bytes): MQTT payload
+        """
+        raw = self._get_raw_interface()
+        if raw is None:
+            print("[PLUGINS] send_mqtt_to_device: no interface connected")
+            return
+        try:
+            from meshtastic.protobuf import mqtt_pb2, mesh_pb2
+            proxy_msg = mqtt_pb2.MqttClientProxyMessage()
+            proxy_msg.topic = topic
+            proxy_msg.data = data
+            to_radio = mesh_pb2.ToRadio()
+            to_radio.mqtt_client_proxy_message.CopyFrom(proxy_msg)
+            raw._sendToRadio(to_radio)
+        except Exception as e:
+            print(f"[PLUGINS] send_mqtt_to_device error: {e}")
+
+    def dispatch_mqtt_proxy_sync(self, packet):
+        """Dispatch on_mqtt_proxy hook from a pubsub MQTT proxy event.
+
+        Extracts topic and data from the MqttClientProxyMessage protobuf
+        and calls on_mqtt_proxy on all plugins that override it.
+
+        Args:
+            packet: MqttClientProxyMessage protobuf object
+        """
+        if not self.plugins:
+            return
+        try:
+            topic = getattr(packet, 'topic', '')
+            data = getattr(packet, 'data', b'')
+        except Exception:
+            topic, data = '', b''
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                asyncio.ensure_future(self._dispatch_mqtt_proxy(topic, data))
+            else:
+                loop.run_until_complete(self._dispatch_mqtt_proxy(topic, data))
+        except RuntimeError:
+            asyncio.run(self._dispatch_mqtt_proxy(topic, data))
+
+    async def _dispatch_mqtt_proxy(self, topic, data):
+        """Async helper — calls on_mqtt_proxy(topic, data) on subscribed plugins."""
+        tasks = []
+        for plugin_id, plugin in self.plugins.items():
+            if type(plugin).__dict__.get('on_mqtt_proxy') is not None:
+                tasks.append(self._safe_call_two(
+                    plugin_id, 'on_mqtt_proxy', plugin.on_mqtt_proxy, topic, data))
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    async def _safe_call_two(self, plugin_id, hook_name, method, arg1, arg2):
+        """Call a two-argument plugin hook with exception handling."""
+        try:
+            await method(arg1, arg2)
+        except Exception as e:
+            print(f"[PLUGIN:{plugin_id}] Error in {hook_name}: {e}")
 
     # ── Plugin Listing ──────────────────────────────────────────
 

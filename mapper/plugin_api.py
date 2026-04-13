@@ -87,6 +87,19 @@ class MeshPlugin:
         if self._manager:
             await self._manager.send_mesh_message(text, to_id, channel)
 
+    async def send_mqtt_to_device(self, topic, data):
+        """Send MQTT downlink message to the mesh device.
+
+        The device acts as MQTT client proxy — this sends a message that
+        the device will publish to the MQTT broker on behalf of the mapper.
+
+        Args:
+            topic (str): MQTT topic
+            data (bytes): MQTT payload
+        """
+        if self._manager:
+            await self._manager.send_mqtt_to_device(topic, data)
+
     # ── WebSocket ───────────────────────────────────────────────
 
     async def broadcast_ws(self, data, channel=None):
@@ -176,6 +189,25 @@ class MeshPlugin:
         if self._mapper:
             return list(self._mapper.messages.get(channel, []))
         return []
+
+    def get_tracker_config(self, section):
+        """Get a device config section from the connected radio.
+
+        Reads from localConfig or moduleConfig of the radio.
+        Common localConfig sections: 'device', 'position', 'power',
+            'network', 'display', 'lora', 'bluetooth'
+        Common moduleConfig sections: 'mqtt', 'serial', 'telemetry',
+            'neighborInfo', 'rangeTest', 'store_and_forward'
+
+        Args:
+            section (str): Config section name
+
+        Returns:
+            dict: Config values for that section, or {} if unavailable
+        """
+        if self._manager:
+            return self._manager.get_tracker_config(section)
+        return {}
 
     # ── API Routes ──────────────────────────────────────────────
 
@@ -304,6 +336,19 @@ class MeshPlugin:
                 'node_id': str,
                 'neighbors': [{'id': str, 'snr': float}, ...]
             }
+        """
+        pass
+
+    async def on_mqtt_proxy(self, topic, data):
+        """MQTT client proxy message received from mesh device.
+
+        The mesh device is acting as an MQTT client proxy — this hook fires
+        when the device wants to publish a message to an MQTT broker.
+        The plugin can inspect or forward the message to a real broker.
+
+        Args:
+            topic (str): MQTT topic string
+            data (bytes): MQTT payload (raw bytes)
         """
         pass
 
