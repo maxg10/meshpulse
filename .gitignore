@@ -12,3 +12,5 @@ config.json
 plugins/*/
 !plugins/.gitkeep
 !plugins/maxg10/
+build/
+*.meshplugin

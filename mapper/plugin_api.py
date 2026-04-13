@@ -87,18 +87,20 @@ class MeshPlugin:
         if self._manager:
             await self._manager.send_mesh_message(text, to_id, channel)
 
-    async def send_mqtt_to_device(self, topic, data):
+    def send_mqtt_to_device(self, topic, data):
         """Send MQTT downlink message to the mesh device.
 
         The device acts as MQTT client proxy — this sends a message that
         the device will publish to the MQTT broker on behalf of the mapper.
+        Synchronous — safe to call from both async hooks and sync paho-mqtt
+        callbacks running in a background thread.
 
         Args:
             topic (str): MQTT topic
             data (bytes): MQTT payload
         """
         if self._manager:
-            await self._manager.send_mqtt_to_device(topic, data)
+            self._manager.send_mqtt_to_device(topic, data)
 
     # ── WebSocket ───────────────────────────────────────────────
 

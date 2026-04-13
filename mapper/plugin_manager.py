@@ -605,17 +605,22 @@ class PluginManager:
                 cfg = getattr(local_node, cfg_attr, None)
                 if cfg and hasattr(cfg, section):
                     section_msg = getattr(cfg, section)
-                    return MessageToDict(section_msg)
+                    return MessageToDict(
+                        section_msg,
+                        preserving_proto_field_name=True,
+                        including_default_value_fields=True
+                    )
             return {}
         except Exception as e:
             print(f"[PLUGINS] get_tracker_config error: {e}")
             return {}
 
-    async def send_mqtt_to_device(self, topic, data):
+    def send_mqtt_to_device(self, topic, data):
         """Send MQTT downlink message to the mesh device.
 
         Builds a ToRadio protobuf with mqttClientProxyMessage and sends it
-        to the radio via _sendToRadio.
+        to the radio via _sendToRadio. Synchronous — safe to call from
+        both async hooks and sync paho-mqtt callbacks.
 
         Args:
             topic (str): MQTT topic
