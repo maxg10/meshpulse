@@ -419,7 +419,7 @@ class PluginManager:
 
     # ── Hook Dispatch ───────────────────────────────────────────
 
-    async def dispatch_hook(self, hook_name, data):
+    async def dispatch_hook(self, hook_name, *args):
         """Call a hook on all enabled plugins that implement it.
 
         Uses asyncio.gather with return_exceptions=True so one failing
@@ -427,7 +427,8 @@ class PluginManager:
 
         Args:
             hook_name (str): Hook method name e.g. 'on_message'
-            data (dict): Data to pass to the hook
+            *args: Arguments to pass to the hook (one dict for most hooks,
+                   two args for on_mqtt_proxy: topic, data)
         """
         if not self.plugins:
             return
@@ -438,19 +439,19 @@ class PluginManager:
             if method and callable(method):
                 # Only dispatch if the method is actually overridden
                 if type(plugin).__dict__.get(hook_name) is not None:
-                    tasks.append(self._safe_call(plugin_id, hook_name, method, data))
+                    tasks.append(self._safe_call(plugin_id, hook_name, method, *args))
 
         if tasks:
             await asyncio.gather(*tasks)
 
-    async def _safe_call(self, plugin_id, hook_name, method, data):
+    async def _safe_call(self, plugin_id, hook_name, method, *args):
         """Call a plugin hook method with exception handling."""
         try:
-            await method(data)
+            await method(*args)
         except Exception as e:
             print(f"[PLUGIN:{plugin_id}] Error in {hook_name}: {e}")
 
-    def dispatch_hook_sync(self, hook_name, data):
+    def dispatch_hook_sync(self, hook_name, *args):
         """Synchronous wrapper for dispatch_hook.
 
         Used in parsers alongside asyncio.run() broadcasts.
@@ -458,18 +459,18 @@ class PluginManager:
 
         Args:
             hook_name (str): Hook method name
-            data (dict): Data to pass to the hook
+            *args: Arguments to pass to the hook
         """
         if not self.plugins:
             return
         try:
             loop = asyncio.get_event_loop()
             if loop.is_running():
-                asyncio.ensure_future(self.dispatch_hook(hook_name, data))
+                asyncio.ensure_future(self.dispatch_hook(hook_name, *args))
             else:
-                loop.run_until_complete(self.dispatch_hook(hook_name, data))
+                loop.run_until_complete(self.dispatch_hook(hook_name, *args))
         except RuntimeError:
-            asyncio.run(self.dispatch_hook(hook_name, data))
+            asyncio.run(self.dispatch_hook(hook_name, *args))
 
     # ── WebSocket Channels ──────────────────────────────────────
 
@@ -634,49 +635,6 @@ class PluginManager:
             raw._sendToRadio(to_radio)
         except Exception as e:
             print(f"[PLUGINS] send_mqtt_to_device error: {e}")
-
-    def dispatch_mqtt_proxy_sync(self, packet):
-        """Dispatch on_mqtt_proxy hook from a pubsub MQTT proxy event.
-
-        Extracts topic and data from the MqttClientProxyMessage protobuf
-        and calls on_mqtt_proxy on all plugins that override it.
-
-        Args:
-            packet: MqttClientProxyMessage protobuf object
-        """
-        if not self.plugins:
-            return
-        try:
-            topic = getattr(packet, 'topic', '')
-            data = getattr(packet, 'data', b'')
-        except Exception:
-            topic, data = '', b''
-
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                asyncio.ensure_future(self._dispatch_mqtt_proxy(topic, data))
-            else:
-                loop.run_until_complete(self._dispatch_mqtt_proxy(topic, data))
-        except RuntimeError:
-            asyncio.run(self._dispatch_mqtt_proxy(topic, data))
-
-    async def _dispatch_mqtt_proxy(self, topic, data):
-        """Async helper — calls on_mqtt_proxy(topic, data) on subscribed plugins."""
-        tasks = []
-        for plugin_id, plugin in self.plugins.items():
-            if type(plugin).__dict__.get('on_mqtt_proxy') is not None:
-                tasks.append(self._safe_call_two(
-                    plugin_id, 'on_mqtt_proxy', plugin.on_mqtt_proxy, topic, data))
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-    async def _safe_call_two(self, plugin_id, hook_name, method, arg1, arg2):
-        """Call a two-argument plugin hook with exception handling."""
-        try:
-            await method(arg1, arg2)
-        except Exception as e:
-            print(f"[PLUGIN:{plugin_id}] Error in {hook_name}: {e}")
 
     # ── Plugin Listing ──────────────────────────────────────────
 

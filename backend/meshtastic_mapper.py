@@ -145,10 +145,11 @@ class TCPMeshtasticInterface:
                 except Exception as e:
                     print(f"[TCP] Packet callback error: {e}")
 
-        def _on_mqtt_proxy(packet, interface):
-            if interface is iface_ref[0]:
-                if plugin_manager and plugin_manager.plugins:
-                    plugin_manager.dispatch_mqtt_proxy_sync(packet)
+        def _on_mqtt_proxy(**kwargs):
+            proxymessage = kwargs.get('proxymessage')
+            if proxymessage and plugin_manager and plugin_manager.plugins:
+                plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
+                                                  proxymessage.topic, proxymessage.data)
 
         self._on_receive_ref = _on_receive
         self._on_mqtt_proxy_ref = _on_mqtt_proxy
@@ -235,10 +236,11 @@ class SerialMeshtasticInterface:
                 except Exception as e:
                     print(f"[SERIAL] Packet callback error: {e}")
 
-        def _on_mqtt_proxy(packet, interface):
-            if interface is iface_ref[0]:
-                if plugin_manager and plugin_manager.plugins:
-                    plugin_manager.dispatch_mqtt_proxy_sync(packet)
+        def _on_mqtt_proxy(**kwargs):
+            proxymessage = kwargs.get('proxymessage')
+            if proxymessage and plugin_manager and plugin_manager.plugins:
+                plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
+                                                  proxymessage.topic, proxymessage.data)
 
         self._on_receive_ref = _on_receive
         self._on_mqtt_proxy_ref = _on_mqtt_proxy
