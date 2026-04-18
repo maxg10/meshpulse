@@ -628,6 +628,7 @@ class ListenBasedMapper:
         self.current_process = None
         self._serial_iface = None
         self._tcp_iface = None
+        self._cli_reboot_pending = False
         self._pending_traceroute_result = None
         self.config = {}  # Populated with load_config() after construction
         self.json_path = '/var/www/html/meshtastic/nodes.json'
@@ -2861,10 +2862,13 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                if self._serial_iface is None:
-                    # Serial was intentionally closed (e.g., by CLI subprocess)
-                    print("[WAIT] Serial was released by CLI, retrying in 3 seconds...")
-                    time.sleep(3)
+                if self._cli_reboot_pending:
+                    print("[WAIT] Device rebooting after CLI config change, waiting 20 seconds...")
+                    time.sleep(20)
+                    self._cli_reboot_pending = False
+                elif self._serial_iface is None:
+                    print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
+                    time.sleep(5)
                 else:
                     print("[WAIT] Retrying in 10 seconds...")
                     time.sleep(10)
@@ -3112,10 +3116,13 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                if self._serial_iface is None:
-                    # Serial was intentionally closed (e.g., by CLI subprocess)
-                    print("[WAIT] Serial was released by CLI, retrying in 3 seconds...")
-                    time.sleep(3)
+                if self._cli_reboot_pending:
+                    print("[WAIT] Device rebooting after CLI config change, waiting 20 seconds...")
+                    time.sleep(20)
+                    self._cli_reboot_pending = False
+                elif self._serial_iface is None:
+                    print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
+                    time.sleep(5)
                 else:
                     print("[WAIT] Retrying in 10 seconds...")
                     time.sleep(10)
@@ -3863,6 +3870,8 @@ async def websocket_handler(websocket):
                                         if reboot and '--reboot' not in set_args:
                                             cmd.append('--reboot')
                                         print(f"[CONFIG] Running: {' '.join(cmd)}")
+                                        if reboot:
+                                            mapper._cli_reboot_pending = True
                                         r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
                                         if r.returncode != 0:
                                             raise Exception(r.stderr.strip() or r.stdout.strip() or 'Config set failed')
