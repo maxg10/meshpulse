@@ -2664,6 +2664,12 @@ class ListenBasedMapper:
                     nodes_list.append(tracker_entry)
                 else:
                     nodes_no_pos_list.append(tracker_entry)
+            else:
+                # Update role on existing tracker node (may have changed since last run)
+                if self.local_node_id in self.nodes:
+                    self.nodes[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
+                elif self.local_node_id in self.nodes_no_position:
+                    self.nodes_no_position[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
 
             # Get relay stats for map visualization
             try:
