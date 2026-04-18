@@ -3783,17 +3783,35 @@ async def websocket_handler(websocket):
                                 lat = data.get('lat', 0)
                                 lon = data.get('lon', 0)
                                 alt = data.get('alt', 0)
-                                iface.localNode.setFixedPosition(lat, lon, alt)
+                                await asyncio.wait_for(
+                                    asyncio.to_thread(iface.localNode.setFixedPosition, lat, lon, alt),
+                                    timeout=30
+                                )
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
                                 print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
+                            else:
+                                await websocket.send(json.dumps({
+                                    'type': 'fixed_position_result',
+                                    'success': False,
+                                    'error': 'No active device interface'
+                                }, ensure_ascii=False))
+                                print("[CONFIG] set_fixed_position failed: no active interface")
+                        except asyncio.TimeoutError:
+                            await websocket.send(json.dumps({
+                                'type': 'fixed_position_result',
+                                'success': False,
+                                'error': 'Timeout setting position (30s)'
+                            }, ensure_ascii=False))
+                            print("[CONFIG] set_fixed_position timeout after 30s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
                                 'success': False, 'error': str(e)
                             }, ensure_ascii=False))
+                            print(f"[CONFIG] set_fixed_position error: {e}")
 
                 elif data.get('type') == 'clear_fixed_position':
                     if mapper:
@@ -3804,17 +3822,35 @@ async def websocket_handler(websocket):
                             elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
                                 iface = mapper._tcp_iface
                             if iface:
-                                iface.localNode.removeFixedPosition()
+                                await asyncio.wait_for(
+                                    asyncio.to_thread(iface.localNode.removeFixedPosition),
+                                    timeout=30
+                                )
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
-                                print(f"[CONFIG] Fixed position cleared")
+                                print("[CONFIG] Fixed position cleared")
+                            else:
+                                await websocket.send(json.dumps({
+                                    'type': 'clear_position_result',
+                                    'success': False,
+                                    'error': 'No active device interface'
+                                }, ensure_ascii=False))
+                                print("[CONFIG] clear_fixed_position failed: no active interface")
+                        except asyncio.TimeoutError:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_position_result',
+                                'success': False,
+                                'error': 'Timeout clearing position (30s)'
+                            }, ensure_ascii=False))
+                            print("[CONFIG] clear_fixed_position timeout after 30s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
                                 'success': False, 'error': str(e)
                             }, ensure_ascii=False))
+                            print(f"[CONFIG] clear_fixed_position error: {e}")
 
                 elif data.get('type') == 'get_favorites':
                     try:
