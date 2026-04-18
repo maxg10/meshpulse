@@ -2861,8 +2861,13 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                print("[WAIT] Retrying in 10 seconds...")
-                time.sleep(10)
+                if self._serial_iface is None:
+                    # Serial was intentionally closed (e.g., by CLI subprocess)
+                    print("[WAIT] Serial was released by CLI, retrying in 3 seconds...")
+                    time.sleep(3)
+                else:
+                    print("[WAIT] Retrying in 10 seconds...")
+                    time.sleep(10)
                 restart_count += 1
 
             finally:
@@ -3107,8 +3112,13 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                print("[WAIT] Retrying in 10 seconds...")
-                time.sleep(10)
+                if self._serial_iface is None:
+                    # Serial was intentionally closed (e.g., by CLI subprocess)
+                    print("[WAIT] Serial was released by CLI, retrying in 3 seconds...")
+                    time.sleep(3)
+                else:
+                    print("[WAIT] Retrying in 10 seconds...")
+                    time.sleep(10)
                 restart_count += 1
 
             finally:
@@ -3858,13 +3868,9 @@ async def websocket_handler(websocket):
                                             raise Exception(r.stderr.strip() or r.stdout.strip() or 'Config set failed')
                                 finally:
                                     if conn_type == 'serial':
-                                        print("[CONFIG] Reconnecting serial after CLI...")
-                                        try:
-                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
-                                            mapper._serial_iface = serial_iface
-                                            print("[CONFIG] Serial reconnected")
-                                        except Exception as re:
-                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
 
                             print(f"[CONFIG] Applying config via CLI: {applied}, reboot={reboot}")
                             await asyncio.wait_for(
@@ -3931,13 +3937,9 @@ async def websocket_handler(websocket):
                                     return result
                                 finally:
                                     if conn_type == 'serial':
-                                        print("[CONFIG] Reconnecting serial after CLI...")
-                                        try:
-                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
-                                            mapper._serial_iface = serial_iface
-                                            print("[CONFIG] Serial reconnected")
-                                        except Exception as re:
-                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
 
                             print(f"[CONFIG] Setting fixed position via CLI: {lat}, {lon}, {alt}m")
                             result = await asyncio.wait_for(
@@ -3996,13 +3998,9 @@ async def websocket_handler(websocket):
                                     return result
                                 finally:
                                     if conn_type == 'serial':
-                                        print("[CONFIG] Reconnecting serial after CLI...")
-                                        try:
-                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
-                                            mapper._serial_iface = serial_iface
-                                            print("[CONFIG] Serial reconnected")
-                                        except Exception as re:
-                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
 
                             print("[CONFIG] Clearing fixed position via CLI...")
                             result = await asyncio.wait_for(
