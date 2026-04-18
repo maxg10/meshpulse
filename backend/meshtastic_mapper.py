@@ -2646,7 +2646,7 @@ class ListenBasedMapper:
                 tracker_entry = {
                     'id': self.local_node_id,
                     'name': self.tracker_info.get('long_name') or self.tracker_info.get('node_id', self.local_node_id),
-                    'role': self.tracker_info.get('role', 'ROUTER'),
+                    'role': self.tracker_info.get('role', 'CLIENT'),
                     'ts': int(time.time()),
                     'seen_at': int(time.time()),
                     'source': 'live',
@@ -2740,8 +2740,10 @@ class ListenBasedMapper:
                                         4: 'TRACKER', 5: 'SENSOR', 6: 'REPEATER', 7: 'TAK',
                                         8: 'TAK_TRACKER', 9: 'LOST_AND_FOUND', 11: 'ROUTER_LATE'}
                             tracker_role = role_map.get(int(role_int), 'CLIENT')
+                            self.tracker_info['role'] = tracker_role
                         except Exception:
                             tracker_role = node_info.get('user', {}).get('role', 'CLIENT')
+                            self.tracker_info['role'] = tracker_role
                         try:
                             if lat and lon and not (lat == 0 and lon == 0):
                                 self.tracker_info['lat'] = round(lat, 6)
@@ -2994,8 +2996,10 @@ class ListenBasedMapper:
                                     4: 'TRACKER', 5: 'SENSOR', 6: 'REPEATER', 7: 'TAK',
                                     8: 'TAK_TRACKER', 9: 'LOST_AND_FOUND', 11: 'ROUTER_LATE'}
                         tracker_role = role_map.get(int(role_int), 'CLIENT')
+                        self.tracker_info['role'] = tracker_role
                     except Exception:
                         tracker_role = my_info.get('user', {}).get('role', 'CLIENT')
+                        self.tracker_info['role'] = tracker_role
                     if lat and lon and not (lat == 0 and lon == 0):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)
