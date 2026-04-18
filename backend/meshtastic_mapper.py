@@ -3783,8 +3783,24 @@ async def websocket_handler(websocket):
                                 lat = data.get('lat', 0)
                                 lon = data.get('lon', 0)
                                 alt = data.get('alt', 0)
+                                def _set_fixed_pos(iface, lat, lon, alt):
+                                    from meshtastic import mesh_pb2, admin_pb2
+                                    p = mesh_pb2.Position()
+                                    if isinstance(lat, float) and lat != 0.0:
+                                        p.latitude_i = int(lat / 1e-7)
+                                    elif isinstance(lat, int) and lat != 0:
+                                        p.latitude_i = lat
+                                    if isinstance(lon, float) and lon != 0.0:
+                                        p.longitude_i = int(lon / 1e-7)
+                                    elif isinstance(lon, int) and lon != 0:
+                                        p.longitude_i = lon
+                                    if alt != 0:
+                                        p.altitude = alt
+                                    a = admin_pb2.AdminMessage()
+                                    a.set_fixed_position.CopyFrom(p)
+                                    return iface.localNode._sendAdmin(a, onResponse=None)
                                 await asyncio.wait_for(
-                                    asyncio.to_thread(iface.localNode.setFixedPosition, lat, lon, alt),
+                                    asyncio.to_thread(_set_fixed_pos, iface, lat, lon, alt),
                                     timeout=30
                                 )
                                 await websocket.send(json.dumps({
@@ -3822,8 +3838,13 @@ async def websocket_handler(websocket):
                             elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
                                 iface = mapper._tcp_iface
                             if iface:
+                                def _remove_fixed_pos(iface):
+                                    from meshtastic import admin_pb2
+                                    a = admin_pb2.AdminMessage()
+                                    a.remove_fixed_position = True
+                                    return iface.localNode._sendAdmin(a, onResponse=None)
                                 await asyncio.wait_for(
-                                    asyncio.to_thread(iface.localNode.removeFixedPosition),
+                                    asyncio.to_thread(_remove_fixed_pos, iface),
                                     timeout=30
                                 )
                                 await websocket.send(json.dumps({
