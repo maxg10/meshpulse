@@ -2863,8 +2863,8 @@ class ListenBasedMapper:
                     self.save_nodes()
 
                 if self._cli_reboot_pending:
-                    print("[WAIT] Device rebooting after CLI config change, waiting 20 seconds...")
-                    time.sleep(20)
+                    print("[WAIT] Device rebooting after CLI config change, waiting 35 seconds...")
+                    time.sleep(35)
                     self._cli_reboot_pending = False
                 elif self._serial_iface is None:
                     print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
@@ -3117,8 +3117,8 @@ class ListenBasedMapper:
                     self.save_nodes()
 
                 if self._cli_reboot_pending:
-                    print("[WAIT] Device rebooting after CLI config change, waiting 20 seconds...")
-                    time.sleep(20)
+                    print("[WAIT] Device rebooting after CLI config change, waiting 35 seconds...")
+                    time.sleep(35)
                     self._cli_reboot_pending = False
                 elif self._serial_iface is None:
                     print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
