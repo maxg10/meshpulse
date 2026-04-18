@@ -3798,7 +3798,7 @@ async def websocket_handler(websocket):
                                         p.altitude = alt
                                     a = admin_pb2.AdminMessage()
                                     a.set_fixed_position.CopyFrom(p)
-                                    return iface.localNode._sendAdmin(a, onResponse=None)
+                                    return iface.localNode._sendAdmin(a, wantResponse=False, onResponse=None)
                                 await asyncio.wait_for(
                                     asyncio.to_thread(_set_fixed_pos, iface, lat, lon, alt),
                                     timeout=30
@@ -3842,7 +3842,7 @@ async def websocket_handler(websocket):
                                     from meshtastic import admin_pb2
                                     a = admin_pb2.AdminMessage()
                                     a.remove_fixed_position = True
-                                    return iface.localNode._sendAdmin(a, onResponse=None)
+                                    return iface.localNode._sendAdmin(a, wantResponse=False, onResponse=None)
                                 await asyncio.wait_for(
                                     asyncio.to_thread(_remove_fixed_pos, iface),
                                     timeout=30
