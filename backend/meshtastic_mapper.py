@@ -3774,54 +3774,50 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'set_fixed_position':
                     if mapper:
                         try:
-                            iface = None
-                            if mapper.connection_type == 'serial' and mapper._serial_iface:
-                                iface = mapper._serial_iface.iface
-                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
-                                iface = mapper._tcp_iface
-                            if iface:
-                                lat = data.get('lat', 0)
-                                lon = data.get('lon', 0)
-                                alt = data.get('alt', 0)
-                                def _set_fixed_pos(iface, lat, lon, alt):
-                                    from meshtastic import mesh_pb2, admin_pb2
-                                    p = mesh_pb2.Position()
-                                    if isinstance(lat, float) and lat != 0.0:
-                                        p.latitude_i = int(lat / 1e-7)
-                                    elif isinstance(lat, int) and lat != 0:
-                                        p.latitude_i = lat
-                                    if isinstance(lon, float) and lon != 0.0:
-                                        p.longitude_i = int(lon / 1e-7)
-                                    elif isinstance(lon, int) and lon != 0:
-                                        p.longitude_i = lon
-                                    if alt != 0:
-                                        p.altitude = alt
-                                    a = admin_pb2.AdminMessage()
-                                    a.set_fixed_position.CopyFrom(p)
-                                    return iface.localNode._sendAdmin(a, wantResponse=False, onResponse=None)
-                                await asyncio.wait_for(
-                                    asyncio.to_thread(_set_fixed_pos, iface, lat, lon, alt),
-                                    timeout=30
-                                )
+                            lat = data.get('lat', 0)
+                            lon = data.get('lon', 0)
+                            alt = data.get('alt', 0)
+                            port = mapper.port
+                            conn_type = mapper.connection_type
+
+                            if conn_type == 'serial':
+                                cmd = ['meshtastic', '--port', port,
+                                       '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
+                            elif conn_type == 'tcp':
+                                cmd = ['meshtastic', '--host', mapper.host,
+                                       '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            print(f"[CONFIG] Setting fixed position via CLI: {lat}, {lon}, {alt}m")
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    subprocess.run, cmd,
+                                    capture_output=True, text=True, timeout=60
+                                ),
+                                timeout=65
+                            )
+                            if result.returncode == 0:
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
                                 print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
                             else:
+                                error_msg = result.stderr.strip() or result.stdout.strip() or 'Unknown error'
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': False,
-                                    'error': 'No active device interface'
+                                    'error': error_msg
                                 }, ensure_ascii=False))
-                                print("[CONFIG] set_fixed_position failed: no active interface")
+                                print(f"[CONFIG] Fixed position failed: {error_msg}")
                         except asyncio.TimeoutError:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
                                 'success': False,
-                                'error': 'Timeout setting position (30s)'
+                                'error': 'Timeout setting position (60s)'
                             }, ensure_ascii=False))
-                            print("[CONFIG] set_fixed_position timeout after 30s")
+                            print("[CONFIG] set_fixed_position timeout after 60s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
@@ -3832,40 +3828,45 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'clear_fixed_position':
                     if mapper:
                         try:
-                            iface = None
-                            if mapper.connection_type == 'serial' and mapper._serial_iface:
-                                iface = mapper._serial_iface.iface
-                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
-                                iface = mapper._tcp_iface
-                            if iface:
-                                def _remove_fixed_pos(iface):
-                                    from meshtastic import admin_pb2
-                                    a = admin_pb2.AdminMessage()
-                                    a.remove_fixed_position = True
-                                    return iface.localNode._sendAdmin(a, wantResponse=False, onResponse=None)
-                                await asyncio.wait_for(
-                                    asyncio.to_thread(_remove_fixed_pos, iface),
-                                    timeout=30
-                                )
+                            port = mapper.port
+                            conn_type = mapper.connection_type
+
+                            if conn_type == 'serial':
+                                cmd = ['meshtastic', '--port', port, '--remove-fixed-position']
+                            elif conn_type == 'tcp':
+                                cmd = ['meshtastic', '--host', mapper.host, '--remove-fixed-position']
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            print("[CONFIG] Clearing fixed position via CLI...")
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(
+                                    subprocess.run, cmd,
+                                    capture_output=True, text=True, timeout=60
+                                ),
+                                timeout=65
+                            )
+                            if result.returncode == 0:
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
                                 print("[CONFIG] Fixed position cleared")
                             else:
+                                error_msg = result.stderr.strip() or result.stdout.strip() or 'Unknown error'
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': False,
-                                    'error': 'No active device interface'
+                                    'error': error_msg
                                 }, ensure_ascii=False))
-                                print("[CONFIG] clear_fixed_position failed: no active interface")
+                                print(f"[CONFIG] Clear position failed: {error_msg}")
                         except asyncio.TimeoutError:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
                                 'success': False,
-                                'error': 'Timeout clearing position (30s)'
+                                'error': 'Timeout clearing position (60s)'
                             }, ensure_ascii=False))
-                            print("[CONFIG] clear_fixed_position timeout after 30s")
+                            print("[CONFIG] clear_fixed_position timeout after 60s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
