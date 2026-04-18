@@ -3745,32 +3745,152 @@ async def websocket_handler(websocket):
                     if mapper:
                         changes = data.get('changes', {})
                         reboot = data.get('reboot', False)
+                        applied = []
                         try:
-                            print(f"[CONFIG] Applying config changes: {list(changes.keys())}, reboot={reboot}")
-                            result = await asyncio.wait_for(
-                                asyncio.to_thread(mapper.apply_device_config, changes, reboot),
-                                timeout=60
+                            conn_type = mapper.connection_type
+                            if conn_type == 'serial':
+                                base_cmd = [mapper.meshtastic_cmd, '--port', mapper.port]
+                            elif conn_type == 'tcp':
+                                base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            set_args = []
+                            owner_args = []
+
+                            if 'user' in changes:
+                                u = changes['user']
+                                if 'long_name' in u:
+                                    owner_args.extend(['--set-owner', u['long_name']])
+                                    applied.append('user.long_name')
+                                if 'short_name' in u:
+                                    owner_args.extend(['--set-owner-short', u['short_name']])
+                                    applied.append('user.short_name')
+
+                            section_map = {
+                                'device': 'device',
+                                'position': 'position',
+                                'lora': 'lora',
+                                'telemetry': 'telemetry',
+                                'network': 'network',
+                                'bluetooth': 'bluetooth',
+                                'power': 'power',
+                                'display': 'display',
+                            }
+
+                            enum_fields = {
+                                'device.role': {0: 'CLIENT', 1: 'CLIENT_MUTE', 2: 'ROUTER', 3: 'ROUTER_CLIENT', 4: 'REPEATER', 5: 'TRACKER', 6: 'SENSOR', 7: 'TAK', 8: 'CLIENT_HIDDEN', 9: 'LOST_AND_FOUND', 10: 'TAK_TRACKER'},
+                                'device.rebroadcast_mode': {0: 'ALL', 1: 'ALL_SKIP_DECODING', 2: 'LOCAL_ONLY', 3: 'KNOWN_ONLY', 4: 'NONE'},
+                                'lora.modem_preset': {0: 'LONG_FAST', 1: 'LONG_SLOW', 2: 'VERY_LONG_SLOW', 3: 'MEDIUM_SLOW', 4: 'MEDIUM_FAST', 5: 'SHORT_SLOW', 6: 'SHORT_FAST', 7: 'LONG_MODERATE'},
+                                'lora.region': {0: 'UNSET', 1: 'US', 2: 'EU_433', 3: 'EU_868', 4: 'CN', 5: 'JP', 6: 'ANZ', 7: 'KR', 8: 'TW', 9: 'RU', 10: 'IN', 11: 'NZ_865', 12: 'TH', 13: 'LORA_24', 14: 'UA_433', 15: 'UA_868', 16: 'MY_433', 17: 'MY_919', 18: 'SG_923'},
+                                'display.gps_format': {0: 'DEC', 1: 'DMS', 2: 'UTM', 3: 'MGRS', 4: 'OLC', 5: 'OSGR'},
+                                'display.units': {0: 'METRIC', 1: 'IMPERIAL'},
+                                'display.oled': {0: 'AUTO', 1: 'SSD1306', 2: 'SH1106', 3: 'SH1107'},
+                                'display.displaymode': {0: 'DEFAULT', 1: 'TWOCOLOR', 2: 'INVERTED', 3: 'COLOR'},
+                                'network.address_mode': {0: 'DHCP', 1: 'STATIC'},
+                            }
+
+                            for section, cli_section in section_map.items():
+                                if section in changes:
+                                    for key, val in changes[section].items():
+                                        full_key = f'{cli_section}.{key}'
+                                        if full_key in enum_fields:
+                                            int_val = int(val) if isinstance(val, str) else val
+                                            val = enum_fields[full_key].get(int_val, str(val))
+                                        elif isinstance(val, bool):
+                                            val = 'true' if val else 'false'
+                                        set_args.extend(['--set', full_key, str(val)])
+                                        applied.append(full_key)
+
+                            module_section_map = {
+                                'neighborinfo': 'neighborinfo',
+                                'store_forward': 'store_forward',
+                                'ext_notification': 'ext_notification',
+                                'range_test': 'range_test',
+                                'canned_message': 'canned_message',
+                                'paxcounter': 'paxcounter',
+                                'serial_module': 'serial',
+                            }
+
+                            for section, cli_section in module_section_map.items():
+                                if section in changes:
+                                    for key, val in changes[section].items():
+                                        full_key = f'{cli_section}.{key}'
+                                        if isinstance(val, bool):
+                                            val = 'true' if val else 'false'
+                                        set_args.extend(['--set', full_key, str(val)])
+                                        applied.append(full_key)
+
+                            if not set_args and not owner_args:
+                                if reboot:
+                                    set_args = ['--reboot']
+                                    applied.append('reboot')
+                                else:
+                                    await websocket.send(json.dumps({
+                                        'type': 'config_saved',
+                                        'success': True,
+                                        'rebooting': False,
+                                        'applied': []
+                                    }, ensure_ascii=False))
+                                    continue
+
+                            def _run_set_config():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    if owner_args:
+                                        cmd = base_cmd + owner_args
+                                        print(f"[CONFIG] Running: {' '.join(cmd)}")
+                                        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                        if r.returncode != 0:
+                                            raise Exception(r.stderr.strip() or r.stdout.strip() or 'Owner set failed')
+
+                                    if set_args:
+                                        cmd = base_cmd + set_args
+                                        if reboot and '--reboot' not in set_args:
+                                            cmd.append('--reboot')
+                                        print(f"[CONFIG] Running: {' '.join(cmd)}")
+                                        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                        if r.returncode != 0:
+                                            raise Exception(r.stderr.strip() or r.stdout.strip() or 'Config set failed')
+                                finally:
+                                    if conn_type == 'serial':
+                                        print("[CONFIG] Reconnecting serial after CLI...")
+                                        try:
+                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
+                                            mapper._serial_iface = serial_iface
+                                            print("[CONFIG] Serial reconnected")
+                                        except Exception as re:
+                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+
+                            print(f"[CONFIG] Applying config via CLI: {applied}, reboot={reboot}")
+                            await asyncio.wait_for(
+                                asyncio.to_thread(_run_set_config),
+                                timeout=90
                             )
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
-                                'rebooting': reboot or 'mqtt' in result,
-                                'applied': result
+                                'rebooting': reboot,
+                                'applied': applied
                             }, ensure_ascii=False))
-                            print(f"[CONFIG] Config saved: {result}")
+                            print(f"[CONFIG] Config saved via CLI: {applied}")
                         except asyncio.TimeoutError:
-                            print("[CONFIG] apply_device_config timeout after 60s")
+                            print("[CONFIG] set_config timeout after 90s")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': False,
-                                'error': 'Timeout applying config (60s) — device may need restart'
+                                'error': 'Timeout applying config (90s)'
                             }, ensure_ascii=False))
                         except (BrokenPipeError, OSError) as e:
                             print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
-                                'applied': [],
+                                'applied': applied,
                                 'rebooting': True,
                                 'warning': 'Device disconnected — config likely saved, device may be rebooting'
                             }, ensure_ascii=False))
