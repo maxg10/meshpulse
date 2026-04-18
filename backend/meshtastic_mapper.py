@@ -3746,15 +3746,26 @@ async def websocket_handler(websocket):
                         changes = data.get('changes', {})
                         reboot = data.get('reboot', False)
                         try:
-                            result = mapper.apply_device_config(changes, reboot)
+                            print(f"[CONFIG] Applying config changes: {list(changes.keys())}, reboot={reboot}")
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(mapper.apply_device_config, changes, reboot),
+                                timeout=60
+                            )
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
                                 'rebooting': reboot or 'mqtt' in result,
                                 'applied': result
                             }, ensure_ascii=False))
+                            print(f"[CONFIG] Config saved: {result}")
+                        except asyncio.TimeoutError:
+                            print("[CONFIG] apply_device_config timeout after 60s")
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': False,
+                                'error': 'Timeout applying config (60s) — device may need restart'
+                            }, ensure_ascii=False))
                         except (BrokenPipeError, OSError) as e:
-                            # Device disconnected after reboot — this is expected
                             print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
