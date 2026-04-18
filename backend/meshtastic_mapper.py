@@ -4477,7 +4477,7 @@ async def websocket_handler(websocket):
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
-    async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None):
         await asyncio.Future()  # Run forever
 
 
