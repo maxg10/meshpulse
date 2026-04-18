@@ -3781,10 +3781,10 @@ async def websocket_handler(websocket):
                             conn_type = mapper.connection_type
 
                             if conn_type == 'serial':
-                                cmd = ['meshtastic', '--port', port,
+                                cmd = [mapper.meshtastic_cmd, '--port', port,
                                        '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
                             elif conn_type == 'tcp':
-                                cmd = ['meshtastic', '--host', mapper.host,
+                                cmd = [mapper.meshtastic_cmd, '--host', mapper.host,
                                        '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
                             else:
                                 raise Exception(f'Unsupported connection type: {conn_type}')
@@ -3832,9 +3832,9 @@ async def websocket_handler(websocket):
                             conn_type = mapper.connection_type
 
                             if conn_type == 'serial':
-                                cmd = ['meshtastic', '--port', port, '--remove-fixed-position']
+                                cmd = [mapper.meshtastic_cmd, '--port', port, '--remove-fixed-position']
                             elif conn_type == 'tcp':
-                                cmd = ['meshtastic', '--host', mapper.host, '--remove-fixed-position']
+                                cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--remove-fixed-position']
                             else:
                                 raise Exception(f'Unsupported connection type: {conn_type}')
 
