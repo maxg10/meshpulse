@@ -3777,10 +3777,10 @@ async def websocket_handler(websocket):
                             lat = data.get('lat', 0)
                             lon = data.get('lon', 0)
                             alt = data.get('alt', 0)
-                            port = mapper.port
                             conn_type = mapper.connection_type
 
                             if conn_type == 'serial':
+                                port = mapper.port
                                 cmd = [mapper.meshtastic_cmd, '--port', port,
                                        '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
                             elif conn_type == 'tcp':
@@ -3789,13 +3789,29 @@ async def websocket_handler(websocket):
                             else:
                                 raise Exception(f'Unsupported connection type: {conn_type}')
 
+                            def _run_set_position():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                    return result
+                                finally:
+                                    if conn_type == 'serial':
+                                        print("[CONFIG] Reconnecting serial after CLI...")
+                                        try:
+                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
+                                            mapper._serial_iface = serial_iface
+                                            print("[CONFIG] Serial reconnected")
+                                        except Exception as re:
+                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+
                             print(f"[CONFIG] Setting fixed position via CLI: {lat}, {lon}, {alt}m")
                             result = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    subprocess.run, cmd,
-                                    capture_output=True, text=True, timeout=60
-                                ),
-                                timeout=65
+                                asyncio.to_thread(_run_set_position),
+                                timeout=90
                             )
                             if result.returncode == 0:
                                 await websocket.send(json.dumps({
@@ -3815,9 +3831,9 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
                                 'success': False,
-                                'error': 'Timeout setting position (60s)'
+                                'error': 'Timeout setting position (90s)'
                             }, ensure_ascii=False))
-                            print("[CONFIG] set_fixed_position timeout after 60s")
+                            print("[CONFIG] set_fixed_position timeout after 90s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
@@ -3828,23 +3844,39 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'clear_fixed_position':
                     if mapper:
                         try:
-                            port = mapper.port
                             conn_type = mapper.connection_type
 
                             if conn_type == 'serial':
+                                port = mapper.port
                                 cmd = [mapper.meshtastic_cmd, '--port', port, '--remove-fixed-position']
                             elif conn_type == 'tcp':
                                 cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--remove-fixed-position']
                             else:
                                 raise Exception(f'Unsupported connection type: {conn_type}')
 
+                            def _run_clear_position():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                    return result
+                                finally:
+                                    if conn_type == 'serial':
+                                        print("[CONFIG] Reconnecting serial after CLI...")
+                                        try:
+                                            serial_iface = SerialMeshtasticInterface(port=mapper.port)
+                                            mapper._serial_iface = serial_iface
+                                            print("[CONFIG] Serial reconnected")
+                                        except Exception as re:
+                                            print(f"[CONFIG] Serial reconnect failed (will auto-retry): {re}")
+
                             print("[CONFIG] Clearing fixed position via CLI...")
                             result = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    subprocess.run, cmd,
-                                    capture_output=True, text=True, timeout=60
-                                ),
-                                timeout=65
+                                asyncio.to_thread(_run_clear_position),
+                                timeout=90
                             )
                             if result.returncode == 0:
                                 await websocket.send(json.dumps({
@@ -3864,9 +3896,9 @@ async def websocket_handler(websocket):
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
                                 'success': False,
-                                'error': 'Timeout clearing position (60s)'
+                                'error': 'Timeout clearing position (90s)'
                             }, ensure_ascii=False))
-                            print("[CONFIG] clear_fixed_position timeout after 60s")
+                            print("[CONFIG] clear_fixed_position timeout after 90s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
