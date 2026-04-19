@@ -211,6 +211,3 @@ class MqttProxyPlugin(MeshPlugin):
 
         except Exception as e:
             print(f"[MQTT-PROXY] Uplink error: {e}")
-
-
-MeshPlugin.register(MqttProxyPlugin)

@@ -605,11 +605,10 @@ class PluginManager:
                 cfg = getattr(local_node, cfg_attr, None)
                 if cfg and hasattr(cfg, section):
                     section_msg = getattr(cfg, section)
-                    return MessageToDict(
-                        section_msg,
-                        preserving_proto_field_name=True,
-                        including_default_value_fields=True
-                    )
+                    try:
+                        return MessageToDict(section_msg, preserving_proto_field_name=True, always_print_fields_with_no_presence=True)
+                    except TypeError:
+                        return MessageToDict(section_msg, preserving_proto_field_name=True, including_default_value_fields=True)
             return {}
         except Exception as e:
             print(f"[PLUGINS] get_tracker_config error: {e}")
