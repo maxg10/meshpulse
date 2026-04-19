@@ -1,0 +1,53 @@
+{
+    "id": "maxg10/mqtt-proxy",
+    "name": "MQTT Proxy",
+    "version": "1.0.0",
+    "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker.",
+    "author": {
+        "name": "Mariusz Gieparda",
+        "email": "mgieparda@yahoo.com",
+        "url": "https://github.com/maxg10"
+    },
+    "license": "MIT",
+    "compatibility": {
+        "min_mapper_version": "2.2.0",
+        "tested_up_to": "2.3.0"
+    },
+    "permissions": [
+        "mesh_receive",
+        "mesh_send"
+    ],
+    "backend": {
+        "entry_point": "backend/main.py",
+        "requirements": "requirements.txt"
+    },
+    "frontend": null,
+    "hooks": [
+        "on_enable",
+        "on_disable",
+        "on_mqtt_proxy"
+    ],
+    "api_routes": [],
+    "websocket_channels": [],
+    "dependencies": [],
+    "config": {
+        "auto_connect": {
+            "type": "boolean",
+            "default": true,
+            "title": "Auto Connect",
+            "description": "Automatically connect to MQTT broker when plugin is enabled"
+        },
+        "log_traffic": {
+            "type": "boolean",
+            "default": false,
+            "title": "Log Traffic",
+            "description": "Log uplink/downlink messages to console (verbose)"
+        },
+        "reconnect_interval": {
+            "type": "number",
+            "default": 30,
+            "title": "Reconnect Interval",
+            "description": "Seconds to wait before reconnecting after disconnect"
+        }
+    }
+}
