@@ -1122,6 +1122,30 @@
             Loading plugins...
         </div>
     </div>
+
+    <!-- Plugin Store -->
+    <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <span>🛒 Plugin Store</span>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <input type="text" id="store-url-input"
+                    value="https://meshtastic.world/plugins/plugins.json"
+                    style="width:270px;padding:4px 8px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:11px"
+                    placeholder="Store URL">
+                <button onclick="loadPluginStore(true)"
+                    style="font-size:11px;padding:4px 12px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+        <div id="store-plugins-list" style="margin-top:12px;color:#9ca3af;font-size:13px">
+            <div style="text-align:center;padding:20px;color:#6b7280">
+                <div style="font-size:24px;margin-bottom:8px">🛒</div>
+                <div>Click Refresh to browse available plugins</div>
+            </div>
+        </div>
+    </div>
+
     <div id="plugin-settings-area"></div>
 </div>
 
@@ -1817,6 +1841,13 @@ function connectWS() {
             } else {
                 showAlert('❌ ' + (d.error || 'Save failed'), 'error');
             }
+        } else if (d.type === 'store_plugins') {
+            if (d.success) {
+                renderStorePlugins(d.plugins, d.store_url);
+            } else {
+                var sc = document.getElementById('store-plugins-list');
+                if (sc) sc.innerHTML = '<div style="color:#ef4444;padding:12px">⚠️ Failed to load store: ' + escHtml(d.error || 'Unknown error') + '</div>';
+            }
         } else if (d.type === 'plugin_config_updated') {
             // Refresh plugin list to show updated config values
             loadPluginsList();
@@ -2096,7 +2127,7 @@ function switchTab(name, el) {
     location.hash = name;
     if (name === 'favorites') loadFavorites();
     if (name === 'device') loadIgnoredNodes();
-    if (name === 'plugins') loadPluginsList();
+    if (name === 'plugins') { loadPluginsList(); if (!_storeLoaded) loadPluginStore(); }
 }
 
 // Restore tab from URL hash on load
@@ -2269,6 +2300,93 @@ function savePluginConfigField(pluginId, key, value) {
         ws.send(JSON.stringify({
             type: 'save_plugin_config', plugin_id: pluginId, config: config
         }));
+    }
+}
+
+// ── Plugin Store ──────────────────────────────────────────────
+var _installedPluginsCache = [];
+var _storeLoaded = false;
+
+// Keep installed cache in sync so Store can compare versions
+var _origRenderPluginsList = null;
+(function() {
+    var _orig = window.renderPluginsList;
+    if (_orig) window.renderPluginsList = function(plugins) {
+        _installedPluginsCache = plugins || [];
+        _orig(plugins);
+    };
+})();
+
+function loadPluginStore(force) {
+    if (!force && _storeLoaded) return;
+    var urlEl = document.getElementById('store-url-input');
+    var url = (urlEl ? urlEl.value.trim() : '') || 'https://meshtastic.world/plugins/plugins.json';
+    var container = document.getElementById('store-plugins-list');
+    if (container) container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">⏳ Loading from store...</div>';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'fetch_store_plugins', url: url}));
+    } else {
+        if (container) container.innerHTML = '<div style="color:#ef4444;text-align:center;padding:12px">Not connected to mapper</div>';
+    }
+}
+
+function renderStorePlugins(plugins, storeUrl) {
+    var container = document.getElementById('store-plugins-list');
+    if (!container) return;
+    _storeLoaded = true;
+    var urlEl = document.getElementById('store-url-input');
+    if (urlEl && storeUrl) urlEl.value = storeUrl;
+
+    if (!plugins || plugins.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">No plugins in store</div>';
+        return;
+    }
+
+    var installedMap = {};
+    _installedPluginsCache.forEach(function(p) { installedMap[p.id] = p.version || ''; });
+
+    container.innerHTML = plugins.map(function(p) {
+        var instVer = installedMap[p.id];
+        var typeBadge = (p.type === 'backend')
+            ? '<span style="background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:3px;font-size:9px">Backend</span>'
+            : '<span style="background:#2e1a4a;color:#c4b5fd;padding:1px 5px;border-radius:3px;font-size:9px">Frontend</span>';
+        var actionBtn;
+        if (instVer === undefined) {
+            actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
+                'style="font-size:11px;padding:3px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer">📦 Install</button>';
+        } else if (isNewerVersion(p.version, instVer)) {
+            actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
+                'style="font-size:11px;padding:3px 10px;background:#d97706;color:#fff;border:none;border-radius:4px;cursor:pointer">⬆️ Update v' + escHtml(p.version) + '</button>';
+        } else {
+            actionBtn = '<span style="font-size:11px;color:#22c55e;font-weight:600">✓ Installed v' + escHtml(instVer) + '</span>';
+        }
+        var authorStr = (p.author && p.author.name) ? p.author.name : (p.author || 'Unknown');
+        return '<div style="border:1px solid #374151;border-radius:8px;padding:12px;margin-bottom:10px;background:#111827">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+                '<div style="display:flex;align-items:center;gap:8px">' +
+                    '<span style="font-size:20px">' + (p.icon || '🔌') + '</span>' +
+                    '<div>' +
+                        '<strong style="color:#f9fafb;font-size:13px">' + escHtml(p.name) + '</strong>' +
+                        ' <span style="color:#6b7280;font-size:11px">v' + escHtml(p.version) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div>' + actionBtn + '</div>' +
+            '</div>' +
+            '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || '') + '</div>' +
+            '<div style="margin-top:6px;font-size:11px;color:#6b7280">' +
+                'By ' + escHtml(authorStr) + ' · ' + typeBadge +
+                (p.category ? ' · <span style="color:#f59e0b">' + escHtml(p.category) + '</span>' : '') +
+                (p.min_mapper_version ? ' · requires v' + escHtml(p.min_mapper_version) + '+' : '') +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function installFromStore(downloadUrl, pluginId, pluginName) {
+    if (!confirm('📦 Install "' + pluginName + '"?\n\nMapper will download and install the plugin.')) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
+        showAlert('⏳ Downloading ' + pluginName + '...', 'info');
     }
 }
 

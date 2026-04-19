@@ -606,6 +606,7 @@ def load_config():
     config.setdefault('coverage_antenna_gain', 2.0)
     config.setdefault('coverage_antenna_height', 10.0)
     config.setdefault('coverage_max_range_km', 50)
+    config.setdefault('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
     return config
 
 
@@ -4429,6 +4430,73 @@ async def websocket_handler(websocket):
                                         await client.send(broadcast_msg)
                                     except Exception:
                                         pass
+
+                elif data.get('type') == 'fetch_store_plugins':
+                    req_url = data.get('url', '').strip()
+                    cfg = load_config()
+                    store_url = req_url or cfg.get('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
+                    # Persist URL change if different
+                    if req_url and req_url != cfg.get('plugin_store_url', ''):
+                        try:
+                            with open(CONFIG_PATH, 'r') as _f:
+                                _cfg = json.load(_f)
+                        except Exception:
+                            _cfg = {}
+                        _cfg['plugin_store_url'] = req_url
+                        with open(CONFIG_PATH, 'w') as _f:
+                            json.dump(_cfg, _f, indent=2)
+                    def _fetch_store():
+                        import urllib.request as _ur
+                        with _ur.urlopen(store_url, timeout=15) as _r:
+                            return json.loads(_r.read().decode())
+                    try:
+                        store_data = await asyncio.wait_for(asyncio.to_thread(_fetch_store), timeout=20)
+                        await websocket.send(json.dumps({
+                            'type': 'store_plugins',
+                            'success': True,
+                            'plugins': store_data.get('plugins', []),
+                            'store_url': store_url
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'store_plugins',
+                            'success': False,
+                            'error': str(e),
+                            'store_url': store_url
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'install_from_store':
+                    if plugin_manager:
+                        download_url = data.get('download_url', '')
+                        if not download_url:
+                            await websocket.send(json.dumps({
+                                'type': 'plugin_installed', 'success': False, 'error': 'No download URL'
+                            }, ensure_ascii=False))
+                        else:
+                            def _install_from_store():
+                                import urllib.request as _ur
+                                fname = download_url.split('/')[-1].split('?')[0] or 'plugin.meshplugin'
+                                tmp = os.path.join(plugin_manager.plugins_dir, f'_store_{fname}')
+                                try:
+                                    _ur.urlretrieve(download_url, tmp)
+                                    result = plugin_manager.install(tmp)
+                                finally:
+                                    try:
+                                        os.remove(tmp)
+                                    except Exception:
+                                        pass
+                                return result
+                            try:
+                                result = await asyncio.wait_for(
+                                    asyncio.to_thread(_install_from_store), timeout=60
+                                )
+                            except asyncio.TimeoutError:
+                                result = {'success': False, 'error': 'Download timed out'}
+                            except Exception as e:
+                                result = {'success': False, 'error': f'Download failed: {e}'}
+                            await websocket.send(json.dumps({
+                                'type': 'plugin_installed', **result
+                            }, ensure_ascii=False))
 
                 elif data.get('type') == 'plugin_message':
                     # Forward plugin WebSocket message to plugin handler
