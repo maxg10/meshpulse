@@ -181,6 +181,16 @@ if [ -d "$PLUGIN_DIR" ]; then
     echo "🔌 Plugin assets copied to web root"
 fi
 
+# Install plugin Python dependencies
+for req_file in "$PLUGIN_DIR"/*/*/requirements.txt; do
+    [ -f "$req_file" ] || continue
+    plugin_name=$(basename $(dirname "$req_file"))
+    echo "📦 Installing dependencies for $plugin_name..."
+    pip3 install -r "$req_file" --break-system-packages 2>/dev/null ||
+    pip3 install -r "$req_file" 2>/dev/null ||
+    echo "⚠️  Failed to install dependencies from $req_file"
+done
+
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then
     echo "📄 Creating empty nodes.json..."
