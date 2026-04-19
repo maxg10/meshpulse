@@ -3817,6 +3817,7 @@ async def websocket_handler(websocket):
                                 'display.oled': {0: 'AUTO', 1: 'SSD1306', 2: 'SH1106', 3: 'SH1107'},
                                 'display.displaymode': {0: 'DEFAULT', 1: 'TWOCOLOR', 2: 'INVERTED', 3: 'COLOR'},
                                 'network.address_mode': {0: 'DHCP', 1: 'STATIC'},
+                                'bluetooth.mode': {0: 'RANDOM_PIN', 1: 'FIXED_PIN', 2: 'NO_PIN'},
                             }
 
                             for section, cli_section in section_map.items():
@@ -3850,6 +3851,9 @@ async def websocket_handler(websocket):
                                         if section == 'mqtt' and key in mqtt_skip_fields:
                                             continue
                                         full_key = f'{cli_section}.{key}'
+                                        # Fix key mismatches between frontend and CLI
+                                        if section == 'neighborinfo' and key == 'neighbor_info_enabled':
+                                            full_key = 'neighborinfo.enabled'
                                         if isinstance(val, bool):
                                             val = 'true' if val else 'false'
                                         set_args.extend(['--set', full_key, str(val)])
