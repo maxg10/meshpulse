@@ -2599,6 +2599,7 @@ class ListenBasedMapper:
             'host': self.host,
             'port': self.port,
             'tracker': getattr(self, 'tracker_info', {}),
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         try:
@@ -3675,6 +3676,7 @@ async def websocket_handler(websocket):
             'host': mapper.host,
             'port': mapper.port,
             'tracker': mapper.tracker_info,
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         await websocket.send(status_msg)

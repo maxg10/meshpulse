@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Messages</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.2.0">
+    <link rel="stylesheet" href="styles.css?v=2.3.0">
     <style>
         * { box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
@@ -171,7 +171,7 @@
 <body>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.2.0 — Messages</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Messages</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -328,6 +328,14 @@ function connectWS() {
                 }
             }
         } else if (data.type === 'connection_status') {
+            if (data.mapper_version) {
+                const firstTime = !CURRENT_VERSION;
+                localStorage.setItem('mesh-mapper-version', data.mapper_version);
+                CURRENT_VERSION = data.mapper_version;
+                const verEl = document.getElementById('mapper-version-span');
+                if (verEl) verEl.textContent = 'v' + data.mapper_version + ' — Messages';
+                if (firstTime) checkForUpdates();
+            }
             if (data.tracker) {
                 trackerInfo = {...trackerInfo, ...data.tracker};
                 if (data.tracker.node_id) {
@@ -548,10 +556,11 @@ connectWS();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.2.0';
+let CURRENT_VERSION = localStorage.getItem('mesh-mapper-version') || null;
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
+    if (!CURRENT_VERSION) return;
     sessionStorage.setItem('update_checked', '1');
     try {
         const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {

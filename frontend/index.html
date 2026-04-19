@@ -25,12 +25,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.2.0">
+    <link rel="stylesheet" href="styles.css?v=2.3.0">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.2.0 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -260,9 +260,6 @@
         var pluginExpireCallbacks = {};
         var pluginMessageCallbacks = {};
         var pluginWsCallbacks = {};
-
-        // Meshtastic Mapper v2.2.0 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.2.0';
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -502,6 +499,14 @@
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
+                            if (data.mapper_version) {
+                                const firstTime = !CURRENT_VERSION;
+                                localStorage.setItem('mesh-mapper-version', data.mapper_version);
+                                CURRENT_VERSION = data.mapper_version;
+                                const verEl = document.getElementById('mapper-version-span');
+                                if (verEl) verEl.textContent = 'v' + data.mapper_version + ' — Map';
+                                if (firstTime) checkForUpdates();
+                            }
                             const msgEl = document.getElementById('connection-message');
                             if (msgEl) msgEl.textContent = data.message || '';
                             if (data.status === 'disconnected') {
@@ -2036,10 +2041,11 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
-        const CURRENT_VERSION = '2.2.0';
+        let CURRENT_VERSION = localStorage.getItem('mesh-mapper-version') || null;
 
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;
+            if (!CURRENT_VERSION) return;
             sessionStorage.setItem('update_checked', '1');
             try {
                 const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {
