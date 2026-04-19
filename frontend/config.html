@@ -1824,6 +1824,10 @@ function connectWS() {
         } else if (d.type === 'plugin_installed') {
             if (d.success) {
                 showAlert('✅ Installed ' + (d.name || d.plugin_id) + ' v' + (d.version || ''), 'success');
+                // Immediately reflect in store without waiting for loadPluginsList roundtrip
+                var already = _installedPluginsCache.some(function(p) { return p.id === d.plugin_id; });
+                if (!already) _installedPluginsCache.push({id: d.plugin_id, name: d.name || d.plugin_id, version: d.version || ''});
+                refreshStoreIfLoaded();
                 loadPluginsList();
             } else {
                 showAlert('❌ Install failed: ' + (d.error || 'Unknown error'), 'error');
@@ -1831,6 +1835,9 @@ function connectWS() {
         } else if (d.type === 'plugin_uninstalled') {
             if (d.success) {
                 showAlert('✅ Plugin uninstalled', 'success');
+                // Immediately reflect in store without waiting for loadPluginsList roundtrip
+                _installedPluginsCache = _installedPluginsCache.filter(function(p) { return p.id !== d.plugin_id; });
+                refreshStoreIfLoaded();
                 loadPluginsList();
             } else {
                 showAlert('❌ Uninstall failed: ' + (d.error || 'Unknown error'), 'error');
@@ -2306,6 +2313,13 @@ function savePluginConfigField(pluginId, key, value) {
 // ── Plugin Store ──────────────────────────────────────────────
 var _installedPluginsCache = [];
 var _storeLoaded = false;
+var _storePluginsData = null;
+
+function refreshStoreIfLoaded() {
+    if (_storeLoaded && _storePluginsData) {
+        renderStorePlugins(_storePluginsData.plugins, _storePluginsData.storeUrl);
+    }
+}
 
 // Keep installed cache in sync so Store can compare versions
 var _origRenderPluginsList = null;
@@ -2314,6 +2328,7 @@ var _origRenderPluginsList = null;
     if (_orig) window.renderPluginsList = function(plugins) {
         _installedPluginsCache = plugins || [];
         _orig(plugins);
+        refreshStoreIfLoaded();
     };
 })();
 
@@ -2334,6 +2349,7 @@ function renderStorePlugins(plugins, storeUrl) {
     var container = document.getElementById('store-plugins-list');
     if (!container) return;
     _storeLoaded = true;
+    if (plugins) _storePluginsData = {plugins: plugins, storeUrl: storeUrl};
     var urlEl = document.getElementById('store-url-input');
     if (urlEl && storeUrl) urlEl.value = storeUrl;
 
