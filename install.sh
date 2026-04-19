@@ -4,8 +4,8 @@
 # https://github.com/maxg10/meshtastic-network-mapper
 #
 
-# Get version from backend
-VERSION=$(grep -m1 "^#ver" backend/meshtastic_mapper.py | awk '{print $2}')
+# Get version from backend (MAPPER_VERSION is the single source of truth)
+VERSION=$(grep -m1 "^MAPPER_VERSION" backend/meshtastic_mapper.py | grep -o "'[^']*'" | tr -d "'")
 
 set -e
 
