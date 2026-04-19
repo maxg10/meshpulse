@@ -3832,6 +3832,7 @@ async def websocket_handler(websocket):
                                         applied.append(full_key)
 
                             module_section_map = {
+                                'mqtt': 'mqtt',
                                 'neighborinfo': 'neighborinfo',
                                 'store_forward': 'store_forward',
                                 'ext_notification': 'ext_notification',
@@ -3841,9 +3842,13 @@ async def websocket_handler(websocket):
                                 'serial_module': 'serial',
                             }
 
+                            mqtt_skip_fields = {'map_reporting_enabled', 'map_publish_interval_secs', 'position_precision'}
+
                             for section, cli_section in module_section_map.items():
                                 if section in changes:
                                     for key, val in changes[section].items():
+                                        if section == 'mqtt' and key in mqtt_skip_fields:
+                                            continue
                                         full_key = f'{cli_section}.{key}'
                                         if isinstance(val, bool):
                                             val = 'true' if val else 'false'
