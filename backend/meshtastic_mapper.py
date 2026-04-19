@@ -92,8 +92,8 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-VERSION = '2.2.0'
-MAPPER_VERSION = '2.2.0'
+VERSION = '2.3.0'
+MAPPER_VERSION = '2.3.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1979,7 +1979,8 @@ class ListenBasedMapper:
 
                 # Parse radio stats from localStats
                 radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
-                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numTxRelayCanceled',
+                                 'numOnlineNodes', 'numTotalNodes', 'heapFreeBytes', 'heapTotalBytes']
                 radio_stats = {}
                 for field in radio_fields:
                     m = re.search(rf"'{field}':\s*([\d.]+)", line)
@@ -2336,7 +2337,8 @@ class ListenBasedMapper:
 
                 local_stats = telemetry.get('localStats', {})
                 radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
-                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numTxRelayCanceled',
+                                 'numOnlineNodes', 'numTotalNodes', 'heapFreeBytes', 'heapTotalBytes']
                 radio_stats = {f: local_stats[f] for f in radio_fields if f in local_stats}
                 if not radio_stats:
                     # Fallback: some firmware reports these in deviceMetrics

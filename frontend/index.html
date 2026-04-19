@@ -1978,10 +1978,39 @@
             }
         });
 
+        function restoreFilterStates() {
+            var filters = [
+                'show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+            ];
+            filters.forEach(function(id) {
+                var saved = localStorage.getItem('mesh-filter-' + id);
+                if (saved !== null) {
+                    document.getElementById(id).checked = (saved === 'true');
+                }
+            });
+            updateDisplay();
+            if (document.getElementById('show-direct-lines').checked) updateDirectLines();
+            if (document.getElementById('show-neighbor-links').checked) updateNeighborLinks();
+            if (document.getElementById('show-relay-nodes').checked) updateRelayVisualization();
+        }
+
+        (function() {
+            ['show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+            ].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('change', function() {
+                    localStorage.setItem('mesh-filter-' + id, this.checked);
+                });
+            });
+        })();
+
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
             mapReady = true;
+            restoreFilterStates();
             loadCoverageParams();
 
             // CRITICAL: Force initial data load BEFORE connecting WebSocket

@@ -33,6 +33,8 @@ var ElevationMapPlugin = (function() {
     ElevationMap.prototype.onEnable = function(api) {
         this.api = api;
 
+        var activeKey = 'plugin:' + api.info.id + ':active';
+
         // Read provider from localStorage (live changes) or config (defaults)
         var storageKey = 'plugin:' + api.info.id + ':tile_provider';
         var providerKey = localStorage.getItem(storageKey) || api.info.config.tile_provider || 'opentopomap';
@@ -44,19 +46,24 @@ var ElevationMapPlugin = (function() {
         });
         this._currentProvider = providerKey;
 
+        // Resolve initial active state: localStorage overrides config.default_enabled
+        var savedActive = localStorage.getItem(activeKey);
+        var isActive = savedActive !== null ? (savedActive === 'true') : (api.info.config.default_enabled || false);
+
         // Build checkbox control
         var control = document.createElement('div');
         control.style.cssText = 'background:rgba(31,41,55,0.9);padding:6px 10px;border-radius:6px;color:#e5e7eb;font-size:12px;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
         control.innerHTML =
             '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap">' +
                 '<input type="checkbox" id="plugin-elev-toggle"' +
-                (api.info.config.default_enabled ? ' checked' : '') + '>' +
+                (isActive ? ' checked' : '') + '>' +
                 '<span>\u26f0\ufe0f Elevation Map</span>' +
             '</label>';
 
         // Swap base layer on toggle
         var self = this;
         control.querySelector('#plugin-elev-toggle').addEventListener('change', function(e) {
+            localStorage.setItem(activeKey, e.target.checked);
             var rawMap = api.map.getLeafletMap();
             if (e.target.checked) {
                 rawMap.eachLayer(function(layer) {
@@ -76,8 +83,8 @@ var ElevationMapPlugin = (function() {
 
         api.map.addControl('elevation-toggle', control, 'topleft');
 
-        // Auto-enable if configured
-        if (api.info.config.default_enabled) {
+        // Auto-enable based on resolved state
+        if (isActive) {
             var rawMap = api.map.getLeafletMap();
             rawMap.eachLayer(function(layer) {
                 if (layer instanceof L.TileLayer) {
@@ -87,6 +94,8 @@ var ElevationMapPlugin = (function() {
             });
             self.tileLayer.addTo(rawMap);
         }
+
+        this._activeKey = activeKey;
 
         // Listen for config changes via storage events
         this._onStorage = function(e) {
@@ -141,6 +150,11 @@ var ElevationMapPlugin = (function() {
             }
         }
         api.map.removeControl('elevation-toggle');
+
+        if (this._activeKey) {
+            localStorage.removeItem(this._activeKey);
+            this._activeKey = null;
+        }
 
         if (this._onStorage) {
             window.removeEventListener('storage', this._onStorage);
