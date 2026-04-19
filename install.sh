@@ -30,6 +30,7 @@ fi
 
 REPO_PATH=$(pwd)
 CURRENT_USER=$(whoami)
+PLUGIN_DIR="$REPO_PATH/plugins"
 
 echo "📍 Repository path: $REPO_PATH"
 echo "👤 Installing for user: $CURRENT_USER"
@@ -108,6 +109,27 @@ else
     MISSING=1
 fi
 
+# Check plugin Python dependencies
+for req_file in "$PLUGIN_DIR"/*/*/requirements.txt; do
+    [ -f "$req_file" ] || continue
+    plugin_name=$(basename "$(dirname "$req_file")")
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip empty lines and comments
+        [[ -z "$line" || "$line" == \#* ]] && continue
+        # Strip version specifiers to get bare package name
+        pkg_name=$(echo "$line" | sed 's/[>=<!~].*//' | sed 's/[[:space:]].*//' | tr -d ' ')
+        [ -z "$pkg_name" ] && continue
+        if pip3 show "$pkg_name" &>/dev/null; then
+            PKG_VER=$(pip3 show "$pkg_name" 2>/dev/null | grep "^Version:" | awk '{print $2}')
+            echo -e "${GREEN}✅ $pkg_name - OK ($PKG_VER)${NC}"
+        else
+            echo -e "${RED}❌ $pkg_name - NOT FOUND (required by $plugin_name)${NC}"
+            echo "   Install with: pip3 install $pkg_name --break-system-packages"
+            MISSING=1
+        fi
+    done < "$req_file"
+done
+
 echo ""
 
 # ============================================
@@ -156,7 +178,6 @@ sudo cp frontend/messages.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
 
 # Copy plugin frontend assets (lighttpd doesn't follow symlinks)
-PLUGIN_DIR="$REPO_PATH/plugins"
 if [ -d "$PLUGIN_DIR" ]; then
     # Remove old symlink if exists
     if [ -L "/var/www/html/meshtastic/plugins" ]; then
@@ -180,16 +201,6 @@ if [ -d "$PLUGIN_DIR" ]; then
     sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/plugins
     echo "🔌 Plugin assets copied to web root"
 fi
-
-# Install plugin Python dependencies
-for req_file in "$PLUGIN_DIR"/*/*/requirements.txt; do
-    [ -f "$req_file" ] || continue
-    plugin_name=$(basename $(dirname "$req_file"))
-    echo "📦 Installing dependencies for $plugin_name..."
-    pip3 install -r "$req_file" --break-system-packages 2>/dev/null ||
-    pip3 install -r "$req_file" 2>/dev/null ||
-    echo "⚠️  Failed to install dependencies from $req_file"
-done
 
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then

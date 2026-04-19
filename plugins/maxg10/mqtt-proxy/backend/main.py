@@ -73,7 +73,7 @@ class MqttProxyPlugin(MeshPlugin):
         print(f"[MQTT-PROXY] TLS: {self.tls_enabled}")
         print(f"[MQTT-PROXY] Username: {'(set)' if self.username else '(anonymous)'}")
 
-        config = self.get_config()
+        config = self.config
         if config.get('auto_connect', True):
             self._start_mqtt()
 
@@ -102,7 +102,7 @@ class MqttProxyPlugin(MeshPlugin):
 
     def _mqtt_loop(self):
         """MQTT client loop with auto-reconnect."""
-        config = self.get_config()
+        config = self.config
         reconnect_interval = config.get('reconnect_interval', 30)
 
         while not self._stop_event.is_set():
@@ -167,7 +167,7 @@ class MqttProxyPlugin(MeshPlugin):
         Retained messages are skipped to avoid NO_RESPONSE storms on reconnect.
         """
         try:
-            config = self.get_config()
+            config = self.config
 
             if msg.retain:
                 if config.get('log_traffic', False):
@@ -191,7 +191,7 @@ class MqttProxyPlugin(MeshPlugin):
             return
 
         try:
-            config = self.get_config()
+            config = self.config
 
             # Extract our node ID from topic on first uplink
             # Topic format: msh/PL/2/e/MediumFast/!7b6c8272

@@ -132,6 +132,10 @@ class MeshPlugin:
 
     # ── Data Access (read-only) ─────────────────────────────────
 
+    def get_config(self):
+        """Get plugin config dict (manifest defaults merged with user overrides)."""
+        return self.config
+
     def get_nodes(self):
         """Get all nodes with GPS positions.
 

@@ -630,12 +630,12 @@ class PluginManager:
             print("[PLUGINS] send_mqtt_to_device: no interface connected")
             return
         try:
-            from meshtastic.protobuf import mqtt_pb2, mesh_pb2
-            proxy_msg = mqtt_pb2.MqttClientProxyMessage()
+            from meshtastic.protobuf import mesh_pb2
+            proxy_msg = mesh_pb2.MqttClientProxyMessage()
             proxy_msg.topic = topic
             proxy_msg.data = data
             to_radio = mesh_pb2.ToRadio()
-            to_radio.mqtt_client_proxy_message.CopyFrom(proxy_msg)
+            to_radio.mqttClientProxyMessage.CopyFrom(proxy_msg)
             raw._sendToRadio(to_radio)
         except Exception as e:
             print(f"[PLUGINS] send_mqtt_to_device error: {e}")
