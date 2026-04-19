@@ -3680,6 +3680,8 @@ async def websocket_handler(websocket):
     try:
         async for message in websocket:
             try:
+                if message and len(message) < 200:
+                    print(f"[WS] ← {client_addr}: {message}")
                 if len(message) > 65536:  # 64KB max
                     print(f"[WS] Message too large ({len(message)} bytes), ignoring")
                     continue
