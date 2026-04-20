@@ -1824,9 +1824,13 @@ function connectWS() {
         } else if (d.type === 'plugin_installed') {
             if (d.success) {
                 showAlert('✅ Installed ' + (d.name || d.plugin_id) + ' v' + (d.version || ''), 'success');
-                // Immediately reflect in store without waiting for loadPluginsList roundtrip
-                var already = _installedPluginsCache.some(function(p) { return p.id === d.plugin_id; });
-                if (!already) _installedPluginsCache.push({id: d.plugin_id, name: d.name || d.plugin_id, version: d.version || ''});
+                // Update cache immediately so store re-render shows correct state
+                var existing = _installedPluginsCache.find(function(p) { return p.id === d.plugin_id; });
+                if (existing) {
+                    existing.version = d.version || existing.version;
+                } else {
+                    _installedPluginsCache.push({id: d.plugin_id, name: d.name || d.plugin_id, version: d.version || ''});
+                }
                 refreshStoreIfLoaded();
                 loadPluginsList();
             } else {
@@ -2370,7 +2374,7 @@ function renderStorePlugins(plugins, storeUrl) {
         if (instVer === undefined) {
             actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
                 'style="font-size:11px;padding:3px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer">📦 Install</button>';
-        } else if (isNewerVersion(p.version, instVer)) {
+        } else if (versionNewer(p.version, instVer)) {
             actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
                 'style="font-size:11px;padding:3px 10px;background:#d97706;color:#fff;border:none;border-radius:4px;cursor:pointer">⬆️ Update v' + escHtml(p.version) + '</button>';
         } else {
@@ -2398,11 +2402,25 @@ function renderStorePlugins(plugins, storeUrl) {
     }).join('');
 }
 
+function versionNewer(storeVer, installedVer) {
+    var a = String(storeVer).split('.').map(Number);
+    var b = String(installedVer).split('.').map(Number);
+    for (var i = 0; i < 3; i++) {
+        if ((a[i]||0) > (b[i]||0)) return true;
+        if ((a[i]||0) < (b[i]||0)) return false;
+    }
+    return false;
+}
+
 function installFromStore(downloadUrl, pluginId, pluginName) {
-    if (!confirm('📦 Install "' + pluginName + '"?\n\nMapper will download and install the plugin.')) return;
+    var isUpdate = _installedPluginsCache.some(function(p) { return p.id === pluginId; });
+    var msg = isUpdate
+        ? '⬆️ Update "' + pluginName + '"?\n\nMapper will download and install the new version.'
+        : '📦 Install "' + pluginName + '"?\n\nMapper will download and install the plugin.';
+    if (!confirm(msg)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
-        showAlert('⏳ Downloading ' + pluginName + '...', 'info');
+        showAlert((isUpdate ? '⏳ Updating ' : '⏳ Downloading ') + pluginName + '...', 'info');
     }
 }
 
