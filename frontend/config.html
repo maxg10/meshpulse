@@ -1149,6 +1149,25 @@
     <div id="plugin-settings-area"></div>
 </div>
 
+<!-- Backup & Restore -->
+<div class="card" style="margin-top:12px">
+    <div class="card-title">💾 Backup &amp; Restore</div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button onclick="doBackup('quick')" class="btn btn-primary" style="font-size:12px">
+            📦 Quick Backup
+        </button>
+        <span style="color:#9ca3af;font-size:11px">Config + plugin settings</span>
+        <button onclick="doBackup('full')" class="btn btn-secondary" style="font-size:12px">
+            📦 Full Backup
+        </button>
+        <span style="color:#9ca3af;font-size:11px">Everything including nodes &amp; stats</span>
+        <label class="btn btn-secondary" style="font-size:12px;cursor:pointer;margin-left:auto">
+            📥 Restore
+            <input type="file" accept=".zip" style="display:none" onchange="doRestore(this)">
+        </label>
+    </div>
+</div>
+
 <!-- Action bar -->
 <div class="action-bar">
     <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
@@ -1862,6 +1881,23 @@ function connectWS() {
         } else if (d.type === 'plugin_config_updated') {
             // Refresh plugin list to show updated config values
             loadPluginsList();
+        } else if (d.type === 'backup_ready') {
+            if (d.error) {
+                showAlert('❌ Backup failed: ' + d.error, 'error');
+            } else {
+                var link = document.createElement('a');
+                link.href = 'data:application/zip;base64,' + d.data;
+                link.download = d.filename;
+                link.click();
+                showAlert('✅ Backup downloaded: ' + d.filename, 'success');
+            }
+        } else if (d.type === 'restore_result') {
+            if (d.success) {
+                showAlert('✅ Restore complete (' + d.backup_type + '). Files restored: ' +
+                    (d.files_restored || []).join(', ') + '. Restart mapper to apply.', 'success');
+            } else {
+                showAlert('❌ Restore failed: ' + (d.error || 'Unknown error'), 'error');
+            }
         }
     };
 }
@@ -2427,6 +2463,37 @@ function installFromStore(downloadUrl, pluginId, pluginName) {
         ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
         showAlert((isUpdate ? '⏳ Updating ' : '⏳ Downloading ') + pluginName + '...', 'info');
     }
+}
+
+function doBackup(mode) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'create_backup', mode: mode}));
+        showAlert('📦 Creating ' + mode + ' backup...', 'info');
+    }
+}
+
+function doRestore(input) {
+    var file = input.files[0];
+    if (!file) return;
+    if (!file.name.endsWith('.zip')) {
+        showAlert('❌ Invalid file — must be a .zip backup file', 'error');
+        input.value = '';
+        return;
+    }
+    if (!confirm('⚠️ Restore from backup?\n\nThis will overwrite current settings. You will need to restart the mapper after restore.')) {
+        input.value = '';
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var base64 = e.target.result.split(',')[1];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'restore_backup', data: base64}));
+            showAlert('📥 Restoring backup...', 'info');
+        }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
 }
 
 connectWS();

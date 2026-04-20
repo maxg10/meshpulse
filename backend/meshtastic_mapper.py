@@ -4692,6 +4692,106 @@ async def websocket_handler(websocket):
                             'error': str(e)
                         }, ensure_ascii=False))
 
+                elif data.get('type') == 'create_backup':
+                    import io, zipfile, base64, socket as _socket
+                    from datetime import datetime, timezone as _tz
+                    mode = data.get('mode', 'quick')
+                    def _do_backup():
+                        buf = io.BytesIO()
+                        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                            info = {
+                                'backup_type': mode,
+                                'mapper_version': MAPPER_VERSION,
+                                'timestamp': datetime.now(_tz.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'hostname': _socket.gethostname(),
+                                'node_count': (len(mapper.nodes) + len(mapper.nodes_no_position)) if mapper else 0,
+                                'plugin_count': len(plugin_manager.enabled_ids) if plugin_manager else 0,
+                            }
+                            zf.writestr('backup_info.json', json.dumps(info, indent=2))
+                            if os.path.exists(CONFIG_PATH):
+                                zf.write(CONFIG_PATH, 'config.json')
+                            if plugin_manager:
+                                enabled_path = os.path.join(plugin_manager.plugins_dir, 'enabled.json')
+                                if os.path.exists(enabled_path):
+                                    zf.write(enabled_path, 'plugins/enabled.json')
+                                for author in os.listdir(plugin_manager.plugins_dir):
+                                    author_dir = os.path.join(plugin_manager.plugins_dir, author)
+                                    if not os.path.isdir(author_dir) or author.startswith('_'):
+                                        continue
+                                    for name in os.listdir(author_dir):
+                                        cfg = os.path.join(author_dir, name, 'config.json')
+                                        if os.path.exists(cfg):
+                                            zf.write(cfg, f'plugins/{author}/{name}/config.json')
+                            if mode == 'full':
+                                nodes_path = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                if os.path.exists(nodes_path):
+                                    zf.write(nodes_path, 'nodes.json')
+                                if os.path.exists(StatsDB.DB_PATH):
+                                    zf.write(StatsDB.DB_PATH, 'stats.db')
+                        buf.seek(0)
+                        return base64.b64encode(buf.read()).decode('ascii')
+                    try:
+                        b64 = await asyncio.to_thread(_do_backup)
+                        ts = datetime.now().strftime('%Y%m%d-%H%M')
+                        await websocket.send(json.dumps({
+                            'type': 'backup_ready',
+                            'filename': f'meshtastic-backup-{mode}-{ts}.zip',
+                            'data': b64,
+                        }, ensure_ascii=False))
+                        print(f"[BACKUP] {mode} backup sent to client")
+                    except Exception as e:
+                        print(f"[BACKUP] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'backup_ready', 'error': str(e),
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'restore_backup':
+                    import io, zipfile, base64 as _b64
+                    def _do_restore():
+                        raw = _b64.b64decode(data.get('data', ''))
+                        buf = io.BytesIO(raw)
+                        if not zipfile.is_zipfile(buf):
+                            return {'success': False, 'error': 'Not a valid ZIP file'}
+                        buf.seek(0)
+                        restored = []
+                        with zipfile.ZipFile(buf, 'r') as zf:
+                            names = zf.namelist()
+                            if 'backup_info.json' not in names:
+                                return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
+                            info = json.loads(zf.read('backup_info.json'))
+                            backup_type = info.get('backup_type', 'unknown')
+                            for name in names:
+                                if name == 'backup_info.json':
+                                    continue
+                                dest = None
+                                if name == 'config.json':
+                                    dest = CONFIG_PATH
+                                elif name == 'nodes.json':
+                                    dest = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                elif name == 'stats.db':
+                                    dest = StatsDB.DB_PATH
+                                elif name.startswith('plugins/') and not name.endswith('/'):
+                                    if plugin_manager:
+                                        rel = name[len('plugins/'):]
+                                        dest = os.path.join(plugin_manager.plugins_dir, rel)
+                                if dest:
+                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                    with open(dest, 'wb') as f:
+                                        f.write(zf.read(name))
+                                    restored.append(name)
+                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored}
+                    try:
+                        result = await asyncio.to_thread(_do_restore)
+                        print(f"[RESTORE] {result}")
+                        await websocket.send(json.dumps({
+                            'type': 'restore_result', **result,
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        print(f"[RESTORE] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'restore_result', 'success': False, 'error': str(e),
+                        }, ensure_ascii=False))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
@@ -4708,7 +4808,7 @@ async def websocket_handler(websocket):
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
-    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None):
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
         await asyncio.Future()  # Run forever
 
 
