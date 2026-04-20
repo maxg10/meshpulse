@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Meshtastic Network Mapper v2.2.0 starting..."
+echo "🚀 Meshtastic Network Mapper v2.3.0 starting..."
 
 DATA_DIR="/var/www/html/meshtastic"
 
@@ -16,8 +16,10 @@ if [ -n "$TRACKER_HOST" ]; then
     echo "{\"connection_type\":\"tcp\",\"host\":\"$TRACKER_HOST\",\"port\":null}" > "$DATA_DIR/config.json"
     echo "📡 Tracker host: $TRACKER_HOST"
 else
-    echo "{\"connection_type\":\"tcp\",\"host\":null,\"port\":null}" > "$DATA_DIR/config.json"
-    echo "⚠️  No TRACKER_HOST set — configure via web UI after startup"
+    if [ ! -f "$DATA_DIR/config.json" ]; then
+        echo "{\"connection_type\":\"tcp\",\"host\":null,\"port\":null}" > "$DATA_DIR/config.json"
+        echo "⚠️  No TRACKER_HOST set — configure via web UI after startup"
+    fi
 fi
 
 # Always sync fresh frontend files from image (fixes stale files after volume update)
@@ -26,6 +28,10 @@ cp -f /app/frontend_dist/*.html "$DATA_DIR/"
 cp -f /app/frontend_dist/*.css "$DATA_DIR/"
 cp -f /app/frontend_dist/*.ico "$DATA_DIR/" 2>/dev/null || true
 echo "✅ Frontend files updated"
+
+# Ensure plugins directory exists (persistent via volume)
+mkdir -p "$DATA_DIR/plugins" 2>/dev/null || true
+mkdir -p /app/plugins 2>/dev/null || true
 
 # Start lighttpd in background
 echo "🌐 Starting web server on port 80..."

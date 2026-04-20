@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.3.0-stable
+- Feature: MQTT Proxy plugin — MQTT client proxy for trackers without WiFi (uplink, downlink, implicit ACK)
+- Feature: Plugin Store — browse and install plugins from meshtastic.world/plugins directly in Config → Plugins
+- Feature: Plugin update detection — shows "Update" button when newer version available in store
+- Feature: Plugin auto-dependency install — pip install requirements.txt on plugin enable
+- Feature: Backup & Restore — quick (config + plugin settings) and full (+ nodes + stats) with ZIP download/upload
+- Feature: Checkbox state persistence — all Mesh Info filter checkboxes saved to localStorage
+- Feature: Elevation Map plugin checkbox state persistence across page refresh
+- Feature: Version single source of truth — frontend reads version from backend via WebSocket, no hardcoded strings
+- Feature: Plugin Store page at meshtastic.world/plugins
+- Feature: Separate plugin repositories — plugins distributed via GitHub releases
+- Improvement: Plugin architecture docs updated — on_mqtt_proxy hook, API methods table, MQTT proxy section
+- Improvement: Added missing telemetry fields — numTxRelayCanceled, heapFreeBytes, heapTotalBytes
+- Improvement: Docker image updated with plugin system support (mapper/ module)
+- Fix: protobuf MessageToDict compatibility (always_print_fields_with_no_presence / including_default_value_fields)
+- Fix: protobuf camelCase field names (mqttClientProxyMessage)
+- Fix: pubsub mqttclientproxymessage listener signature
+
 ## v2.2.0
 - Feature: Plugin system — install, enable, disable, uninstall plugins from web UI
 - Feature: Plugin API — MeshPlugin base class with 11 hooks (on_message, on_node_update, on_position, on_telemetry, on_neighborinfo, on_connect, on_disconnect, on_node_expire, on_ws_client_connect, on_ws_client_disconnect)

@@ -8,17 +8,23 @@ RUN apt-get update && apt-get install -y \
 # Install Python dependencies
 RUN pip install --no-cache-dir meshtastic websockets
 
-# Create web directory
+# Create directories
 RUN mkdir -p /var/www/html/meshtastic /var/log/lighttpd /var/cache/lighttpd/uploads
 
 # Copy backend
 COPY backend/ /app/backend/
+
+# Copy mapper module (plugin system)
+COPY mapper/ /app/mapper/
 
 # Copy frontend to web root
 COPY frontend/ /var/www/html/meshtastic/
 
 # Keep a copy of frontend files in image for volume-safe updates
 COPY frontend/ /app/frontend_dist/
+
+# Create plugins directory (persistent via volume)
+RUN mkdir -p /var/www/html/meshtastic/plugins
 
 # Copy docker support files
 COPY docker/lighttpd.conf /etc/lighttpd/lighttpd.conf
