@@ -109,27 +109,6 @@ else
     MISSING=1
 fi
 
-# Check plugin Python dependencies
-for req_file in "$PLUGIN_DIR"/*/*/requirements.txt; do
-    [ -f "$req_file" ] || continue
-    plugin_name=$(basename "$(dirname "$req_file")")
-    while IFS= read -r line || [ -n "$line" ]; do
-        # Skip empty lines and comments
-        [[ -z "$line" || "$line" == \#* ]] && continue
-        # Strip version specifiers to get bare package name
-        pkg_name=$(echo "$line" | sed 's/[>=<!~].*//' | sed 's/[[:space:]].*//' | tr -d ' ')
-        [ -z "$pkg_name" ] && continue
-        if pip3 show "$pkg_name" &>/dev/null; then
-            PKG_VER=$(pip3 show "$pkg_name" 2>/dev/null | grep "^Version:" | awk '{print $2}')
-            echo -e "${GREEN}✅ $pkg_name - OK ($PKG_VER)${NC}"
-        else
-            echo -e "${RED}❌ $pkg_name - NOT FOUND (required by $plugin_name)${NC}"
-            echo "   Install with: pip3 install $pkg_name --break-system-packages"
-            MISSING=1
-        fi
-    done < "$req_file"
-done
-
 echo ""
 
 # ============================================

@@ -276,6 +276,30 @@ class PluginManager:
             config = self._load_plugin_config(plugin_dir, manifest)
 
             backend_config = manifest.get('backend')
+
+            if backend_config:
+                req_file = backend_config.get('requirements')
+                if req_file:
+                    req_path = os.path.join(plugin_dir, req_file)
+                    if os.path.exists(req_path):
+                        print(f"[PLUGINS] {plugin_id}: installing dependencies from {req_file}...")
+                        installed = False
+                        for cmd in [
+                            [sys.executable, '-m', 'pip', 'install', '-r', req_path,
+                             '--break-system-packages', '--quiet'],
+                            [sys.executable, '-m', 'pip', 'install', '-r', req_path, '--quiet'],
+                        ]:
+                            try:
+                                subprocess.check_call(cmd)
+                                installed = True
+                                print(f"[PLUGINS] {plugin_id}: dependencies installed")
+                                break
+                            except subprocess.CalledProcessError:
+                                continue
+                        if not installed:
+                            return {'success': False, 'plugin_id': plugin_id,
+                                    'error': 'pip install failed — check system pip logs'}
+
             plugin_instance = None
 
             if backend_config and backend_config.get('entry_point'):
