@@ -1129,8 +1129,8 @@
             <span>🛒 Plugin Store</span>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <input type="text" id="store-url-input"
-                    value="https://meshtastic.world/plugins/plugins.json"
-                    style="width:270px;padding:4px 8px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:11px"
+                    value="meshtastic.world/plugins"
+                    style="width:200px;padding:4px 8px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:11px"
                     placeholder="Store URL">
                 <button onclick="loadPluginStore(true)"
                     style="font-size:11px;padding:4px 12px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer">
@@ -2339,7 +2339,9 @@ var _origRenderPluginsList = null;
 function loadPluginStore(force) {
     if (!force && _storeLoaded) return;
     var urlEl = document.getElementById('store-url-input');
-    var url = (urlEl ? urlEl.value.trim() : '') || 'https://meshtastic.world/plugins/plugins.json';
+    var url = (urlEl ? urlEl.value.trim() : '') || 'meshtastic.world/plugins';
+    if (!url.match(/^https?:\/\//)) url = 'https://' + url;
+    if (!url.match(/\.json$/)) url = url.replace(/\/?$/, '/plugins.json');
     var container = document.getElementById('store-plugins-list');
     if (container) container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">⏳ Loading from store...</div>';
     if (ws && ws.readyState === WebSocket.OPEN) {
@@ -2355,7 +2357,7 @@ function renderStorePlugins(plugins, storeUrl) {
     _storeLoaded = true;
     if (plugins) _storePluginsData = {plugins: plugins, storeUrl: storeUrl};
     var urlEl = document.getElementById('store-url-input');
-    if (urlEl && storeUrl) urlEl.value = storeUrl;
+    if (urlEl && storeUrl) urlEl.value = storeUrl.replace(/^https?:\/\//, '').replace(/\/plugins\.json$/, '');
 
     if (!plugins || plugins.length === 0) {
         container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">No plugins in store</div>';
@@ -2380,7 +2382,10 @@ function renderStorePlugins(plugins, storeUrl) {
         } else {
             actionBtn = '<span style="font-size:11px;color:#22c55e;font-weight:600">✓ Installed v' + escHtml(instVer) + '</span>';
         }
-        var authorStr = (p.author && p.author.name) ? p.author.name : (p.author || 'Unknown');
+        var authorName = (p.author && p.author.name) ? p.author.name : (p.author || 'Unknown');
+        var authorStr = (p.author && p.author.url)
+            ? '<a href="' + escHtml(p.author.url) + '" target="_blank" style="color:#6b7280;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + escHtml(authorName) + '</a>'
+            : escHtml(authorName);
         return '<div style="border:1px solid #374151;border-radius:8px;padding:12px;margin-bottom:10px;background:#111827">' +
             '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
                 '<div style="display:flex;align-items:center;gap:8px">' +
@@ -2394,7 +2399,7 @@ function renderStorePlugins(plugins, storeUrl) {
             '</div>' +
             '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || '') + '</div>' +
             '<div style="margin-top:6px;font-size:11px;color:#6b7280">' +
-                'By ' + escHtml(authorStr) + ' · ' + typeBadge +
+                'By ' + authorStr + ' · ' + typeBadge +
                 (p.category ? ' · <span style="color:#f59e0b">' + escHtml(p.category) + '</span>' : '') +
                 (p.min_mapper_version ? ' · requires v' + escHtml(p.min_mapper_version) + '+' : '') +
             '</div>' +

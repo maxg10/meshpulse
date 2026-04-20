@@ -9,7 +9,8 @@
             "version": "1.0.1",
             "description": "Terrain/elevation overlay for the map — toggle topographic tiles (OpenTopoMap, Stamen Terrain, ArcGIS Shaded Relief) on/off. Frontend-only plugin.",
             "author": {
-                "name": "Mariusz Gieparda",
+                "name": "Mariusz \"Max\" Gieparda",
+                "url": "https://meshtastic.world",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
@@ -32,7 +33,8 @@
             "version": "1.0.0",
             "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
             "author": {
-                "name": "Mariusz Gieparda",
+                "name": "Mariusz \"Max\" Gieparda",
+                "url": "https://meshtastic.world",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
