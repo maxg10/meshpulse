@@ -172,6 +172,20 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
+## What's New in v2.3.0 — Plugin Store, MQTT Proxy & Backup/Restore
+
+**🏪 Plugin Store** — Browse and install plugins directly from your mapper. Visit [meshtastic.world/plugins](https://meshtastic.world/plugins) or open Config → Plugins.
+
+**📡 MQTT Proxy Plugin** — Trackers without WiFi can now publish to MQTT brokers through the mapper. Zero configuration — reads settings from tracker firmware. [Install from Plugin Store](https://github.com/maxg10/meshplugin-mqtt-proxy)
+
+**⛰️ Elevation Map Plugin** — Topographic tile overlay with 3 providers. [Install from Plugin Store](https://github.com/maxg10/meshplugin-elevation-map)
+
+**💾 Backup & Restore** — Quick backup (config + plugin settings) or full backup (+ nodes & stats). Download as ZIP, restore with one click.
+
+**🔌 Plugin System** — Build your own plugins! Backend Python + Frontend JavaScript, 12 hooks, full API. See [Plugin Developer Guide](docs/plugin-developer-guide.md).
+
+---
+
 ## What's New in v2.1.1 — Telemetry, CSV Export & Stats Improvements
 
 **📊 Anonymous Telemetry**
@@ -521,7 +535,7 @@ Install plugins from Config → Plugins → Plugin Store, or download from [mesh
 
 ### Develop Your Own Plugin
 
-See [Plugin Architecture Docs](docs/plugin-architecture.md) for the full API reference.
+See [Plugin Developer Guide](docs/plugin-developer-guide.md) for a step-by-step tutorial, or [Plugin Architecture Docs](docs/plugin-architecture.md) for the full API reference.
 
 
 ## Contributing
