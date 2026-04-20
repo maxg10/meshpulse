@@ -1785,6 +1785,9 @@ function connectWS() {
             } else if (d.status === 'connected') {
                 updateDeviceStatus(true);
                 clearAlert();
+                if (document.getElementById('tab-plugins')?.classList.contains('active') && !_storeLoaded) {
+                    loadPluginStore();
+                }
                 if (Object.keys(originalConfig).length === 0) {
                     if (_pendingConfigReloadAfterReboot) {
                         // Device just rebooted after MQTT save — wait 8s for flash to settle
