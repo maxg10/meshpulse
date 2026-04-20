@@ -4,8 +4,8 @@
 # https://github.com/maxg10/meshtastic-network-mapper
 #
 
-# Get version from backend
-VERSION=$(grep -m1 "^#ver" backend/meshtastic_mapper.py | awk '{print $2}')
+# Get version from backend (MAPPER_VERSION is the single source of truth)
+VERSION=$(grep -m1 "^MAPPER_VERSION" backend/meshtastic_mapper.py | grep -o "'[^']*'" | tr -d "'")
 
 set -e
 
@@ -30,6 +30,7 @@ fi
 
 REPO_PATH=$(pwd)
 CURRENT_USER=$(whoami)
+PLUGIN_DIR="$REPO_PATH/plugins"
 
 echo "📍 Repository path: $REPO_PATH"
 echo "👤 Installing for user: $CURRENT_USER"
@@ -154,6 +155,31 @@ sudo cp frontend/stats.html /var/www/html/meshtastic/
 sudo cp frontend/config.html /var/www/html/meshtastic/
 sudo cp frontend/messages.html /var/www/html/meshtastic/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
+
+# Copy plugin frontend assets (lighttpd doesn't follow symlinks)
+if [ -d "$PLUGIN_DIR" ]; then
+    # Remove old symlink if exists
+    if [ -L "/var/www/html/meshtastic/plugins" ]; then
+        sudo rm /var/www/html/meshtastic/plugins
+    fi
+    # Copy plugin files to web root
+    sudo mkdir -p /var/www/html/meshtastic/plugins
+    # Copy each installed plugin
+    for author_dir in "$PLUGIN_DIR"/*/; do
+        [ -d "$author_dir" ] || continue
+        author=$(basename "$author_dir")
+        [ "$author" = "enabled.json" ] && continue
+        for plugin_dir in "$author_dir"*/; do
+            [ -d "$plugin_dir" ] || continue
+            plugin=$(basename "$plugin_dir")
+            dest="/var/www/html/meshtastic/plugins/$author/$plugin"
+            sudo mkdir -p "$dest"
+            sudo cp -r "$plugin_dir"* "$dest/" 2>/dev/null || true
+        done
+    done
+    sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/plugins
+    echo "🔌 Plugin assets copied to web root"
+fi
 
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then

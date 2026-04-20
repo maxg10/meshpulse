@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plugin Store — Meshtastic Network Mapper</title>
+    <meta name="description" content="Browse and install plugins for Meshtastic Network Mapper. Add new features, visualizations, and integrations.">
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://meshtastic.world/plugins/">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+        :root {
+            --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', monospace;
+            --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: #1a2332;
+            --bg-card-hover: #1f2b3d;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #f59e0b;
+            --accent-glow: rgba(245, 158, 11, 0.15);
+            --accent-hover: #fbbf24;
+            --green: #10b981;
+            --blue: #3b82f6;
+            --border: #1e293b;
+            --border-light: #334155;
+            --radius: 8px;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        html { scroll-behavior: smooth; }
+        body {
+            font-family: var(--font-body);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+        section { padding: 80px 0; }
+
+        nav {
+            position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+            background: rgba(10, 14, 23, 0.85);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 0;
+        }
+        nav .container { display: flex; align-items: center; justify-content: space-between; }
+        .logo { display: flex; align-items: center; gap: 12px; text-decoration: none; color: var(--text-primary); }
+        .logo-icon { width: 36px; height: 36px; }
+        .logo-text { font-family: var(--font-mono); font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+        .logo-text span { color: var(--accent); }
+        nav ul { display: flex; gap: 32px; list-style: none; }
+        nav a { color: var(--text-secondary); text-decoration: none; font-size: 14px; font-weight: 500; transition: color 0.2s; }
+        nav a:hover { color: var(--accent); }
+
+        .hero { padding-top: 140px; padding-bottom: 60px; text-align: center; }
+        .hero-badge {
+            display: inline-block;
+            background: var(--accent-glow); border: 1px solid rgba(245, 158, 11, 0.3);
+            color: var(--accent); font-family: var(--font-mono); font-size: 12px; font-weight: 500;
+            padding: 6px 16px; border-radius: 20px; margin-bottom: 24px; letter-spacing: 0.05em;
+        }
+        .hero h1 { font-size: clamp(32px, 5vw, 52px); font-weight: 700; line-height: 1.1; letter-spacing: -0.03em; margin-bottom: 20px; }
+        .hero h1 .gradient {
+            background: linear-gradient(135deg, var(--accent) 0%, #f97316 50%, #ef4444 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+        }
+        .hero p { font-size: 18px; color: var(--text-secondary); max-width: 580px; margin: 0 auto 40px; line-height: 1.7; }
+
+        .btn {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 12px 28px; border-radius: var(--radius);
+            font-family: var(--font-mono); font-size: 14px; font-weight: 500;
+            text-decoration: none; cursor: pointer; transition: all 0.2s; border: none;
+        }
+        .btn-primary { background: var(--accent); color: var(--bg-primary); }
+        .btn-primary:hover { background: var(--accent-hover); box-shadow: 0 0 30px var(--accent-glow); }
+        .btn-secondary { background: transparent; color: var(--text-secondary); border: 1px solid var(--border-light); }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+        .section-label {
+            font-family: var(--font-mono); font-size: 12px; color: var(--accent);
+            text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px;
+        }
+        .section-title { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 16px; }
+        .section-desc { font-size: 16px; color: var(--text-secondary); max-width: 600px; margin-bottom: 48px; }
+
+        .plugins-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 24px; }
+
+        .plugin-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 28px;
+            transition: all 0.3s; display: flex; flex-direction: column; gap: 12px;
+        }
+        .plugin-card:hover { background: var(--bg-card-hover); border-color: var(--border-light); transform: translateY(-2px); }
+
+        .plugin-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+        .plugin-icon { font-size: 32px; flex-shrink: 0; }
+        .plugin-meta { flex: 1; }
+        .plugin-name { font-family: var(--font-mono); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+        .plugin-version { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .plugin-desc { font-size: 14px; color: var(--text-secondary); line-height: 1.6; }
+        .plugin-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+        .plugin-author { font-size: 12px; color: var(--text-muted); }
+
+        .badge {
+            display: inline-block; padding: 2px 8px; border-radius: 4px;
+            font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.05em;
+        }
+        .badge-frontend { background: rgba(139, 92, 246, 0.15); color: #c4b5fd; border: 1px solid rgba(139,92,246,0.3); }
+        .badge-backend { background: rgba(59, 130, 246, 0.15); color: #93c5fd; border: 1px solid rgba(59,130,246,0.3); }
+        .badge-category { background: var(--accent-glow); color: var(--accent); border: 1px solid rgba(245,158,11,0.3); }
+
+        .download-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 8px 18px; border-radius: var(--radius);
+            background: var(--accent); color: var(--bg-primary);
+            font-family: var(--font-mono); font-size: 13px; font-weight: 600;
+            text-decoration: none; transition: all 0.2s; border: none; cursor: pointer;
+        }
+        .download-btn:hover { background: var(--accent-hover); box-shadow: 0 0 20px var(--accent-glow); }
+
+        .install-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
+        .step-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 24px;
+        }
+        .step-number {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: var(--accent-glow); border: 1px solid rgba(245,158,11,0.3);
+            color: var(--accent); font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+            display: flex; align-items: center; justify-content: center; margin-bottom: 12px;
+        }
+        .step-card h4 { font-family: var(--font-mono); font-size: 14px; font-weight: 600; margin-bottom: 8px; }
+        .step-card p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+
+        .dev-card {
+            background: var(--bg-card); border: 1px solid var(--border);
+            border-radius: var(--radius); padding: 48px; text-align: center;
+        }
+        .dev-card h3 { font-family: var(--font-mono); font-size: 22px; font-weight: 600; margin-bottom: 12px; }
+        .dev-card p { font-size: 15px; color: var(--text-secondary); max-width: 560px; margin: 0 auto 32px; line-height: 1.7; }
+
+        footer { padding: 40px 0; border-top: 1px solid var(--border); text-align: center; }
+        footer p { font-size: 13px; color: var(--text-muted); }
+        footer a { color: var(--text-secondary); text-decoration: none; }
+        footer a:hover { color: var(--accent); }
+
+        .loading { text-align: center; padding: 60px 0; color: var(--text-muted); font-family: var(--font-mono); font-size: 14px; }
+        .error-msg { text-align: center; padding: 40px; color: #ef4444; font-size: 14px; }
+
+        @media (max-width: 768px) {
+            nav ul { display: none; }
+            .plugins-grid { grid-template-columns: 1fr; }
+            .install-steps { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+<nav>
+    <div class="container">
+        <a href="https://meshtastic.world" class="logo">
+            <svg class="logo-icon" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="18" cy="18" r="4" fill="#f59e0b"/>
+                <circle cx="18" cy="18" r="10" stroke="#f59e0b" stroke-width="1.5" stroke-opacity="0.6" fill="none"/>
+                <circle cx="18" cy="18" r="16" stroke="#f59e0b" stroke-width="1" stroke-opacity="0.3" fill="none"/>
+                <circle cx="6" cy="12" r="2" fill="#64748b"/>
+                <circle cx="30" cy="10" r="2" fill="#64748b"/>
+                <circle cx="28" cy="28" r="2" fill="#64748b"/>
+                <line x1="8" y1="12" x2="14" y2="16" stroke="#334155" stroke-width="1"/>
+                <line x1="28" y1="11" x2="22" y2="15" stroke="#334155" stroke-width="1"/>
+                <line x1="27" y1="27" x2="22" y2="21" stroke="#334155" stroke-width="1"/>
+            </svg>
+            <div class="logo-text"><span>msh</span>::mapper</div>
+        </a>
+        <ul>
+            <li><a href="https://meshtastic.world">Home</a></li>
+            <li><a href="https://meshtastic.world/#install">Install</a></li>
+            <li><a href="https://github.com/maxg10/meshtastic-network-mapper" target="_blank">GitHub</a></li>
+        </ul>
+    </div>
+</nav>
+
+<section class="hero">
+    <div class="container">
+        <div class="hero-badge">PLUGIN STORE</div>
+        <h1>Extend Your <span class="gradient">Mapper</span></h1>
+        <p>Browse and install plugins to add new features, visualizations, and integrations to your Meshtastic Network Mapper.</p>
+        <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+            <a href="https://meshtastic.world/#install" class="btn btn-secondary">← Back to Mapper</a>
+            <a href="https://github.com/maxg10/meshtastic-network-mapper/tree/main/docs/plugin-architecture.md" target="_blank" class="btn btn-secondary">📖 Plugin Docs</a>
+        </div>
+    </div>
+</section>
+
+<section id="plugins" style="padding-top:20px">
+    <div class="container">
+        <div class="section-label">AVAILABLE PLUGINS</div>
+        <div class="section-title">Plugin Library</div>
+        <p class="section-desc">All plugins are open source. Install directly from your mapper's Config → Plugins tab, or download manually.</p>
+        <div id="plugins-grid" class="plugins-grid">
+            <div class="loading">⏳ Loading plugins...</div>
+        </div>
+    </div>
+</section>
+
+<section id="install" style="background: var(--bg-secondary)">
+    <div class="container">
+        <div class="section-label">HOW TO INSTALL</div>
+        <div class="section-title">Three Ways to Install</div>
+        <div class="install-steps">
+            <div class="step-card">
+                <div class="step-number">1</div>
+                <h4>Browse in Mapper</h4>
+                <p>Open Config → Plugins → Plugin Store tab. Browse and install with one click. Mapper handles the download.</p>
+            </div>
+            <div class="step-card">
+                <div class="step-number">2</div>
+                <h4>Download & Upload</h4>
+                <p>Download the <code style="color:var(--accent);font-family:var(--font-mono)">.meshplugin</code> file, then upload via Config → Plugins → Install Plugin.</p>
+            </div>
+            <div class="step-card">
+                <div class="step-number">3</div>
+                <h4>Manual Install</h4>
+                <p>Extract the ZIP to <code style="color:var(--accent);font-family:var(--font-mono)">plugins/author/name/</code> in your mapper directory and restart.</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<section id="develop">
+    <div class="container">
+        <div class="dev-card">
+            <div style="font-size:48px;margin-bottom:16px">🔧</div>
+            <h3>Build Your Own Plugin</h3>
+            <p>Plugins can add backend Python logic and frontend UI. They receive hooks for messages, positions, telemetry, and more. Full API available.</p>
+            <div style="display:flex;gap:16px;justify-content:center;flex-wrap:wrap">
+                <a href="https://github.com/maxg10/meshtastic-network-mapper/tree/main/docs/plugin-architecture.md" target="_blank" class="btn btn-primary">📖 Plugin Architecture Docs</a>
+                <a href="https://github.com/maxg10/meshtastic-network-mapper/tree/main/plugins/maxg10/elevation-map" target="_blank" class="btn btn-secondary">👁 Example Plugin</a>
+            </div>
+        </div>
+    </div>
+</section>
+
+<footer>
+    <div class="container">
+        <p>
+            <a href="https://meshtastic.world">meshtastic.world</a> ·
+            <a href="https://github.com/maxg10/meshtastic-network-mapper" target="_blank">GitHub</a> ·
+            <a href="https://meshtastic.org" target="_blank">Meshtastic Project</a>
+            <br><br>
+            <span style="color:var(--text-muted)">Meshtastic Network Mapper — Open Source · GPL-3.0</span>
+        </p>
+    </div>
+</footer>
+
+<script>
+    fetch('./plugins.json')
+        .then(function(r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
+        .then(function(data) { renderPlugins(data.plugins || []); })
+        .catch(function(e) {
+            document.getElementById('plugins-grid').innerHTML =
+                '<div class="error-msg">⚠️ Could not load plugin list.<br><small>' + e.message + '</small></div>';
+        });
+
+    function renderPlugins(plugins) {
+        var grid = document.getElementById('plugins-grid');
+        if (!plugins.length) {
+            grid.innerHTML = '<div class="loading">No plugins available yet.</div>';
+            return;
+        }
+        grid.innerHTML = plugins.map(function(p) {
+            var typeBadge = p.type === 'backend'
+                ? '<span class="badge badge-backend">Backend</span>'
+                : '<span class="badge badge-frontend">Frontend</span>';
+            var catBadge = p.category ? '<span class="badge badge-category">' + esc(p.category) + '</span>' : '';
+            var authorStr = (p.author && p.author.name) ? p.author.name : (p.author || 'Unknown');
+            var ghLink = (p.author && p.author.github) ? ' <a href="https://github.com/' + esc(p.author.github) + '" target="_blank" style="color:var(--accent);text-decoration:none">@' + esc(p.author.github) + '</a>' : '';
+            var sizeStr = p.download_size ? ' · ' + Math.round(p.download_size / 1024) + ' KB' : '';
+            var reqNote = p.dependencies_note ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">📦 ' + esc(p.dependencies_note) + '</div>' : '';
+            var minVer = p.min_mapper_version ? '<span style="font-size:11px;color:var(--text-muted)">requires mapper v' + esc(p.min_mapper_version) + '+</span>' : '';
+            return '<div class="plugin-card">' +
+                '<div class="plugin-header">' +
+                    '<div class="plugin-icon">' + (p.icon || '🔌') + '</div>' +
+                    '<div class="plugin-meta">' +
+                        '<div class="plugin-name">' + esc(p.name) + '</div>' +
+                        '<div class="plugin-version">v' + esc(p.version) + sizeStr + '</div>' +
+                    '</div>' +
+                    '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end">' +
+                        typeBadge + (catBadge ? '<br>' + catBadge : '') +
+                    '</div>' +
+                '</div>' +
+                '<div class="plugin-desc">' + esc(p.description || '') + '</div>' +
+                reqNote +
+                '<div class="plugin-footer">' +
+                    '<div class="plugin-author">By ' + esc(authorStr) + ghLink + '</div>' +
+                    minVer +
+                '</div>' +
+                '<div style="margin-top:4px">' +
+                    '<a href="' + esc(p.download_url) + '" class="download-btn" download>⬇ Download .meshplugin</a>' +
+                    (p.homepage ? ' <a href="' + esc(p.homepage) + '" target="_blank" style="font-size:12px;color:var(--text-muted);margin-left:10px;text-decoration:none;">GitHub ↗</a>' : '') +
+                '</div>' +
+            '</div>';
+        }).join('');
+    }
+
+    function esc(s) {
+        return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+</script>
+</body>
+</html>

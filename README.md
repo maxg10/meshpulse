@@ -509,6 +509,21 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 - **No real-time packets:** Only updates when nodes broadcast position (every 15-30 min typically)
 
 
+## 🔌 Plugins
+
+Extend the mapper with plugins from the [Plugin Store](https://meshtastic.world/plugins).
+
+Available plugins:
+- **[Elevation Map](https://github.com/maxg10/meshplugin-elevation-map)** — terrain/topographic tile overlay
+- **[MQTT Proxy](https://github.com/maxg10/meshplugin-mqtt-proxy)** — MQTT client proxy for trackers without WiFi
+
+Install plugins from Config → Plugins → Plugin Store, or download from [meshtastic.world/plugins](https://meshtastic.world/plugins).
+
+### Develop Your Own Plugin
+
+See [Plugin Architecture Docs](docs/plugin-architecture.md) for the full API reference.
+
+
 ## Contributing
 
 Pull requests welcome! Areas for improvement:

@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.1.1">
+    <link rel="stylesheet" href="styles.css?v=2.3.0">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -151,7 +151,7 @@
 <div id="g-tooltip"></div>
 
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Config</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Config</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -185,6 +185,7 @@
     <button class="tab" onclick="switchTab('channels', this)">📻 Channels</button>
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
     <button class="tab" onclick="switchTab('coverage', this)">📡 Coverage</button>
+    <button class="tab" onclick="switchTab('plugins', this)">🔌 Plugins</button>
 </div>
 
 <!-- User tab -->
@@ -1106,6 +1107,67 @@
     </div>
 </div>
 
+<!-- Plugins tab -->
+<div id="tab-plugins" class="tab-content">
+    <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+            <span>🔌 Installed Plugins</span>
+            <label class="btn btn-primary" style="font-size:11px;padding:4px 12px;cursor:pointer;margin:0">
+                📦 Install Plugin
+                <input type="file" accept=".meshplugin" style="display:none"
+                    onchange="uploadPlugin(this)">
+            </label>
+        </div>
+        <div id="plugins-list" style="margin-top:12px;color:#9ca3af;font-size:13px">
+            Loading plugins...
+        </div>
+    </div>
+
+    <!-- Plugin Store -->
+    <div class="card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+            <span>🛒 Plugin Store</span>
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+                <input type="text" id="store-url-input"
+                    value="meshtastic.world/plugins"
+                    style="width:200px;padding:4px 8px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:11px"
+                    placeholder="Store URL">
+                <button onclick="loadPluginStore(true)"
+                    style="font-size:11px;padding:4px 12px;background:#2563eb;color:#fff;border:none;border-radius:4px;cursor:pointer">
+                    🔄 Refresh
+                </button>
+            </div>
+        </div>
+        <div id="store-plugins-list" style="margin-top:12px;color:#9ca3af;font-size:13px">
+            <div style="text-align:center;padding:20px;color:#6b7280">
+                <div style="font-size:24px;margin-bottom:8px">🛒</div>
+                <div>Click Refresh to browse available plugins</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="plugin-settings-area"></div>
+</div>
+
+<!-- Backup & Restore -->
+<div class="card" style="margin-top:12px">
+    <div class="card-title">💾 Backup &amp; Restore</div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <button onclick="doBackup('quick')" class="btn btn-primary" style="font-size:12px">
+            📦 Quick Backup
+        </button>
+        <span style="color:#9ca3af;font-size:11px">Config + plugin settings</span>
+        <button onclick="doBackup('full')" class="btn btn-secondary" style="font-size:12px">
+            📦 Full Backup
+        </button>
+        <span style="color:#9ca3af;font-size:11px">Everything including nodes &amp; stats</span>
+        <label class="btn btn-secondary" style="font-size:12px;cursor:pointer;margin-left:auto">
+            📥 Restore
+            <input type="file" accept=".zip" style="display:none" onchange="doRestore(this)">
+        </label>
+    </div>
+</div>
+
 <!-- Action bar -->
 <div class="action-bar">
     <button class="btn btn-secondary" onclick="revertChanges()">↩ Revert</button>
@@ -1417,24 +1479,28 @@ function toggleFixedPosition() {
 // ── Coverage ─────────────────────────────────────────────────────
 function testCoverageConnection() {
     const urlEl = document.getElementById('coverage.server_url');
+    const keyEl = document.getElementById('coverage.api_key');
     const resultEl = document.getElementById('coverage-test-result');
     const url = (urlEl?.value || '').trim() || 'https://coverage.meshtastic.world';
+    const apiKey = (keyEl?.value || '').trim();
+
     resultEl.textContent = '⏳ Testing...';
     resultEl.style.color = '#6b7280';
-    fetch(`${url.replace(/\/$/, '')}/health`, {method: 'GET'})
-        .then(r => {
-            if (r.ok) {
-                resultEl.textContent = '✅ Server reachable';
-                resultEl.style.color = '#22c55e';
-            } else {
-                resultEl.textContent = `⚠️ HTTP ${r.status}`;
-                resultEl.style.color = '#eab308';
-            }
-        })
-        .catch(e => {
-            resultEl.textContent = '❌ ' + e.message;
-            resultEl.style.color = '#ef4444';
-        });
+
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        resultEl.textContent = '❌ WebSocket not connected';
+        resultEl.style.color = '#ef4444';
+        return;
+    }
+
+    // Send test request via WebSocket to backend (avoids mixed content block)
+    ws.send(JSON.stringify({
+        type: 'test_coverage',
+        url: url,
+        api_key: apiKey
+    }));
+
+    // Response is handled in ws.onmessage
 }
 
 // ── Favorites ────────────────────────────────────────────────────
@@ -1596,6 +1662,7 @@ function connectWS() {
         document.getElementById('ws-label').textContent = 'Connected';
         updateDeviceStatus(false);
         ws.send(JSON.stringify({type: 'get_config'}));
+        ws.send(JSON.stringify({type: 'get_plugins'}));
         startDeviceHeartbeat();
         // retry handled by global startConfigRetry()
     };
@@ -1674,6 +1741,21 @@ function connectWS() {
             renderIgnoredNodes(d.ignored_nodes);
         } else if (d.type === 'favorites_list') {
             renderFavoritesList(d.favorites);
+        } else if (d.type === 'test_coverage_result') {
+            const resultEl = document.getElementById('coverage-test-result');
+            if (d.success) {
+                const data = d.data || {};
+                const version = data.version || '?';
+                const splat = data.splat ? '✅' : '❌';
+                const tiles = data.srtm_tiles || 0;
+                resultEl.innerHTML = '✅ Connected! Server v' + escHtml(version) +
+                    ' · SPLAT: ' + splat +
+                    ' · Tiles: ' + tiles;
+                resultEl.style.color = '#22c55e';
+            } else {
+                resultEl.textContent = '❌ ' + (d.error || 'Connection failed');
+                resultEl.style.color = '#ef4444';
+            }
         } else if (d.type === 'coverage_saved') {
             if (d.success) {
                 showAlert('✅ Coverage settings saved!', 'success');
@@ -1685,6 +1767,14 @@ function connectWS() {
         } else if (d.type === 'clear_position_result') {
             showAlert(d.success ? '✅ Fixed position cleared!' : '❌ Error: ' + d.error, d.success ? 'success' : 'error');
         } else if (d.type === 'connection_status') {
+            if (d.mapper_version) {
+                const firstTime = !CURRENT_VERSION;
+                localStorage.setItem('mesh-mapper-version', d.mapper_version);
+                CURRENT_VERSION = d.mapper_version;
+                const verEl = document.getElementById('mapper-version-span');
+                if (verEl) verEl.textContent = 'v' + d.mapper_version + ' — Config';
+                if (firstTime) checkForUpdates();
+            }
             if (d.tracker) {
                 document.getElementById('tracker-label').textContent = d.tracker.node_id || '-';
             }
@@ -1695,6 +1785,9 @@ function connectWS() {
             } else if (d.status === 'connected') {
                 updateDeviceStatus(true);
                 clearAlert();
+                if (document.getElementById('tab-plugins')?.classList.contains('active') && !_storeLoaded) {
+                    loadPluginStore();
+                }
                 if (Object.keys(originalConfig).length === 0) {
                     if (_pendingConfigReloadAfterReboot) {
                         // Device just rebooted after MQTT save — wait 8s for flash to settle
@@ -1741,6 +1834,73 @@ function connectWS() {
                 if (statusEl) statusEl.textContent = '⚠️ Device disconnected';
             }
             // If connected — don't update status here, let connection_status handle it
+        } else if (d.type === 'plugins_list') {
+            renderPluginsList(d.plugins);
+        } else if (d.type === 'plugin_enabled' || d.type === 'plugin_disabled') {
+            if (d.success) {
+                showAlert('✅ Plugin ' + (d.type === 'plugin_enabled' ? 'enabled' : 'disabled'), 'success');
+                loadPluginsList();
+            } else {
+                showAlert('❌ ' + (d.error || 'Unknown error'), 'error');
+            }
+        } else if (d.type === 'plugin_installed') {
+            if (d.success) {
+                showAlert('✅ Installed ' + (d.name || d.plugin_id) + ' v' + (d.version || ''), 'success');
+                // Update cache immediately so store re-render shows correct state
+                var existing = _installedPluginsCache.find(function(p) { return p.id === d.plugin_id; });
+                if (existing) {
+                    existing.version = d.version || existing.version;
+                } else {
+                    _installedPluginsCache.push({id: d.plugin_id, name: d.name || d.plugin_id, version: d.version || ''});
+                }
+                refreshStoreIfLoaded();
+                loadPluginsList();
+            } else {
+                showAlert('❌ Install failed: ' + (d.error || 'Unknown error'), 'error');
+            }
+        } else if (d.type === 'plugin_uninstalled') {
+            if (d.success) {
+                showAlert('✅ Plugin uninstalled', 'success');
+                // Immediately reflect in store without waiting for loadPluginsList roundtrip
+                _installedPluginsCache = _installedPluginsCache.filter(function(p) { return p.id !== d.plugin_id; });
+                refreshStoreIfLoaded();
+                loadPluginsList();
+            } else {
+                showAlert('❌ Uninstall failed: ' + (d.error || 'Unknown error'), 'error');
+            }
+        } else if (d.type === 'plugin_config_saved') {
+            if (d.success) {
+                showAlert('✅ Plugin settings saved', 'success');
+            } else {
+                showAlert('❌ ' + (d.error || 'Save failed'), 'error');
+            }
+        } else if (d.type === 'store_plugins') {
+            if (d.success) {
+                renderStorePlugins(d.plugins, d.store_url);
+            } else {
+                var sc = document.getElementById('store-plugins-list');
+                if (sc) sc.innerHTML = '<div style="color:#ef4444;padding:12px">⚠️ Failed to load store: ' + escHtml(d.error || 'Unknown error') + '</div>';
+            }
+        } else if (d.type === 'plugin_config_updated') {
+            // Refresh plugin list to show updated config values
+            loadPluginsList();
+        } else if (d.type === 'backup_ready') {
+            if (d.error) {
+                showAlert('❌ Backup failed: ' + d.error, 'error');
+            } else {
+                var link = document.createElement('a');
+                link.href = 'data:application/zip;base64,' + d.data;
+                link.download = d.filename;
+                link.click();
+                showAlert('✅ Backup downloaded: ' + d.filename, 'success');
+            }
+        } else if (d.type === 'restore_result') {
+            if (d.success) {
+                showAlert('✅ Restore complete (' + d.backup_type + '). Files restored: ' +
+                    (d.files_restored || []).join(', ') + '. Restart mapper to apply.', 'success');
+            } else {
+                showAlert('❌ Restore failed: ' + (d.error || 'Unknown error'), 'error');
+            }
         }
     };
 }
@@ -2017,6 +2177,7 @@ function switchTab(name, el) {
     location.hash = name;
     if (name === 'favorites') loadFavorites();
     if (name === 'device') loadIgnoredNodes();
+    if (name === 'plugins') { loadPluginsList(); if (!_storeLoaded) loadPluginStore(); }
 }
 
 // Restore tab from URL hash on load
@@ -2039,6 +2200,303 @@ function showAlert(msg, type, persistent = false) {
             if (bar.textContent.trim() === msg.trim()) clearAlert();
         }, 5000);
     }
+}
+
+// ── Plugin Management ──────────────────────────────────────────
+
+function loadPluginsList() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'get_plugins'}));
+    }
+}
+
+function renderPluginsList(plugins) {
+    var container = document.getElementById('plugins-list');
+    if (!container) return;
+
+    if (!plugins || plugins.length === 0) {
+        container.innerHTML = '<div style="color:#6b7280;text-align:center;padding:20px">' +
+            '<div style="font-size:24px;margin-bottom:8px">📦</div>' +
+            '<div>No plugins installed</div>' +
+            '<div style="font-size:11px;margin-top:4px">Upload a .meshplugin file to get started</div>' +
+            '</div>';
+        return;
+    }
+
+    container.innerHTML = plugins.map(function(p) {
+        var permissions = (p.permissions || []).map(function(perm) {
+            return '<span style="background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:3px;font-size:9px;margin-right:3px">' +
+                escHtml(perm) + '</span>';
+        }).join('');
+
+        var statusColor = p.enabled ? '#22c55e' : '#6b7280';
+        var statusText = p.enabled ? 'Enabled' : 'Disabled';
+        var toggleLabel = p.enabled ? '⏸️ Disable' : '▶️ Enable';
+        var toggleColor = p.enabled ? '#d97706' : '#22c55e';
+
+        return '<div style="border:1px solid #374151;border-radius:8px;padding:12px;margin-bottom:10px;background:#111827">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between">' +
+                '<div>' +
+                    '<strong style="color:#f9fafb;font-size:14px">' + escHtml(p.name) + '</strong>' +
+                    ' <span style="color:#6b7280;font-size:11px">v' + escHtml(p.version) + '</span>' +
+                    ' <span style="color:' + statusColor + ';font-size:11px;font-weight:600">● ' + statusText + '</span>' +
+                '</div>' +
+                '<div style="display:flex;gap:6px">' +
+                    '<button onclick="togglePlugin(\'' + escHtml(p.id) + '\', ' + (p.enabled ? 'false' : 'true') + ')" ' +
+                        'style="font-size:11px;padding:3px 10px;background:' + toggleColor + ';color:#fff;border:none;border-radius:4px;cursor:pointer">' +
+                        toggleLabel + '</button>' +
+                    '<button onclick="uninstallPlugin(\'' + escHtml(p.id) + '\', \'' + escHtml(p.name) + '\')" ' +
+                        'style="font-size:11px;padding:3px 10px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer">' +
+                        '🗑️</button>' +
+                '</div>' +
+            '</div>' +
+            '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || 'No description') + '</div>' +
+            '<div style="margin-top:6px;color:#6b7280;font-size:11px">' +
+                'By ' + escHtml((p.author && p.author.name) || 'Unknown') +
+                (p.has_backend ? ' · <span style="color:#3b82f6">Backend</span>' : '') +
+                (p.has_frontend ? ' · <span style="color:#8b5cf6">Frontend</span>' : '') +
+            '</div>' +
+            (permissions ? '<div style="margin-top:6px">' + permissions + '</div>' : '') +
+            renderPluginConfig(p) +
+            '</div>';
+    }).join('');
+}
+
+function renderPluginConfig(plugin) {
+    var schema = plugin.config_schema;
+    if (!schema || Object.keys(schema).length === 0) return '';
+
+    var fields = Object.keys(schema).map(function(key) {
+        var spec = schema[key];
+        var currentVal = (plugin.config && plugin.config[key] !== undefined) ? plugin.config[key] : spec.default;
+        var inputHtml = '';
+
+        if (spec.type === 'boolean') {
+            inputHtml = '<input type="checkbox" ' + (currentVal ? 'checked' : '') +
+                ' onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',this.checked)"' +
+                ' style="margin-right:6px">';
+        } else if (spec.type === 'number') {
+            inputHtml = '<input type="number" value="' + (currentVal || '') + '"' +
+                (spec.min !== undefined ? ' min="' + spec.min + '"' : '') +
+                (spec.max !== undefined ? ' max="' + spec.max + '"' : '') +
+                ' onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',Number(this.value))"' +
+                ' style="width:80px;padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">';
+        } else if (spec.type === 'select') {
+            inputHtml = '<select onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',this.value)"' +
+                ' style="padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">' +
+                (spec.options || []).map(function(opt) {
+                    return '<option value="' + escHtml(opt) + '"' + (opt === currentVal ? ' selected' : '') + '>' + escHtml(opt) + '</option>';
+                }).join('') + '</select>';
+        } else {
+            inputHtml = '<input type="text" value="' + escHtml(currentVal || '') + '"' +
+                ' onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',this.value)"' +
+                ' style="width:150px;padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">';
+        }
+
+        return '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">' +
+            inputHtml +
+            '<span style="color:#d1d5db;font-size:11px">' + escHtml(spec.description || key) + '</span>' +
+            '</div>';
+    }).join('');
+
+    return '<details style="margin-top:8px">' +
+        '<summary style="color:#9ca3af;font-size:11px;cursor:pointer">⚙️ Settings</summary>' +
+        '<div style="margin-top:8px;padding:8px;background:#0d1117;border-radius:6px">' + fields + '</div>' +
+        '</details>';
+}
+
+function togglePlugin(pluginId, enable) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: enable ? 'enable_plugin' : 'disable_plugin',
+            plugin_id: pluginId
+        }));
+    }
+}
+
+function uninstallPlugin(pluginId, pluginName) {
+    if (!confirm('🗑️ Uninstall plugin "' + pluginName + '"?\n\nThis will delete all plugin data.')) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'uninstall_plugin', plugin_id: pluginId}));
+    }
+}
+
+function uploadPlugin(input) {
+    var file = input.files[0];
+    if (!file) return;
+    if (!file.name.endsWith('.meshplugin')) {
+        showAlert('❌ Invalid file — must be a .meshplugin file', 'error');
+        input.value = '';
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var base64 = e.target.result.split(',')[1];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'install_plugin', filename: file.name, data: base64
+            }));
+            showAlert('📦 Installing ' + file.name + '...', 'info');
+        }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
+}
+
+function savePluginConfigField(pluginId, key, value) {
+    var config = {};
+    config[key] = value;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'save_plugin_config', plugin_id: pluginId, config: config
+        }));
+    }
+}
+
+// ── Plugin Store ──────────────────────────────────────────────
+var _installedPluginsCache = [];
+var _storeLoaded = false;
+var _storePluginsData = null;
+
+function refreshStoreIfLoaded() {
+    if (_storeLoaded && _storePluginsData) {
+        renderStorePlugins(_storePluginsData.plugins, _storePluginsData.storeUrl);
+    }
+}
+
+// Keep installed cache in sync so Store can compare versions
+var _origRenderPluginsList = null;
+(function() {
+    var _orig = window.renderPluginsList;
+    if (_orig) window.renderPluginsList = function(plugins) {
+        _installedPluginsCache = plugins || [];
+        _orig(plugins);
+        refreshStoreIfLoaded();
+    };
+})();
+
+function loadPluginStore(force) {
+    if (!force && _storeLoaded) return;
+    var urlEl = document.getElementById('store-url-input');
+    var url = (urlEl ? urlEl.value.trim() : '') || 'meshtastic.world/plugins';
+    if (!url.match(/^https?:\/\//)) url = 'https://' + url;
+    if (!url.match(/\.json$/)) url = url.replace(/\/?$/, '/plugins.json');
+    var container = document.getElementById('store-plugins-list');
+    if (container) container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">⏳ Loading from store...</div>';
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'fetch_store_plugins', url: url}));
+    } else {
+        if (container) container.innerHTML = '<div style="color:#ef4444;text-align:center;padding:12px">Not connected to mapper</div>';
+    }
+}
+
+function renderStorePlugins(plugins, storeUrl) {
+    var container = document.getElementById('store-plugins-list');
+    if (!container) return;
+    _storeLoaded = true;
+    if (plugins) _storePluginsData = {plugins: plugins, storeUrl: storeUrl};
+    var urlEl = document.getElementById('store-url-input');
+    if (urlEl && storeUrl) urlEl.value = storeUrl.replace(/^https?:\/\//, '').replace(/\/plugins\.json$/, '');
+
+    if (!plugins || plugins.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:#6b7280">No plugins in store</div>';
+        return;
+    }
+
+    var installedMap = {};
+    _installedPluginsCache.forEach(function(p) { installedMap[p.id] = p.version || ''; });
+
+    container.innerHTML = plugins.map(function(p) {
+        var instVer = installedMap[p.id];
+        var typeBadge = (p.type === 'backend')
+            ? '<span style="background:#1e3a5f;color:#93c5fd;padding:1px 5px;border-radius:3px;font-size:9px">Backend</span>'
+            : '<span style="background:#2e1a4a;color:#c4b5fd;padding:1px 5px;border-radius:3px;font-size:9px">Frontend</span>';
+        var actionBtn;
+        if (instVer === undefined) {
+            actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
+                'style="font-size:11px;padding:3px 10px;background:#16a34a;color:#fff;border:none;border-radius:4px;cursor:pointer">📦 Install</button>';
+        } else if (versionNewer(p.version, instVer)) {
+            actionBtn = '<button onclick="installFromStore(\'' + escHtml(p.download_url) + '\',\'' + escHtml(p.id) + '\',\'' + escHtml(p.name) + '\')" ' +
+                'style="font-size:11px;padding:3px 10px;background:#d97706;color:#fff;border:none;border-radius:4px;cursor:pointer">⬆️ Update v' + escHtml(p.version) + '</button>';
+        } else {
+            actionBtn = '<span style="font-size:11px;color:#22c55e;font-weight:600">✓ Installed v' + escHtml(instVer) + '</span>';
+        }
+        var authorName = (p.author && p.author.name) ? p.author.name : (p.author || 'Unknown');
+        var authorStr = (p.author && p.author.url)
+            ? '<a href="' + escHtml(p.author.url) + '" target="_blank" style="color:#6b7280;text-decoration:none" onmouseover="this.style.textDecoration=\'underline\'" onmouseout="this.style.textDecoration=\'none\'">' + escHtml(authorName) + '</a>'
+            : escHtml(authorName);
+        return '<div style="border:1px solid #374151;border-radius:8px;padding:12px;margin-bottom:10px;background:#111827">' +
+            '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+                '<div style="display:flex;align-items:center;gap:8px">' +
+                    '<span style="font-size:20px">' + (p.icon || '🔌') + '</span>' +
+                    '<div>' +
+                        '<strong style="color:#f9fafb;font-size:13px">' + escHtml(p.name) + '</strong>' +
+                        ' <span style="color:#6b7280;font-size:11px">v' + escHtml(p.version) + '</span>' +
+                    '</div>' +
+                '</div>' +
+                '<div>' + actionBtn + '</div>' +
+            '</div>' +
+            '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || '') + '</div>' +
+            '<div style="margin-top:6px;font-size:11px;color:#6b7280">' +
+                'By ' + authorStr + ' · ' + typeBadge +
+                (p.category ? ' · <span style="color:#f59e0b">' + escHtml(p.category) + '</span>' : '') +
+                (p.min_mapper_version ? ' · requires v' + escHtml(p.min_mapper_version) + '+' : '') +
+            '</div>' +
+        '</div>';
+    }).join('');
+}
+
+function versionNewer(storeVer, installedVer) {
+    var a = String(storeVer).split('.').map(Number);
+    var b = String(installedVer).split('.').map(Number);
+    for (var i = 0; i < 3; i++) {
+        if ((a[i]||0) > (b[i]||0)) return true;
+        if ((a[i]||0) < (b[i]||0)) return false;
+    }
+    return false;
+}
+
+function installFromStore(downloadUrl, pluginId, pluginName) {
+    var isUpdate = _installedPluginsCache.some(function(p) { return p.id === pluginId; });
+    var msg = isUpdate
+        ? '⬆️ Update "' + pluginName + '"?\n\nMapper will download and install the new version.'
+        : '📦 Install "' + pluginName + '"?\n\nMapper will download and install the plugin.';
+    if (!confirm(msg)) return;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
+        showAlert((isUpdate ? '⏳ Updating ' : '⏳ Downloading ') + pluginName + '...', 'info');
+    }
+}
+
+function doBackup(mode) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'create_backup', mode: mode}));
+        showAlert('📦 Creating ' + mode + ' backup...', 'info');
+    }
+}
+
+function doRestore(input) {
+    var file = input.files[0];
+    if (!file) return;
+    if (!file.name.endsWith('.zip')) {
+        showAlert('❌ Invalid file — must be a .zip backup file', 'error');
+        input.value = '';
+        return;
+    }
+    if (!confirm('⚠️ Restore from backup?\n\nThis will overwrite current settings. You will need to restart the mapper after restore.')) {
+        input.value = '';
+        return;
+    }
+    var reader = new FileReader();
+    reader.onload = function(e) {
+        var base64 = e.target.result.split(',')[1];
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({type: 'restore_backup', data: base64}));
+            showAlert('📥 Restoring backup...', 'info');
+        }
+    };
+    reader.readAsDataURL(file);
+    input.value = '';
 }
 
 connectWS();
@@ -2089,10 +2547,11 @@ updateNavUnread();
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.1.1';
+let CURRENT_VERSION = localStorage.getItem('mesh-mapper-version') || null;
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
+    if (!CURRENT_VERSION) return;
     sessionStorage.setItem('update_checked', '1');
     try {
         const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {

@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.1.1">
+    <link rel="stylesheet" href="styles.css?v=2.3.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -148,7 +148,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Stats</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Stats</span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -162,6 +162,18 @@
         <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
     </div>
 </nav>
+
+<!-- Reset controls -->
+<div style="display:flex;gap:10px;padding:8px 16px;background:#1e293b;border-bottom:1px solid #334155">
+    <button onclick="clearAllStats('stats_only')"
+        style="font-size:11px;padding:4px 12px;background:#dc2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
+        🗑️ Clear Statistics
+    </button>
+    <button onclick="clearAllStats('full_reset')"
+        style="font-size:11px;padding:4px 12px;background:#991b1b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
+        ⚠️ Full Reset (Stats + Nodes)
+    </button>
+</div>
 
 <div id="g-tooltip"></div>
 
@@ -463,6 +475,19 @@ function connectWS() {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
             return;
         }
+        if (d.type === 'clear_all_stats_result') {
+            if (d.success) {
+                showAlert(d.mode === 'full_reset'
+                    ? '✅ Full reset complete — stats cleared, nodes removed'
+                    : '✅ All statistics cleared', 'success');
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ type: 'get_stats' }));
+                }
+            } else {
+                showAlert('❌ Failed to clear stats: ' + (d.error || 'unknown'), 'error');
+            }
+            return;
+        }
         if (d.type === 'clear_node_stats_result') {
             if (d.success) {
                 if (ws && ws.readyState === WebSocket.OPEN) {
@@ -490,6 +515,16 @@ function connectWS() {
             }
             renderAll(d.data);
             document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+        }
+        if (d.type === 'connection_status') {
+            if (d.mapper_version) {
+                const firstTime = !CURRENT_VERSION;
+                localStorage.setItem('mesh-mapper-version', d.mapper_version);
+                CURRENT_VERSION = d.mapper_version;
+                const verEl = document.getElementById('mapper-version-span');
+                if (verEl) verEl.textContent = 'v' + d.mapper_version + ' — Stats';
+                if (firstTime) checkForUpdates();
+            }
         }
         if (d.type === 'connection_status' && d.tracker) {
             _trackerInfo = d.tracker;
@@ -1298,6 +1333,19 @@ function clearNodeStats(nodeId, nodeName) {
     }
 }
 
+function clearAllStats(mode) {
+    const msg = mode === 'full_reset'
+        ? '⚠️ FULL RESET\n\nThis will delete ALL statistics AND remove all nodes from the map.\n\nAre you sure?'
+        : '🗑️ Clear all packet statistics?\n\nNodes on the map will NOT be affected.';
+    if (!confirm(msg)) return;
+    if (mode === 'full_reset') {
+        if (!confirm('⚠️ This cannot be undone! All data will be lost.\n\nReally proceed?')) return;
+    }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'clear_all_stats', mode: mode }));
+    }
+}
+
 connectWS();
 
 // Unread messages badge
@@ -1334,10 +1382,11 @@ setInterval(() => {
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
-const CURRENT_VERSION = '2.1.1';
+let CURRENT_VERSION = localStorage.getItem('mesh-mapper-version') || null;
 
 async function checkForUpdates() {
     if (sessionStorage.getItem('update_checked')) return;
+    if (!CURRENT_VERSION) return;
     sessionStorage.setItem('update_checked', '1');
     try {
         const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {

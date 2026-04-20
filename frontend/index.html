@@ -25,12 +25,12 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.1.1">
+    <link rel="stylesheet" href="styles.css?v=2.3.0">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 Meshtastic Mapper <span style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v2.1.1 — Map</span></div>
+    <div class="topnav-logo">📶 Meshtastic Mapper <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Map</span></div>
     <div class="topnav-status">
         <span id="ws-status" style="color:#eab308;">●</span>
         <span id="ws-status-label" style="color:#6b7280">connecting</span>
@@ -252,8 +252,14 @@
         let tracerouteTimeout = null;
         let tracerouteCountdown = null;
 
-        // Meshtastic Mapper v2.1.1 - force reload: update this version number to bust cache
-        const MAPPER_VERSION = '2.1.1';
+        // ── Plugin system ──────────────────────────────────────────────
+        var loadedPlugins = {};
+        var pluginLayers = {};
+        var pluginControls = {};
+        var pluginNodeCallbacks = {};
+        var pluginExpireCallbacks = {};
+        var pluginMessageCallbacks = {};
+        var pluginWsCallbacks = {};
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -350,6 +356,9 @@
                         console.log('[WS] Loading initial data...');
                         fetchNodesJSON(0);
                     }
+
+                    // Load enabled plugins (delay to let initial data settle)
+                    setTimeout(loadEnabledPlugins, 2000);
                 };
                 
                 ws.onmessage = (event) => {
@@ -360,6 +369,11 @@
                             console.log('[WS] Node update:', data.node.id);
                             handleNodeUpdate(data.node);
                             window._lastUpdateTime = Date.now();
+                            // Notify plugins
+                            Object.keys(pluginNodeCallbacks).forEach(function(key) {
+                                try { pluginNodeCallbacks[key](data.node); }
+                                catch(e) { console.error('[PLUGINS] node callback error:', e); }
+                            });
                         } else if (data.type === 'node_deleted') {
                             console.log('[WS] Node deleted:', data.node_id);
 
@@ -377,12 +391,62 @@
 
                             // Odśwież wyświetlanie
                             updateDisplay();
+                            // Notify plugins
+                            Object.keys(pluginExpireCallbacks).forEach(function(key) {
+                                try { pluginExpireCallbacks[key]({nodeId: data.node_id}); }
+                                catch(e) { console.error('[PLUGINS] expire callback error:', e); }
+                            });
+                        } else if (data.type === 'full_reset') {
+                            console.log('[WS] Full reset received — clearing map');
+                            allNodes = [];
+                            allNodesNoGps = [];
+                            Object.keys(markers).forEach(id => {
+                                map.removeLayer(markers[id]);
+                                delete markers[id];
+                            });
+                            updateDisplay();
                         } else if (data.type === 'new_message') {
                             console.log('[WS] New message from:', data.message.from_id);
                             if (document.hidden) {
                                 const cur = parseInt(localStorage.getItem('meshtastic_unread') || '0');
                                 localStorage.setItem('meshtastic_unread', cur + 1);
                                 updateNavUnread();
+                            }
+                            // Notify plugins
+                            Object.keys(pluginMessageCallbacks).forEach(function(key) {
+                                try { pluginMessageCallbacks[key](data.message || data); }
+                                catch(e) { console.error('[PLUGINS] message callback error:', e); }
+                            });
+                        } else if (data.type === 'plugins_list') {
+                            // Load frontend for all enabled plugins
+                            (data.plugins || []).forEach(function(p) {
+                                if (p.enabled && p.has_frontend && p.frontend) {
+                                    loadPluginFrontend(p);
+                                }
+                            });
+                        } else if (data.type === 'plugin_data') {
+                            // Forward to plugin WebSocket callbacks
+                            var channel = data.channel;
+                            if (channel && pluginWsCallbacks[channel]) {
+                                try { pluginWsCallbacks[channel](data.data); }
+                                catch(e) { console.error('[PLUGINS] WS callback error:', e); }
+                            }
+                        } else if (data.type === 'plugin_config_updated') {
+                            // Live config reload for running plugins
+                            var pluginId = data.plugin_id;
+                            var loaded = loadedPlugins[pluginId];
+                            if (loaded && loaded.instance) {
+                                // Update the API info config
+                                loaded.api.info.config = data.config || {};
+                                // Call onConfigUpdate if plugin implements it
+                                if (typeof loaded.instance.onConfigUpdate === 'function') {
+                                    try {
+                                        loaded.instance.onConfigUpdate(data.config || {});
+                                        console.log('[PLUGINS] Config updated for ' + pluginId);
+                                    } catch(e) {
+                                        console.error('[PLUGINS] onConfigUpdate error for ' + pluginId + ':', e);
+                                    }
+                                }
                             }
                         } else if (data.type === 'stats_update') {
                             console.log('[WS] Stats update:', data.max_distance_km, 'km to', data.farthest_node);
@@ -435,6 +499,14 @@
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
+                            if (data.mapper_version) {
+                                const firstTime = !CURRENT_VERSION;
+                                localStorage.setItem('mesh-mapper-version', data.mapper_version);
+                                CURRENT_VERSION = data.mapper_version;
+                                const verEl = document.getElementById('mapper-version-span');
+                                if (verEl) verEl.textContent = 'v' + data.mapper_version + ' — Map';
+                                if (firstTime) checkForUpdates();
+                            }
                             const msgEl = document.getElementById('connection-message');
                             if (msgEl) msgEl.textContent = data.message || '';
                             if (data.status === 'disconnected') {
@@ -1911,10 +1983,39 @@
             }
         });
 
+        function restoreFilterStates() {
+            var filters = [
+                'show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+            ];
+            filters.forEach(function(id) {
+                var saved = localStorage.getItem('mesh-filter-' + id);
+                if (saved !== null) {
+                    document.getElementById(id).checked = (saved === 'true');
+                }
+            });
+            updateDisplay();
+            if (document.getElementById('show-direct-lines').checked) updateDirectLines();
+            if (document.getElementById('show-neighbor-links').checked) updateNeighborLinks();
+            if (document.getElementById('show-relay-nodes').checked) updateRelayVisualization();
+        }
+
+        (function() {
+            ['show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+            ].forEach(function(id) {
+                var el = document.getElementById(id);
+                if (el) el.addEventListener('change', function() {
+                    localStorage.setItem('mesh-filter-' + id, this.checked);
+                });
+            });
+        })();
+
         // Initialize - wait for map to be fully ready (Safari fix)
         map.whenReady(() => {
             console.log('[MAP] Map ready!');
             mapReady = true;
+            restoreFilterStates();
             loadCoverageParams();
 
             // CRITICAL: Force initial data load BEFORE connecting WebSocket
@@ -1940,10 +2041,11 @@
         // Check for updates (non-blocking, once per session)
         setTimeout(checkForUpdates, 3000);
 
-        const CURRENT_VERSION = '2.1.1';
+        let CURRENT_VERSION = localStorage.getItem('mesh-mapper-version') || null;
 
         async function checkForUpdates() {
             if (sessionStorage.getItem('update_checked')) return;
+            if (!CURRENT_VERSION) return;
             sessionStorage.setItem('update_checked', '1');
             try {
                 const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {
@@ -2001,6 +2103,241 @@
                 </div>`;
             document.body.appendChild(modal);
             modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+        }
+
+        // ── Plugin system ──────────────────────────────────────────────
+
+        function createMapperAPI(pluginId, pluginInfo) {
+            var prefix = 'plugin:' + pluginId + ':';
+            return {
+                map: {
+                    addLayer: function(id, layer) {
+                        var key = prefix + id;
+                        layer._pluginLayerKey = key;
+                        layer.addTo(map);
+                        pluginLayers[key] = layer;
+                    },
+                    removeLayer: function(id) {
+                        var key = prefix + id;
+                        var layer = pluginLayers[key];
+                        if (layer) { map.removeLayer(layer); delete pluginLayers[key]; }
+                    },
+                    hasLayer: function(id) { return !!(pluginLayers[prefix + id]); },
+                    addControl: function(id, element, position) {
+                        var key = prefix + id;
+                        var ctrl = L.control({position: position || 'topright'});
+                        ctrl.onAdd = function() {
+                            var div = L.DomUtil.create('div', 'leaflet-plugin-control');
+                            L.DomEvent.disableClickPropagation(div);
+                            div.appendChild(element);
+                            return div;
+                        };
+                        ctrl.addTo(map);
+                        pluginControls[key] = ctrl;
+                    },
+                    removeControl: function(id) {
+                        var key = prefix + id;
+                        var ctrl = pluginControls[key];
+                        if (ctrl) { map.removeControl(ctrl); delete pluginControls[key]; }
+                    },
+                    getCenter: function() { var c = map.getCenter(); return {lat: c.lat, lon: c.lng}; },
+                    getZoom: function() { return map.getZoom(); },
+                    getBounds: function() { return map.getBounds(); },
+                    panTo: function(lat, lon) { map.panTo([lat, lon]); },
+                    fitBounds: function(bounds) { map.fitBounds(bounds); },
+                    onMapEvent: function(event, cb) { map.on(event, cb); },
+                    getLeafletMap: function() { return map; }
+                },
+                nodes: {
+                    getAll: function() {
+                        try { return JSON.parse(JSON.stringify(allNodes)); } catch(e) { return []; }
+                    },
+                    get: function(nodeId) {
+                        var n = allNodes.find(function(n) { return n.id === nodeId; });
+                        return n ? JSON.parse(JSON.stringify(n)) : null;
+                    },
+                    getTracker: function() {
+                        if (window._trackerNodeId) { return this.get(window._trackerNodeId); }
+                        return null;
+                    },
+                    getNoPosition: function() {
+                        try { return JSON.parse(JSON.stringify(allNodesNoGps)); } catch(e) { return []; }
+                    },
+                    onUpdate: function(cb) { pluginNodeCallbacks[prefix] = cb; },
+                    onExpire: function(cb) { pluginExpireCallbacks[prefix] = cb; }
+                },
+                messages: {
+                    getAll: function(ch) { return []; },
+                    onMessage: function(cb) { pluginMessageCallbacks[prefix] = cb; },
+                    send: function(text, toId, ch) {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'send_message', text: text,
+                                dest_id: toId || null, channel: ch || 0
+                            }));
+                        }
+                    }
+                },
+                ws: {
+                    subscribe: function(channel, cb) {
+                        var fullCh = prefix + channel;
+                        pluginWsCallbacks[fullCh] = cb;
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'subscribe_plugin', channel: fullCh}));
+                        }
+                    },
+                    unsubscribe: function(channel) { delete pluginWsCallbacks[prefix + channel]; },
+                    send: function(channel, data) {
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({
+                                type: 'plugin_message', channel: prefix + channel, data: data
+                            }));
+                        }
+                    }
+                },
+                ui: {
+                    addNavItem: function(id, label, icon, onClick) {
+                        var key = prefix + id;
+                        if (document.querySelector('[data-plugin-nav="' + key + '"]')) return;
+                        var navLinks = document.querySelector('.topnav-links');
+                        if (!navLinks) return;
+                        var a = document.createElement('a');
+                        a.href = '#';
+                        a.className = 'topnav-link';
+                        a.dataset.pluginNav = key;
+                        a.textContent = icon + ' ' + label;
+                        a.onclick = function(e) { e.preventDefault(); onClick(); };
+                        navLinks.appendChild(a);
+                    },
+                    removeNavItem: function(id) {
+                        var el = document.querySelector('[data-plugin-nav="' + prefix + id + '"]');
+                        if (el) el.remove();
+                    },
+                    addPanel: function(id, element, position) {
+                        var key = prefix + id;
+                        var panel = document.createElement('div');
+                        panel.className = 'plugin-panel';
+                        panel.dataset.pluginPanel = key;
+                        panel.style.position = 'absolute';
+                        panel.style.zIndex = '1000';
+                        if (position === 'topright') { panel.style.top = '80px'; panel.style.right = '10px'; }
+                        else if (position === 'topleft') { panel.style.top = '80px'; panel.style.left = '10px'; }
+                        else if (position === 'bottomright') { panel.style.bottom = '30px'; panel.style.right = '10px'; }
+                        else { panel.style.bottom = '30px'; panel.style.left = '10px'; }
+                        panel.appendChild(element);
+                        document.getElementById('map').parentElement.appendChild(panel);
+                    },
+                    removePanel: function(id) {
+                        var el = document.querySelector('[data-plugin-panel="' + prefix + id + '"]');
+                        if (el) el.remove();
+                    },
+                    showNotification: function(message, type) {
+                        if (typeof showAlert === 'function') { showAlert(message, type || 'info'); }
+                        else { console.log('[PLUGIN] ' + message); }
+                    },
+                    addSettingsSection: function(id, title, element) {},
+                    removeSettingsSection: function(id) {}
+                },
+                storage: {
+                    get: function(key) {
+                        try { return localStorage.getItem(prefix + key); } catch(e) { return null; }
+                    },
+                    set: function(key, val) {
+                        try { localStorage.setItem(prefix + key, typeof val === 'string' ? val : JSON.stringify(val)); }
+                        catch(e) { console.error('[PLUGIN] Storage error:', e); }
+                    },
+                    remove: function(key) {
+                        try { localStorage.removeItem(prefix + key); } catch(e) {}
+                    },
+                    getAll: function() {
+                        var items = {};
+                        try {
+                            for (var i = 0; i < localStorage.length; i++) {
+                                var k = localStorage.key(i);
+                                if (k && k.indexOf(prefix) === 0) { items[k.slice(prefix.length)] = localStorage.getItem(k); }
+                            }
+                        } catch(e) {}
+                        return items;
+                    }
+                },
+                info: {
+                    id: pluginId,
+                    version: pluginInfo.version || '0.0.0',
+                    config: pluginInfo.config || {},
+                    dataUrl: function(path) { return '/meshtastic/plugins/' + pluginId + '/' + path; }
+                }
+            };
+        }
+
+        function loadEnabledPlugins() {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+            ws.send(JSON.stringify({type: 'get_plugins'}));
+        }
+
+        function loadPluginFrontend(pluginInfo) {
+            var pluginId = pluginInfo.id;
+            if (loadedPlugins[pluginId]) return;
+
+            if (pluginInfo.frontend && pluginInfo.frontend.css) {
+                var link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.css;
+                link.dataset.pluginId = pluginId;
+                document.head.appendChild(link);
+            }
+
+            if (pluginInfo.frontend && pluginInfo.frontend.js) {
+                var script = document.createElement('script');
+                script.src = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.js;
+                script.dataset.pluginId = pluginId;
+                script.onload = function() {
+                    if (window.MeshPlugin) {
+                        try {
+                            var api = createMapperAPI(pluginId, pluginInfo);
+                            var instance = new window.MeshPlugin();
+                            instance.onEnable(api);
+                            loadedPlugins[pluginId] = {instance: instance, api: api, manifest: pluginInfo};
+                            console.log('[PLUGINS] Loaded frontend: ' + pluginId);
+                        } catch(e) {
+                            console.error('[PLUGINS] Error loading ' + pluginId + ':', e);
+                        }
+                        delete window.MeshPlugin;
+                    }
+                };
+                script.onerror = function() {
+                    console.error('[PLUGINS] Failed to load JS for ' + pluginId);
+                };
+                document.body.appendChild(script);
+            }
+        }
+
+        function unloadPluginFrontend(pluginId) {
+            var loaded = loadedPlugins[pluginId];
+            if (!loaded) return;
+            var prefix = 'plugin:' + pluginId + ':';
+
+            try {
+                if (loaded.instance && loaded.instance.onDisable) { loaded.instance.onDisable(loaded.api); }
+            } catch(e) { console.error('[PLUGINS] Error in onDisable for ' + pluginId + ':', e); }
+
+            Object.keys(pluginLayers).forEach(function(key) {
+                if (key.indexOf(prefix) === 0) { try { map.removeLayer(pluginLayers[key]); } catch(e) {} delete pluginLayers[key]; }
+            });
+            Object.keys(pluginControls).forEach(function(key) {
+                if (key.indexOf(prefix) === 0) { try { map.removeControl(pluginControls[key]); } catch(e) {} delete pluginControls[key]; }
+            });
+            Object.keys(pluginNodeCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginNodeCallbacks[key]; });
+            Object.keys(pluginExpireCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginExpireCallbacks[key]; });
+            Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
+            Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
+
+            document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('script[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('[data-plugin-nav^="' + prefix + '"]').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('[data-plugin-panel^="' + prefix + '"]').forEach(function(el) { el.remove(); });
+
+            delete loadedPlugins[pluginId];
+            console.log('[PLUGINS] Unloaded frontend: ' + pluginId);
         }
     </script>
 </body>

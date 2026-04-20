@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 #!/usr/bin/env python3
-#ver 2.1.1
+#ver 2.3.0
 #Max Gieparda (c)2026
 """
 Meshtastic Mapper - Listen Mode with TTL + WebSocket
@@ -92,7 +92,18 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-VERSION = '2.1.1'
+VERSION = '2.3.0'
+MAPPER_VERSION = '2.3.0'
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Plugin system
+try:
+    from mapper.plugin_manager import PluginManager
+    PLUGINS_AVAILABLE = True
+except ImportError:
+    PLUGINS_AVAILABLE = False
+    print("[PLUGINS] Plugin system not available (mapper module not found)")
 
 # Global set of connected WebSocket clients
 connected_clients = set()
@@ -102,6 +113,7 @@ CONFIG_PATH = '/var/www/html/meshtastic/config.json'
 
 # Runtime restart support
 mapper = None
+plugin_manager = None
 restart_event = threading.Event()
 restart_config = {}
 traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
@@ -117,6 +129,7 @@ class TCPMeshtasticInterface:
         self.port = port
         self.interface = None
         self._on_receive_ref = None
+        self._on_mqtt_proxy_ref = None
 
     def connect(self, on_receive=None):
         """Create TCPInterface and subscribe to incoming packets."""
@@ -132,8 +145,15 @@ class TCPMeshtasticInterface:
                 except Exception as e:
                     print(f"[TCP] Packet callback error: {e}")
 
+        def _on_mqtt_proxy(proxymessage, interface):
+            if proxymessage and plugin_manager and plugin_manager.plugins:
+                plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
+                                                  proxymessage.topic, proxymessage.data)
+
         self._on_receive_ref = _on_receive
+        self._on_mqtt_proxy_ref = _on_mqtt_proxy
         pub.subscribe(_on_receive, "meshtastic.receive")
+        pub.subscribe(_on_mqtt_proxy, "meshtastic.mqttclientproxymessage")
 
         def _create_interface():
             self.interface = meshtastic.tcp_interface.TCPInterface(
@@ -173,6 +193,12 @@ class TCPMeshtasticInterface:
             except Exception:
                 pass
             self._on_receive_ref = None
+        if self._on_mqtt_proxy_ref is not None:
+            try:
+                pub.unsubscribe(self._on_mqtt_proxy_ref, "meshtastic.mqttclientproxymessage")
+            except Exception:
+                pass
+            self._on_mqtt_proxy_ref = None
         if self.interface is not None:
             try:
                 self.interface.close()
@@ -194,6 +220,7 @@ class SerialMeshtasticInterface:
         self.port = port  # None = auto-detect
         self.iface = None
         self._on_receive_ref = None
+        self._on_mqtt_proxy_ref = None
 
     def connect(self, on_receive, on_connection_established=None):
         """Connect to serial device and start listening."""
@@ -208,8 +235,15 @@ class SerialMeshtasticInterface:
                 except Exception as e:
                     print(f"[SERIAL] Packet callback error: {e}")
 
+        def _on_mqtt_proxy(proxymessage, interface):
+            if proxymessage and plugin_manager and plugin_manager.plugins:
+                plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
+                                                  proxymessage.topic, proxymessage.data)
+
         self._on_receive_ref = _on_receive
+        self._on_mqtt_proxy_ref = _on_mqtt_proxy
         pub.subscribe(_on_receive, "meshtastic.receive")
+        pub.subscribe(_on_mqtt_proxy, "meshtastic.mqttclientproxymessage")
 
         self.iface = meshtastic.serial_interface.SerialInterface(devPath=self.port)
         iface_ref[0] = self.iface
@@ -228,6 +262,12 @@ class SerialMeshtasticInterface:
             except Exception:
                 pass
             self._on_receive_ref = None
+        if self._on_mqtt_proxy_ref is not None:
+            try:
+                pub.unsubscribe(self._on_mqtt_proxy_ref, "meshtastic.mqttclientproxymessage")
+            except Exception:
+                pass
+            self._on_mqtt_proxy_ref = None
         if self.iface is not None:
             try:
                 self.iface.close()
@@ -348,6 +388,17 @@ class StatsDB:
             conn = sqlite3.connect(self.DB_PATH)
             conn.execute('DELETE FROM packets WHERE from_id = ?', (node_id,))
             conn.execute('DELETE FROM anomalies WHERE node_id = ?', (node_id,))
+            conn.commit()
+            conn.close()
+
+    def clear_all_stats(self):
+        """Delete ALL data from all stats tables."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('DELETE FROM packets')
+            conn.execute('DELETE FROM node_activity')
+            conn.execute('DELETE FROM anomalies')
+            conn.execute('DELETE FROM neighbors')
             conn.commit()
             conn.close()
 
@@ -555,6 +606,7 @@ def load_config():
     config.setdefault('coverage_antenna_gain', 2.0)
     config.setdefault('coverage_antenna_height', 10.0)
     config.setdefault('coverage_max_range_km', 50)
+    config.setdefault('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
     return config
 
 
@@ -577,6 +629,7 @@ class ListenBasedMapper:
         self.current_process = None
         self._serial_iface = None
         self._tcp_iface = None
+        self._cli_reboot_pending = False
         self._pending_traceroute_result = None
         self.config = {}  # Populated with load_config() after construction
         self.json_path = '/var/www/html/meshtastic/nodes.json'
@@ -1551,6 +1604,11 @@ class ListenBasedMapper:
                 print(f"[NEIGHBOR] {from_name} ({from_id}): {len(neighbors)} neighbors")
                 # Broadcast to frontend
                 asyncio.run(self.broadcast_neighbor_update(from_id, from_name, neighbors))
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_neighborinfo', {
+                        'node_id': from_id,
+                        'neighbors': neighbors
+                    })
         except Exception as e:
             print(f"[NEIGHBOR] Parse error: {e}")
 
@@ -1742,6 +1800,8 @@ class ListenBasedMapper:
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                     asyncio.run(self.broadcast_stats_update())
+                    if plugin_manager:
+                        plugin_manager.dispatch_hook_sync('on_node_update', self.nodes.get(node_id))
 
                     return True
 
@@ -1778,6 +1838,8 @@ class ListenBasedMapper:
                     # Broadcast to WebSocket clients
                     asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                     asyncio.run(self.broadcast_stats_update())
+                    if plugin_manager:
+                        plugin_manager.dispatch_hook_sync('on_node_update', self.nodes_no_position.get(node_id))
 
                     return True
 
@@ -1880,6 +1942,12 @@ class ListenBasedMapper:
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_position', {
+                    'node_id': node_id, 'lat': lat, 'lon': lon,
+                    'alt': 0, 'snr': snr, 'rssi': rssi, 'hops': hops,
+                    'timestamp': int(time.time())
+                })
 
             return True
 
@@ -1912,7 +1980,8 @@ class ListenBasedMapper:
 
                 # Parse radio stats from localStats
                 radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
-                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numTxRelayCanceled',
+                                 'numOnlineNodes', 'numTotalNodes', 'heapFreeBytes', 'heapTotalBytes']
                 radio_stats = {}
                 for field in radio_fields:
                     m = re.search(rf"'{field}':\s*([\d.]+)", line)
@@ -1950,6 +2019,10 @@ class ListenBasedMapper:
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id, 'timestamp': int(time.time())
+                    })
 
                 return True
             elif node_id in self.nodes_no_position:
@@ -1961,9 +2034,13 @@ class ListenBasedMapper:
                 # Broadcast to WebSocket clients
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
-                
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id, 'timestamp': int(time.time())
+                    })
+
             return True
-            
+
         except Exception as e:
             print(f"Telemetry parse error: {e}")
         
@@ -2041,6 +2118,8 @@ class ListenBasedMapper:
 
             # Broadcast to WebSocket clients
             asyncio.run(self.broadcast_message(message))
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_message', message)
 
             return True
 
@@ -2125,6 +2204,8 @@ class ListenBasedMapper:
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_node_update', self.nodes.get(node_id))
             else:
                 is_new = node_id not in self.nodes_no_position
                 self.nodes_no_position[node_id] = {
@@ -2145,6 +2226,8 @@ class ListenBasedMapper:
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_node_update', self.nodes_no_position.get(node_id))
             return True
         except Exception as e:
             print(f"[TCP] nodeinfo parse error: {e}")
@@ -2222,6 +2305,13 @@ class ListenBasedMapper:
             self.log_packet_to_stats(node_id, 'POSITION_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
             asyncio.run(self.broadcast_stats_update())
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_position', {
+                    'node_id': node_id, 'lat': lat, 'lon': lon,
+                    'alt': pos.get('altitude', 0),
+                    'snr': snr, 'rssi': rssi, 'hops': hops,
+                    'timestamp': int(time.time())
+                })
             return True
         except Exception as e:
             print(f"[TCP] position parse error: {e}")
@@ -2248,7 +2338,8 @@ class ListenBasedMapper:
 
                 local_stats = telemetry.get('localStats', {})
                 radio_fields = ['channelUtilization', 'airUtilTx', 'numPacketsTx', 'numPacketsRx',
-                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numOnlineNodes', 'numTotalNodes']
+                                 'numPacketsRxBad', 'numRxDupe', 'numTxRelay', 'numTxRelayCanceled',
+                                 'numOnlineNodes', 'numTotalNodes', 'heapFreeBytes', 'heapTotalBytes']
                 radio_stats = {f: local_stats[f] for f in radio_fields if f in local_stats}
                 if not radio_stats:
                     # Fallback: some firmware reports these in deviceMetrics
@@ -2322,6 +2413,18 @@ class ListenBasedMapper:
                 print(f"♡ {node_id} telemetry heartbeat [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id,
+                        'battery': battery_level,
+                        'voltage': voltage,
+                        'channel_util': None,
+                        'air_util_tx': None,
+                        'snr': None,
+                        'temperature': temperature,
+                        'uptime': uptime_seconds,
+                        'timestamp': int(time.time())
+                    })
                 return True
             elif node_id in self.nodes_no_position:
                 self.nodes_no_position[node_id]['ts'] = int(time.time())
@@ -2332,6 +2435,18 @@ class ListenBasedMapper:
                 print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
+                if plugin_manager:
+                    plugin_manager.dispatch_hook_sync('on_telemetry', {
+                        'node_id': node_id,
+                        'battery': battery_level,
+                        'voltage': voltage,
+                        'channel_util': None,
+                        'air_util_tx': None,
+                        'snr': None,
+                        'temperature': temperature,
+                        'uptime': uptime_seconds,
+                        'timestamp': int(time.time())
+                    })
             return True
         except Exception as e:
             print(f"[TCP] telemetry parse error: {e}")
@@ -2380,6 +2495,8 @@ class ListenBasedMapper:
             relay_node_raw = packet.get('relayNode')
             self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
+            if plugin_manager:
+                plugin_manager.dispatch_hook_sync('on_message', message)
             return True
         except Exception as e:
             print(f"[TCP] text parse error: {e}")
@@ -2483,6 +2600,7 @@ class ListenBasedMapper:
             'host': self.host,
             'port': self.port,
             'tracker': getattr(self, 'tracker_info', {}),
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         try:
@@ -2532,7 +2650,7 @@ class ListenBasedMapper:
                 tracker_entry = {
                     'id': self.local_node_id,
                     'name': self.tracker_info.get('long_name') or self.tracker_info.get('node_id', self.local_node_id),
-                    'role': self.tracker_info.get('role', 'ROUTER'),
+                    'role': self.tracker_info.get('role', 'CLIENT'),
                     'ts': int(time.time()),
                     'seen_at': int(time.time()),
                     'source': 'live',
@@ -2550,6 +2668,12 @@ class ListenBasedMapper:
                     nodes_list.append(tracker_entry)
                 else:
                     nodes_no_pos_list.append(tracker_entry)
+            else:
+                # Update role on existing tracker node (may have changed since last run)
+                if self.local_node_id in self.nodes:
+                    self.nodes[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
+                elif self.local_node_id in self.nodes_no_position:
+                    self.nodes_no_position[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
 
             # Get relay stats for map visualization
             try:
@@ -2626,8 +2750,10 @@ class ListenBasedMapper:
                                         4: 'TRACKER', 5: 'SENSOR', 6: 'REPEATER', 7: 'TAK',
                                         8: 'TAK_TRACKER', 9: 'LOST_AND_FOUND', 11: 'ROUTER_LATE'}
                             tracker_role = role_map.get(int(role_int), 'CLIENT')
+                            self.tracker_info['role'] = tracker_role
                         except Exception:
                             tracker_role = node_info.get('user', {}).get('role', 'CLIENT')
+                            self.tracker_info['role'] = tracker_role
                         try:
                             if lat and lon and not (lat == 0 and lon == 0):
                                 self.tracker_info['lat'] = round(lat, 6)
@@ -2668,6 +2794,8 @@ class ListenBasedMapper:
                     on_connection_established=on_connection_established
                 )
                 print(f"[SERIAL] Connected successfully")
+                if plugin_manager:
+                    plugin_manager.set_interface(serial_iface)
                 self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
@@ -2746,8 +2874,16 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                print("[WAIT] Retrying in 10 seconds...")
-                time.sleep(10)
+                if self._cli_reboot_pending:
+                    print("[WAIT] Device rebooting after CLI config change, waiting 35 seconds...")
+                    time.sleep(35)
+                    self._cli_reboot_pending = False
+                elif self._serial_iface is None:
+                    print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    print("[WAIT] Retrying in 10 seconds...")
+                    time.sleep(10)
                 restart_count += 1
 
             finally:
@@ -2851,6 +2987,8 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {self.host}")
+                if plugin_manager:
+                    plugin_manager.set_interface(tcp_iface)
                 self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup
@@ -2868,8 +3006,10 @@ class ListenBasedMapper:
                                     4: 'TRACKER', 5: 'SENSOR', 6: 'REPEATER', 7: 'TAK',
                                     8: 'TAK_TRACKER', 9: 'LOST_AND_FOUND', 11: 'ROUTER_LATE'}
                         tracker_role = role_map.get(int(role_int), 'CLIENT')
+                        self.tracker_info['role'] = tracker_role
                     except Exception:
                         tracker_role = my_info.get('user', {}).get('role', 'CLIENT')
+                        self.tracker_info['role'] = tracker_role
                     if lat and lon and not (lat == 0 and lon == 0):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)
@@ -2990,8 +3130,16 @@ class ListenBasedMapper:
                 if self.nodes:
                     self.save_nodes()
 
-                print("[WAIT] Retrying in 10 seconds...")
-                time.sleep(10)
+                if self._cli_reboot_pending:
+                    print("[WAIT] Device rebooting after CLI config change, waiting 35 seconds...")
+                    time.sleep(35)
+                    self._cli_reboot_pending = False
+                elif self._serial_iface is None:
+                    print("[WAIT] Serial was released by CLI, retrying in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    print("[WAIT] Retrying in 10 seconds...")
+                    time.sleep(10)
                 restart_count += 1
 
             finally:
@@ -3516,6 +3664,8 @@ async def websocket_handler(websocket):
     connected_clients.add(websocket)
     client_addr = websocket.remote_address
     print(f"[WS] Client connected: {client_addr}, total clients: {len(connected_clients)}")
+    if plugin_manager:
+        await plugin_manager.dispatch_hook('on_ws_client_connect', {'client_id': str(client_addr)})
 
     # Send current connection status and tracker info to newly connected client
     if mapper and hasattr(mapper, 'tracker_info'):
@@ -3527,6 +3677,7 @@ async def websocket_handler(websocket):
             'host': mapper.host,
             'port': mapper.port,
             'tracker': mapper.tracker_info,
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         await websocket.send(status_msg)
@@ -3534,6 +3685,8 @@ async def websocket_handler(websocket):
     try:
         async for message in websocket:
             try:
+                if message and len(message) < 200:
+                    print(f"[WS] ← {client_addr}: {message}")
                 if len(message) > 65536:  # 64KB max
                     print(f"[WS] Message too large ({len(message)} bytes), ignoring")
                     continue
@@ -3626,21 +3779,159 @@ async def websocket_handler(websocket):
                     if mapper:
                         changes = data.get('changes', {})
                         reboot = data.get('reboot', False)
+                        applied = []
                         try:
-                            result = mapper.apply_device_config(changes, reboot)
+                            conn_type = mapper.connection_type
+                            if conn_type == 'serial':
+                                base_cmd = [mapper.meshtastic_cmd, '--port', mapper.port]
+                            elif conn_type == 'tcp':
+                                base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            set_args = []
+                            owner_args = []
+
+                            if 'user' in changes:
+                                u = changes['user']
+                                if 'long_name' in u:
+                                    owner_args.extend(['--set-owner', u['long_name']])
+                                    applied.append('user.long_name')
+                                if 'short_name' in u:
+                                    owner_args.extend(['--set-owner-short', u['short_name']])
+                                    applied.append('user.short_name')
+
+                            section_map = {
+                                'device': 'device',
+                                'position': 'position',
+                                'lora': 'lora',
+                                'telemetry': 'telemetry',
+                                'network': 'network',
+                                'bluetooth': 'bluetooth',
+                                'power': 'power',
+                                'display': 'display',
+                            }
+
+                            enum_fields = {
+                                'device.role': {0: 'CLIENT', 1: 'CLIENT_MUTE', 2: 'ROUTER', 3: 'ROUTER_CLIENT', 4: 'REPEATER', 5: 'TRACKER', 6: 'SENSOR', 7: 'TAK', 8: 'CLIENT_HIDDEN', 9: 'LOST_AND_FOUND', 10: 'TAK_TRACKER'},
+                                'device.rebroadcast_mode': {0: 'ALL', 1: 'ALL_SKIP_DECODING', 2: 'LOCAL_ONLY', 3: 'KNOWN_ONLY', 4: 'NONE'},
+                                'lora.modem_preset': {0: 'LONG_FAST', 1: 'LONG_SLOW', 2: 'VERY_LONG_SLOW', 3: 'MEDIUM_SLOW', 4: 'MEDIUM_FAST', 5: 'SHORT_SLOW', 6: 'SHORT_FAST', 7: 'LONG_MODERATE'},
+                                'lora.region': {0: 'UNSET', 1: 'US', 2: 'EU_433', 3: 'EU_868', 4: 'CN', 5: 'JP', 6: 'ANZ', 7: 'KR', 8: 'TW', 9: 'RU', 10: 'IN', 11: 'NZ_865', 12: 'TH', 13: 'LORA_24', 14: 'UA_433', 15: 'UA_868', 16: 'MY_433', 17: 'MY_919', 18: 'SG_923'},
+                                'display.gps_format': {0: 'DEC', 1: 'DMS', 2: 'UTM', 3: 'MGRS', 4: 'OLC', 5: 'OSGR'},
+                                'display.units': {0: 'METRIC', 1: 'IMPERIAL'},
+                                'display.oled': {0: 'AUTO', 1: 'SSD1306', 2: 'SH1106', 3: 'SH1107'},
+                                'display.displaymode': {0: 'DEFAULT', 1: 'TWOCOLOR', 2: 'INVERTED', 3: 'COLOR'},
+                                'network.address_mode': {0: 'DHCP', 1: 'STATIC'},
+                                'bluetooth.mode': {0: 'RANDOM_PIN', 1: 'FIXED_PIN', 2: 'NO_PIN'},
+                            }
+
+                            for section, cli_section in section_map.items():
+                                if section in changes:
+                                    for key, val in changes[section].items():
+                                        full_key = f'{cli_section}.{key}'
+                                        if full_key in enum_fields:
+                                            int_val = int(val) if isinstance(val, str) else val
+                                            val = enum_fields[full_key].get(int_val, str(val))
+                                        elif isinstance(val, bool):
+                                            val = 'true' if val else 'false'
+                                        set_args.extend(['--set', full_key, str(val)])
+                                        applied.append(full_key)
+
+                            module_section_map = {
+                                'mqtt': 'mqtt',
+                                'neighborinfo': 'neighborinfo',
+                                'store_forward': 'store_forward',
+                                'ext_notification': 'ext_notification',
+                                'range_test': 'range_test',
+                                'canned_message': 'canned_message',
+                                'paxcounter': 'paxcounter',
+                                'serial_module': 'serial',
+                            }
+
+                            mqtt_skip_fields = {'map_reporting_enabled', 'map_publish_interval_secs', 'position_precision'}
+
+                            for section, cli_section in module_section_map.items():
+                                if section in changes:
+                                    for key, val in changes[section].items():
+                                        if section == 'mqtt' and key in mqtt_skip_fields:
+                                            continue
+                                        full_key = f'{cli_section}.{key}'
+                                        # Fix key mismatches between frontend and CLI
+                                        if section == 'neighborinfo' and key == 'neighbor_info_enabled':
+                                            full_key = 'neighborinfo.enabled'
+                                        if isinstance(val, bool):
+                                            val = 'true' if val else 'false'
+                                        set_args.extend(['--set', full_key, str(val)])
+                                        applied.append(full_key)
+
+                            if not set_args and not owner_args:
+                                if reboot:
+                                    set_args = ['--reboot']
+                                    applied.append('reboot')
+                                else:
+                                    await websocket.send(json.dumps({
+                                        'type': 'config_saved',
+                                        'success': True,
+                                        'rebooting': False,
+                                        'applied': []
+                                    }, ensure_ascii=False))
+                                    continue
+
+                            def _run_set_config():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    if owner_args:
+                                        cmd = base_cmd + owner_args
+                                        print(f"[CONFIG] Running: {' '.join(cmd)}")
+                                        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                        if r.returncode != 0:
+                                            raise Exception(r.stderr.strip() or r.stdout.strip() or 'Owner set failed')
+
+                                    if set_args:
+                                        cmd = base_cmd + set_args
+                                        if reboot and '--reboot' not in set_args:
+                                            cmd.append('--reboot')
+                                        print(f"[CONFIG] Running: {' '.join(cmd)}")
+                                        if reboot:
+                                            mapper._cli_reboot_pending = True
+                                        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                        if r.returncode != 0:
+                                            raise Exception(r.stderr.strip() or r.stdout.strip() or 'Config set failed')
+                                finally:
+                                    if conn_type == 'serial':
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
+
+                            print(f"[CONFIG] Applying config via CLI: {applied}, reboot={reboot}")
+                            await asyncio.wait_for(
+                                asyncio.to_thread(_run_set_config),
+                                timeout=90
+                            )
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
-                                'rebooting': reboot or 'mqtt' in result,
-                                'applied': result
+                                'rebooting': reboot,
+                                'applied': applied
+                            }, ensure_ascii=False))
+                            print(f"[CONFIG] Config saved via CLI: {applied}")
+                        except asyncio.TimeoutError:
+                            print("[CONFIG] set_config timeout after 90s")
+                            await websocket.send(json.dumps({
+                                'type': 'config_saved',
+                                'success': False,
+                                'error': 'Timeout applying config (90s)'
                             }, ensure_ascii=False))
                         except (BrokenPipeError, OSError) as e:
-                            # Device disconnected after reboot — this is expected
                             print(f"[CONFIG] Connection dropped after save (expected if rebooting): {e}")
                             await websocket.send(json.dumps({
                                 'type': 'config_saved',
                                 'success': True,
-                                'applied': [],
+                                'applied': applied,
                                 'rebooting': True,
                                 'warning': 'Device disconnected — config likely saved, device may be rebooting'
                             }, ensure_ascii=False))
@@ -3655,47 +3946,129 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'set_fixed_position':
                     if mapper:
                         try:
-                            iface = None
-                            if mapper.connection_type == 'serial' and mapper._serial_iface:
-                                iface = mapper._serial_iface.iface
-                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
-                                iface = mapper._tcp_iface
-                            if iface:
-                                lat = data.get('lat', 0)
-                                lon = data.get('lon', 0)
-                                alt = data.get('alt', 0)
-                                iface.localNode.setFixedPosition(lat, lon, alt)
+                            lat = data.get('lat', 0)
+                            lon = data.get('lon', 0)
+                            alt = data.get('alt', 0)
+                            conn_type = mapper.connection_type
+
+                            if conn_type == 'serial':
+                                port = mapper.port
+                                cmd = [mapper.meshtastic_cmd, '--port', port,
+                                       '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
+                            elif conn_type == 'tcp':
+                                cmd = [mapper.meshtastic_cmd, '--host', mapper.host,
+                                       '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            def _run_set_position():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                    return result
+                                finally:
+                                    if conn_type == 'serial':
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
+
+                            print(f"[CONFIG] Setting fixed position via CLI: {lat}, {lon}, {alt}m")
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(_run_set_position),
+                                timeout=90
+                            )
+                            if result.returncode == 0:
                                 await websocket.send(json.dumps({
                                     'type': 'fixed_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
                                 print(f"[CONFIG] Fixed position set: {lat}, {lon}, {alt}m")
+                            else:
+                                error_msg = result.stderr.strip() or result.stdout.strip() or 'Unknown error'
+                                await websocket.send(json.dumps({
+                                    'type': 'fixed_position_result',
+                                    'success': False,
+                                    'error': error_msg
+                                }, ensure_ascii=False))
+                                print(f"[CONFIG] Fixed position failed: {error_msg}")
+                        except asyncio.TimeoutError:
+                            await websocket.send(json.dumps({
+                                'type': 'fixed_position_result',
+                                'success': False,
+                                'error': 'Timeout setting position (90s)'
+                            }, ensure_ascii=False))
+                            print("[CONFIG] set_fixed_position timeout after 90s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'fixed_position_result',
                                 'success': False, 'error': str(e)
                             }, ensure_ascii=False))
+                            print(f"[CONFIG] set_fixed_position error: {e}")
 
                 elif data.get('type') == 'clear_fixed_position':
                     if mapper:
                         try:
-                            iface = None
-                            if mapper.connection_type == 'serial' and mapper._serial_iface:
-                                iface = mapper._serial_iface.iface
-                            elif mapper.connection_type == 'tcp' and mapper._tcp_iface:
-                                iface = mapper._tcp_iface
-                            if iface:
-                                iface.localNode.removeFixedPosition()
+                            conn_type = mapper.connection_type
+
+                            if conn_type == 'serial':
+                                port = mapper.port
+                                cmd = [mapper.meshtastic_cmd, '--port', port, '--remove-fixed-position']
+                            elif conn_type == 'tcp':
+                                cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--remove-fixed-position']
+                            else:
+                                raise Exception(f'Unsupported connection type: {conn_type}')
+
+                            def _run_clear_position():
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    print("[CONFIG] Closing serial for CLI access...")
+                                    mapper._serial_iface.disconnect()
+                                    mapper._serial_iface = None
+                                    time.sleep(2)
+                                try:
+                                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+                                    return result
+                                finally:
+                                    if conn_type == 'serial':
+                                        # Don't reconnect here — let _run_serial loop handle it
+                                        # It will detect _serial_iface is None and reconnect
+                                        print("[CONFIG] Serial released, waiting for auto-reconnect...")
+
+                            print("[CONFIG] Clearing fixed position via CLI...")
+                            result = await asyncio.wait_for(
+                                asyncio.to_thread(_run_clear_position),
+                                timeout=90
+                            )
+                            if result.returncode == 0:
                                 await websocket.send(json.dumps({
                                     'type': 'clear_position_result',
                                     'success': True
                                 }, ensure_ascii=False))
-                                print(f"[CONFIG] Fixed position cleared")
+                                print("[CONFIG] Fixed position cleared")
+                            else:
+                                error_msg = result.stderr.strip() or result.stdout.strip() or 'Unknown error'
+                                await websocket.send(json.dumps({
+                                    'type': 'clear_position_result',
+                                    'success': False,
+                                    'error': error_msg
+                                }, ensure_ascii=False))
+                                print(f"[CONFIG] Clear position failed: {error_msg}")
+                        except asyncio.TimeoutError:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_position_result',
+                                'success': False,
+                                'error': 'Timeout clearing position (90s)'
+                            }, ensure_ascii=False))
+                            print("[CONFIG] clear_fixed_position timeout after 90s")
                         except Exception as e:
                             await websocket.send(json.dumps({
                                 'type': 'clear_position_result',
                                 'success': False, 'error': str(e)
                             }, ensure_ascii=False))
+                            print(f"[CONFIG] clear_fixed_position error: {e}")
 
                 elif data.get('type') == 'get_favorites':
                     try:
@@ -3955,6 +4328,189 @@ async def websocket_handler(websocket):
                                 'success': False,
                                 'error': str(e)
                             }, ensure_ascii=False))
+                elif data.get('type') == 'clear_all_stats':
+                    mode = data.get('mode', 'stats_only')  # 'stats_only' or 'full_reset'
+                    if mapper:
+                        try:
+                            mapper.stats_db.clear_all_stats()
+                            cleared = 'stats'
+                            if mode == 'full_reset':
+                                # Clear in-memory nodes + nodes.json
+                                mapper.nodes = {}
+                                mapper.nodes_no_position = {}
+                                mapper.known_names = {}
+                                mapper.messages = {}
+                                mapper.save_nodes_json()
+                                # Broadcast to all clients to clear their maps
+                                for client in list(connected_clients):
+                                    try:
+                                        await client.send(json.dumps({
+                                            'type': 'full_reset',
+                                            'timestamp': int(time.time())
+                                        }, ensure_ascii=False))
+                                    except Exception:
+                                        pass
+                                cleared = 'stats + nodes'
+                            await websocket.send(json.dumps({
+                                'type': 'clear_all_stats_result',
+                                'success': True,
+                                'mode': mode
+                            }, ensure_ascii=False))
+                            print(f"[STATS] Cleared ALL {cleared}")
+                        except Exception as e:
+                            await websocket.send(json.dumps({
+                                'type': 'clear_all_stats_result',
+                                'success': False,
+                                'error': str(e)
+                            }, ensure_ascii=False))
+                # ── Plugin management ──────────────────────────────────
+                elif data.get('type') == 'get_plugins':
+                    if plugin_manager:
+                        plugins = plugin_manager.list_plugins()
+                        await websocket.send(json.dumps({
+                            'type': 'plugins_list',
+                            'plugins': plugins
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'enable_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.enable(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_enabled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'disable_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.disable(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_disabled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'install_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.install_from_upload(
+                            data.get('filename', 'plugin.meshplugin'),
+                            data.get('data', '')
+                        )
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_installed', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'uninstall_plugin':
+                    if plugin_manager:
+                        result = plugin_manager.uninstall(data.get('plugin_id', ''))
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_uninstalled', **result
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'save_plugin_config':
+                    if plugin_manager:
+                        plugin_id = data.get('plugin_id', '')
+                        config_updates = data.get('config', {})
+                        result = plugin_manager.save_plugin_config(plugin_id, config_updates)
+                        # Respond to the requesting client
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_config_saved', **result
+                        }, ensure_ascii=False))
+                        # Broadcast config change to ALL other clients (so map page can reload plugin)
+                        if result.get('success'):
+                            full_config = {}
+                            plugin_dir = plugin_manager._get_plugin_dir(plugin_id)
+                            manifest = plugin_manager._read_manifest(plugin_dir)
+                            if manifest:
+                                full_config = plugin_manager._load_plugin_config(plugin_dir, manifest)
+                            broadcast_msg = json.dumps({
+                                'type': 'plugin_config_updated',
+                                'plugin_id': plugin_id,
+                                'config': full_config
+                            }, ensure_ascii=False)
+                            for client in list(connected_clients):
+                                if client != websocket:
+                                    try:
+                                        await client.send(broadcast_msg)
+                                    except Exception:
+                                        pass
+
+                elif data.get('type') == 'fetch_store_plugins':
+                    req_url = data.get('url', '').strip()
+                    cfg = load_config()
+                    store_url = req_url or cfg.get('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
+                    # Persist URL change if different
+                    if req_url and req_url != cfg.get('plugin_store_url', ''):
+                        try:
+                            with open(CONFIG_PATH, 'r') as _f:
+                                _cfg = json.load(_f)
+                        except Exception:
+                            _cfg = {}
+                        _cfg['plugin_store_url'] = req_url
+                        with open(CONFIG_PATH, 'w') as _f:
+                            json.dump(_cfg, _f, indent=2)
+                    def _fetch_store():
+                        import urllib.request as _ur
+                        with _ur.urlopen(store_url, timeout=15) as _r:
+                            return json.loads(_r.read().decode())
+                    try:
+                        store_data = await asyncio.wait_for(asyncio.to_thread(_fetch_store), timeout=20)
+                        await websocket.send(json.dumps({
+                            'type': 'store_plugins',
+                            'success': True,
+                            'plugins': store_data.get('plugins', []),
+                            'store_url': store_url
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        await websocket.send(json.dumps({
+                            'type': 'store_plugins',
+                            'success': False,
+                            'error': str(e),
+                            'store_url': store_url
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'install_from_store':
+                    if plugin_manager:
+                        download_url = data.get('download_url', '')
+                        if not download_url:
+                            await websocket.send(json.dumps({
+                                'type': 'plugin_installed', 'success': False, 'error': 'No download URL'
+                            }, ensure_ascii=False))
+                        else:
+                            def _install_from_store():
+                                import urllib.request as _ur
+                                fname = download_url.split('/')[-1].split('?')[0] or 'plugin.meshplugin'
+                                tmp = os.path.join(plugin_manager.plugins_dir, f'_store_{fname}')
+                                try:
+                                    _ur.urlretrieve(download_url, tmp)
+                                    result = plugin_manager.install(tmp)
+                                finally:
+                                    try:
+                                        os.remove(tmp)
+                                    except Exception:
+                                        pass
+                                return result
+                            try:
+                                result = await asyncio.wait_for(
+                                    asyncio.to_thread(_install_from_store), timeout=60
+                                )
+                            except asyncio.TimeoutError:
+                                result = {'success': False, 'error': 'Download timed out'}
+                            except Exception as e:
+                                result = {'success': False, 'error': f'Download failed: {e}'}
+                            await websocket.send(json.dumps({
+                                'type': 'plugin_installed', **result
+                            }, ensure_ascii=False))
+
+                elif data.get('type') == 'plugin_message':
+                    # Forward plugin WebSocket message to plugin handler
+                    if plugin_manager:
+                        channel = data.get('channel', '')
+                        plugin_id = plugin_manager.ws_channels.get(channel)
+                        if plugin_id and plugin_id in plugin_manager.plugins:
+                            plugin = plugin_manager.plugins[plugin_id]
+                            try:
+                                if hasattr(plugin, 'on_ws_message'):
+                                    await plugin.on_ws_message(data.get('data', {}), channel)
+                            except Exception as e:
+                                print(f"[PLUGIN:{plugin_id}] WS message error: {e}")
+
                 elif data.get('type') == 'get_elevation':
                     locations = data.get('locations', [])
                     if locations and len(locations) <= 100:
@@ -4053,6 +4609,45 @@ async def websocket_handler(websocket):
                             'connected': False
                         }, ensure_ascii=False))
 
+                elif data.get('type') == 'test_coverage':
+                    try:
+                        import urllib.request
+                        import urllib.error
+                        cov_url = data.get('url', '').strip()
+                        cov_key = data.get('api_key', '').strip()
+                        if not cov_url:
+                            cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshtastic.world'
+                        if not cov_key:
+                            cov_key = (mapper.config.get('coverage_api_key', '') if mapper else '')
+
+                        health_url = f"{cov_url.rstrip('/')}/health"
+                        req = urllib.request.Request(
+                            health_url,
+                            method='GET',
+                            headers={
+                                'X-Api-Key': cov_key,
+                                'User-Agent': f'MeshtasticMapper/{VERSION}',
+                            }
+                        )
+                        loop = asyncio.get_event_loop()
+                        def _do_health_check():
+                            with urllib.request.urlopen(req, timeout=10) as resp:
+                                return json.loads(resp.read().decode())
+                        result = await loop.run_in_executor(None, _do_health_check)
+                        print(f"[COVERAGE] Health check OK: {result}")
+                        await websocket.send(json.dumps({
+                            'type': 'test_coverage_result',
+                            'success': True,
+                            'data': result
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        print(f"[COVERAGE] Health check failed: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'test_coverage_result',
+                            'success': False,
+                            'error': str(e)
+                        }, ensure_ascii=False))
+
                 elif data.get('type') == 'get_coverage':
                     try:
                         import urllib.request
@@ -4097,6 +4692,106 @@ async def websocket_handler(websocket):
                             'error': str(e)
                         }, ensure_ascii=False))
 
+                elif data.get('type') == 'create_backup':
+                    import io, zipfile, base64, socket as _socket
+                    from datetime import datetime, timezone as _tz
+                    mode = data.get('mode', 'quick')
+                    def _do_backup():
+                        buf = io.BytesIO()
+                        with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
+                            info = {
+                                'backup_type': mode,
+                                'mapper_version': MAPPER_VERSION,
+                                'timestamp': datetime.now(_tz.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                'hostname': _socket.gethostname(),
+                                'node_count': (len(mapper.nodes) + len(mapper.nodes_no_position)) if mapper else 0,
+                                'plugin_count': len(plugin_manager.enabled_ids) if plugin_manager else 0,
+                            }
+                            zf.writestr('backup_info.json', json.dumps(info, indent=2))
+                            if os.path.exists(CONFIG_PATH):
+                                zf.write(CONFIG_PATH, 'config.json')
+                            if plugin_manager:
+                                enabled_path = os.path.join(plugin_manager.plugins_dir, 'enabled.json')
+                                if os.path.exists(enabled_path):
+                                    zf.write(enabled_path, 'plugins/enabled.json')
+                                for author in os.listdir(plugin_manager.plugins_dir):
+                                    author_dir = os.path.join(plugin_manager.plugins_dir, author)
+                                    if not os.path.isdir(author_dir) or author.startswith('_'):
+                                        continue
+                                    for name in os.listdir(author_dir):
+                                        cfg = os.path.join(author_dir, name, 'config.json')
+                                        if os.path.exists(cfg):
+                                            zf.write(cfg, f'plugins/{author}/{name}/config.json')
+                            if mode == 'full':
+                                nodes_path = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                if os.path.exists(nodes_path):
+                                    zf.write(nodes_path, 'nodes.json')
+                                if os.path.exists(StatsDB.DB_PATH):
+                                    zf.write(StatsDB.DB_PATH, 'stats.db')
+                        buf.seek(0)
+                        return base64.b64encode(buf.read()).decode('ascii')
+                    try:
+                        b64 = await asyncio.to_thread(_do_backup)
+                        ts = datetime.now().strftime('%Y%m%d-%H%M')
+                        await websocket.send(json.dumps({
+                            'type': 'backup_ready',
+                            'filename': f'meshtastic-backup-{mode}-{ts}.zip',
+                            'data': b64,
+                        }, ensure_ascii=False))
+                        print(f"[BACKUP] {mode} backup sent to client")
+                    except Exception as e:
+                        print(f"[BACKUP] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'backup_ready', 'error': str(e),
+                        }, ensure_ascii=False))
+
+                elif data.get('type') == 'restore_backup':
+                    import io, zipfile, base64 as _b64
+                    def _do_restore():
+                        raw = _b64.b64decode(data.get('data', ''))
+                        buf = io.BytesIO(raw)
+                        if not zipfile.is_zipfile(buf):
+                            return {'success': False, 'error': 'Not a valid ZIP file'}
+                        buf.seek(0)
+                        restored = []
+                        with zipfile.ZipFile(buf, 'r') as zf:
+                            names = zf.namelist()
+                            if 'backup_info.json' not in names:
+                                return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
+                            info = json.loads(zf.read('backup_info.json'))
+                            backup_type = info.get('backup_type', 'unknown')
+                            for name in names:
+                                if name == 'backup_info.json':
+                                    continue
+                                dest = None
+                                if name == 'config.json':
+                                    dest = CONFIG_PATH
+                                elif name == 'nodes.json':
+                                    dest = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                elif name == 'stats.db':
+                                    dest = StatsDB.DB_PATH
+                                elif name.startswith('plugins/') and not name.endswith('/'):
+                                    if plugin_manager:
+                                        rel = name[len('plugins/'):]
+                                        dest = os.path.join(plugin_manager.plugins_dir, rel)
+                                if dest:
+                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
+                                    with open(dest, 'wb') as f:
+                                        f.write(zf.read(name))
+                                    restored.append(name)
+                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored}
+                    try:
+                        result = await asyncio.to_thread(_do_restore)
+                        print(f"[RESTORE] {result}")
+                        await websocket.send(json.dumps({
+                            'type': 'restore_result', **result,
+                        }, ensure_ascii=False))
+                    except Exception as e:
+                        print(f"[RESTORE] Error: {e}")
+                        await websocket.send(json.dumps({
+                            'type': 'restore_result', 'success': False, 'error': str(e),
+                        }, ensure_ascii=False))
+
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
             except json.JSONDecodeError:
@@ -4104,6 +4799,8 @@ async def websocket_handler(websocket):
     except websockets.exceptions.ConnectionClosed:
         print(f"[WS] Client disconnected: {client_addr}")
     finally:
+        if plugin_manager:
+            await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
@@ -4111,7 +4808,7 @@ async def websocket_handler(websocket):
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
-    async with websockets.serve(websocket_handler, "0.0.0.0", 8765):
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
         await asyncio.Future()  # Run forever
 
 
@@ -4177,6 +4874,12 @@ if __name__ == '__main__':
             port = restart_config.get('port')
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
+        # Initialize plugin system (once, before mapper loop)
+        if PLUGINS_AVAILABLE:
+            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
+            plugin_manager._connected_clients = connected_clients
+            plugin_manager.load_enabled_plugins()
+
         # Mapper loop with runtime restart support
         _watchdog_started = False
         while True:
@@ -4187,6 +4890,9 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
+            # Update plugin_manager's mapper reference for each new mapper instance
+            if plugin_manager:
+                plugin_manager.mapper = mapper
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()
