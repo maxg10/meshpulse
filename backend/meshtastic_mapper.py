@@ -4340,7 +4340,7 @@ async def websocket_handler(websocket):
                                 mapper.nodes_no_position = {}
                                 mapper.known_names = {}
                                 mapper.messages = {}
-                                mapper.save_nodes_json()
+                                mapper.save_nodes()
                                 # Broadcast to all clients to clear their maps
                                 for client in list(connected_clients):
                                     try:
