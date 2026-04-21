@@ -174,6 +174,7 @@
         ⚠️ Full Reset (Stats + Nodes)
     </button>
 </div>
+<div id="stats-alert-bar" style="margin:0 0 8px 0"></div>
 
 <div id="g-tooltip"></div>
 
@@ -420,6 +421,15 @@ function positionTip(e) {
     if (y + th > window.innerHeight) y = e.clientY - th - margin;
     gTip.style.left = x + 'px';
     gTip.style.top  = y + 'px';
+}
+
+// ── Alert helper ─────────────────────────────────────────────────
+function showAlert(msg, type) {
+    const bar = document.getElementById('stats-alert-bar');
+    if (!bar) return;
+    const colors = { success: '#d1fae5', error: '#fee2e2', info: '#dbeafe', warning: '#fef3c7' };
+    bar.innerHTML = `<div style="padding:8px 14px;border-radius:6px;font-size:13px;background:${colors[type]||colors.info}">${msg}</div>`;
+    if (type === 'success' || type === 'info') setTimeout(() => { bar.innerHTML = ''; }, 4000);
 }
 
 // ── State ────────────────────────────────────────────────────────
