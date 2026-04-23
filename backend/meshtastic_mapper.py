@@ -346,6 +346,11 @@ class StatsDB:
     neighbor_name TEXT,
     snr REAL
 )''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from ON packets(from_id)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_relay ON packets(relayed_by_us, ts)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_mqtt ON packets(via_mqtt, ts)')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_ts ON neighbors(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_from ON neighbors(from_id)')
             c.execute('''CREATE TABLE IF NOT EXISTS radio_stats_history (
@@ -710,6 +715,14 @@ class ListenBasedMapper:
         self._last_packet_times = {}  # for anomaly detection
         self._last_radio_packet_time = time.time()  # watchdog: last time we got any packet from radio
         self._packet_event_queue = collections.deque(maxlen=50)
+
+        # Stats cache
+        self._stats_cache = None
+        self._stats_cache_ts = 0
+        self._stats_cache_lock = threading.Lock()
+        self._stats_computing = False
+        t = threading.Thread(target=self._stats_refresh_loop, daemon=True)
+        t.start()
 
         # Telemetry
         self._start_time = time.time()
@@ -2693,6 +2706,76 @@ class ListenBasedMapper:
             return
         websockets.broadcast(set(connected_clients), msg)
 
+    def _recompute_stats(self):
+        if self._stats_computing:
+            return
+        self._stats_computing = True
+        try:
+            result = self.stats_db.get_stats_summary(self.local_node_id)
+            result['local_node_id'] = self.local_node_id
+            result['nodes'] = {
+                nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
+                for nid, n in {**self.nodes, **self.nodes_no_position}.items()
+            }
+            result['tracker_info'] = getattr(self, 'tracker_info', {})
+
+            # Geographic stats
+            geo = {'farthest_node_id': None, 'farthest_node_name': None,
+                   'farthest_dist_km': None, 'avg_direct_dist_km': None}
+            if self.local_node_id and self.local_node_id in self.nodes:
+                local = self.nodes[self.local_node_id]
+                if local.get('lat') and local.get('lon'):
+                    direct_dists = []
+                    for nid, n in self.nodes.items():
+                        if nid == self.local_node_id: continue
+                        if n.get('hops') != 0 or n.get('via_mqtt'): continue
+                        if not n.get('lat') or not n.get('lon'): continue
+                        d = self.calculate_distance(local['lat'], local['lon'], n['lat'], n['lon'])
+                        direct_dists.append((d, nid, n.get('name', nid)))
+                    if direct_dists:
+                        direct_dists.sort(reverse=True)
+                        geo['farthest_dist_km'] = round(direct_dists[0][0], 2)
+                        geo['farthest_node_id'] = direct_dists[0][1]
+                        geo['farthest_node_name'] = direct_dists[0][2]
+                        geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
+            result['geo'] = geo
+
+            # Enrich with current node names
+            all_current_names = {}
+            for nid, node in self.nodes.items():
+                if node.get('name') and node['name'] != nid:
+                    all_current_names[nid] = node['name']
+            for nid, node in self.nodes_no_position.items():
+                if node.get('name') and node['name'] != nid:
+                    all_current_names[nid] = node['name']
+            all_current_names.update(self.known_names)
+            for sender in result.get('top_senders', []):
+                if sender['from_id'] in all_current_names:
+                    sender['from_name'] = all_current_names[sender['from_id']]
+            for node in result.get('relayed_nodes', []):
+                if node['from_id'] in all_current_names:
+                    node['from_name'] = all_current_names[node['from_id']]
+            for anomaly in result.get('anomalies', []):
+                if anomaly.get('node_id') in all_current_names:
+                    anomaly['node_name'] = all_current_names[anomaly['node_id']]
+
+            result['neighbor_graph'] = self.stats_db.get_neighbor_graph()
+
+            with self._stats_cache_lock:
+                self._stats_cache = result
+                self._stats_cache_ts = time.time()
+            print(f"[STATS] Cache updated ({len(result.get('top_senders', []))} senders)")
+        except Exception as e:
+            print(f"[STATS] Recompute error: {e}")
+        finally:
+            self._stats_computing = False
+
+    def _stats_refresh_loop(self):
+        time.sleep(30)
+        while True:
+            self._recompute_stats()
+            time.sleep(60)
+
     def _dedup_nodes(self):
         """Remove any node from nodes_no_position that also exists in nodes (has GPS)."""
         duplicates = [nid for nid in self.nodes_no_position if nid in self.nodes]
@@ -3774,57 +3857,20 @@ async def websocket_handler(websocket):
                         print(f"[WS] send_message missing text from {client_addr}")
                 elif data.get('type') == 'get_stats':
                     if mapper:
-                        stats = mapper.stats_db.get_stats_summary(mapper.local_node_id)
-                        stats['local_node_id'] = mapper.local_node_id
-                        # Send only id->name mapping, not full node data (saves ~100KB per stats request)
-                        all_nodes = {**mapper.nodes, **mapper.nodes_no_position}
-                        stats['nodes'] = {
-                            nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
-                            for nid, n in all_nodes.items()
-                        }
-                        stats['tracker_info'] = getattr(mapper, 'tracker_info', {})
-                        # Geographic stats: farthest node, avg distance of direct nodes
-                        geo = {'farthest_node_id': None, 'farthest_node_name': None,
-                               'farthest_dist_km': None, 'avg_direct_dist_km': None}
-                        if mapper.local_node_id and mapper.local_node_id in mapper.nodes:
-                            local = mapper.nodes[mapper.local_node_id]
-                            if local.get('lat') and local.get('lon'):
-                                direct_dists = []
-                                for nid, n in mapper.nodes.items():
-                                    if nid == mapper.local_node_id: continue
-                                    if n.get('hops') != 0 or n.get('via_mqtt'): continue
-                                    if not n.get('lat') or not n.get('lon'): continue
-                                    d = mapper.calculate_distance(local['lat'], local['lon'], n['lat'], n['lon'])
-                                    direct_dists.append((d, nid, n.get('name', nid)))
-                                if direct_dists:
-                                    direct_dists.sort(reverse=True)
-                                    geo['farthest_dist_km'] = round(direct_dists[0][0], 2)
-                                    geo['farthest_node_id'] = direct_dists[0][1]
-                                    geo['farthest_node_name'] = direct_dists[0][2]
-                                    geo['avg_direct_dist_km'] = round(sum(d for d, _, _ in direct_dists) / len(direct_dists), 2)
-                        stats['geo'] = geo
-                        # Enrich with current node names (override stale DB names)
-                        all_current_names = {}
-                        for nid, node in mapper.nodes.items():
-                            if node.get('name') and node['name'] != nid:
-                                all_current_names[nid] = node['name']
-                        for nid, node in mapper.nodes_no_position.items():
-                            if node.get('name') and node['name'] != nid:
-                                all_current_names[nid] = node['name']
-                        all_current_names.update(mapper.known_names)
-                        for sender in stats.get('top_senders', []):
-                            if sender['from_id'] in all_current_names:
-                                sender['from_name'] = all_current_names[sender['from_id']]
-                        for node in stats.get('relayed_nodes', []):
-                            if node['from_id'] in all_current_names:
-                                node['from_name'] = all_current_names[node['from_id']]
-                        for anomaly in stats.get('anomalies', []):
-                            if anomaly.get('node_id') in all_current_names:
-                                anomaly['node_name'] = all_current_names[anomaly['node_id']]
-                        stats['neighbor_graph'] = mapper.stats_db.get_neighbor_graph()
-                        await websocket.send(json.dumps({'type': 'stats_data', 'data': stats}, ensure_ascii=False))
+                        with mapper._stats_cache_lock:
+                            cached = mapper._stats_cache
+                            cache_ts = mapper._stats_cache_ts
+                        if cached is not None:
+                            cached['cache_age'] = int(time.time() - cache_ts)
+                            await websocket.send(safe_json({'type': 'stats_data', 'data': cached}))
+                        else:
+                            await websocket.send(safe_json({'type': 'stats_data', 'data': {
+                                'total_packets': 0, 'loading': True
+                            }}))
+                        t = threading.Thread(target=mapper._recompute_stats, daemon=True)
+                        t.start()
                     else:
-                        await websocket.send(json.dumps({'type': 'stats_data', 'data': {}}, ensure_ascii=False))
+                        await websocket.send(safe_json({'type': 'stats_data', 'data': {}}))
                 elif data.get('type') == 'get_config':
                     if mapper:
                         try:
