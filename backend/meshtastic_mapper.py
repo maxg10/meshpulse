@@ -93,7 +93,7 @@ def safe_json(obj):
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
 VERSION = '2.3.0'
-MAPPER_VERSION = '2.3.0'
+MAPPER_VERSION = '2.4.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -347,6 +347,20 @@ class StatsDB:
 )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_ts ON neighbors(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_from ON neighbors(from_id)')
+            c.execute('''CREATE TABLE IF NOT EXISTS radio_stats_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                channel_utilization REAL,
+                air_util_tx REAL,
+                num_packets_tx INTEGER,
+                num_packets_rx INTEGER,
+                num_packets_rx_bad INTEGER,
+                num_rx_dupe INTEGER,
+                num_tx_relay INTEGER,
+                num_online_nodes INTEGER,
+                num_total_nodes INTEGER
+            )''')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_radio_stats_ts ON radio_stats_history(ts)')
             conn.commit()
             conn.close()
 
@@ -370,6 +384,31 @@ class StatsDB:
             conn.commit()
             conn.close()
 
+    def log_radio_stats(self, radio_stats: dict):
+        """Store localStats snapshot. Only insert if at least one field non-zero."""
+        if not any(radio_stats.values()):
+            return
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.execute('''INSERT INTO radio_stats_history
+                (ts, channel_utilization, air_util_tx, num_packets_tx,
+                 num_packets_rx, num_packets_rx_bad, num_rx_dupe,
+                 num_tx_relay, num_online_nodes, num_total_nodes)
+                VALUES (?,?,?,?,?,?,?,?,?,?)''', (
+                int(time.time()),
+                radio_stats.get('channelUtilization'),
+                radio_stats.get('airUtilTx'),
+                radio_stats.get('numPacketsTx'),
+                radio_stats.get('numPacketsRx'),
+                radio_stats.get('numPacketsRxBad'),
+                radio_stats.get('numRxDupe'),
+                radio_stats.get('numTxRelay'),
+                radio_stats.get('numOnlineNodes'),
+                radio_stats.get('numTotalNodes'),
+            ))
+            conn.commit()
+            conn.close()
+
     def cleanup_old_data(self):
         """Remove data older than RETENTION_DAYS."""
         cutoff = int(time.time()) - (self.RETENTION_DAYS * 86400)
@@ -379,6 +418,7 @@ class StatsDB:
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
+            conn.execute('DELETE FROM radio_stats_history WHERE ts < ?', (cutoff,))
             conn.commit()
             conn.close()
 
@@ -559,6 +599,15 @@ class StatsDB:
             first_ts = c.execute('SELECT MIN(ts) FROM packets WHERE ts > ?', (since_24h,)).fetchone()[0]
             data_window_minutes = int((now - first_ts) // 60) if first_ts else 0
 
+            radio_history = c.execute('''
+                SELECT ts, channel_utilization, air_util_tx,
+                       num_packets_tx, num_packets_rx, num_packets_rx_bad,
+                       num_rx_dupe, num_tx_relay
+                FROM radio_stats_history
+                WHERE ts > ?
+                ORDER BY ts ASC
+            ''', (since_24h,)).fetchall()
+
             conn.close()
 
             return {
@@ -578,7 +627,8 @@ class StatsDB:
                 'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
                 'hop_distribution': [{'hops': r['hops'], 'cnt': r['cnt']} for r in hop_dist],
                 'daily_7d': [{'day': r['day'], 'count': r['cnt']} for r in daily_7d],
-                'data_window_minutes': data_window_minutes
+                'data_window_minutes': data_window_minutes,
+                'radio_stats_history': [dict(r) for r in radio_history]
             }
 
     def get_topology_graph(self):
@@ -1682,6 +1732,9 @@ class ListenBasedMapper:
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
 
+        if not via_mqtt and connected_clients:
+            asyncio.run(self.broadcast_packet_event(from_id, portnum, snr, rssi, hops))
+
         # Anomaly detection - check all packet types
         now = int(time.time())
         key = (from_id, portnum)
@@ -1990,6 +2043,7 @@ class ListenBasedMapper:
                         radio_stats[field] = float(val) if '.' in val else int(val)
                 if radio_stats:
                     self.tracker_info['radio_stats'] = radio_stats
+                    self.stats_db.log_radio_stats(radio_stats)
                     tracker_updated = True
 
                 if tracker_updated:
@@ -2346,6 +2400,7 @@ class ListenBasedMapper:
                     radio_stats = {f: device_metrics[f] for f in radio_fields if f in device_metrics}
                 if radio_stats:
                     self.tracker_info['radio_stats'] = radio_stats
+                    self.stats_db.log_radio_stats(radio_stats)
                     tracker_updated = True
 
                 if tracker_updated:
@@ -2626,6 +2681,21 @@ class ListenBasedMapper:
             msg.encode('utf-8')
         except UnicodeEncodeError:
             return
+        websockets.broadcast(set(connected_clients), msg)
+
+    async def broadcast_packet_event(self, from_id, portnum, snr, rssi, hops):
+        """Lightweight per-packet broadcast for live frontend widgets."""
+        if not connected_clients:
+            return
+        msg = safe_json({
+            'type': 'packet_event',
+            'ts': int(time.time() * 1000),
+            'from_id': from_id,
+            'portnum': portnum,
+            'snr': snr,
+            'rssi': rssi,
+            'hops': hops
+        })
         websockets.broadcast(set(connected_clients), msg)
 
     def _dedup_nodes(self):

@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.3.0">
+    <link rel="stylesheet" href="styles.css?v=2.4.0">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -144,6 +144,15 @@
         .grid-2.equal-height .card canvas { flex: 1; min-height: 0; }
         .topo-refresh-btn { font-size: 11px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #374151; margin-left: auto; }
         .topo-refresh-btn:hover { background: #e5e7eb; }
+        @keyframes livepulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        @keyframes channelpulse {
+            0% { box-shadow: 0 0 0 0 rgba(34,197,94,0.7); }
+            70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); }
+            100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
+        }
     </style>
 </head>
 <body>
@@ -275,6 +284,51 @@
     </div>
 </div>
 
+<!-- Live Network Monitor -->
+<div class="full-width card" style="overflow:visible">
+    <div class="card-title">
+        ⚡ Live Network Monitor
+        <span style="display:inline-flex;align-items:center;gap:4px;margin-left:8px">
+            <span id="live-dot" style="width:8px;height:8px;border-radius:50%;background:#ef4444;display:inline-block;animation:livepulse 1.2s infinite"></span>
+            <span style="font-size:10px;color:#ef4444;font-weight:bold">LIVE</span>
+        </span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+
+        <!-- Packets/min -->
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Packets / min</div>
+            <div id="live-ppm" style="font-size:36px;font-weight:bold;color:#22c55e;transition:all 0.3s ease;font-variant-numeric:tabular-nums">0</div>
+            <canvas id="live-sparkline" height="30" style="margin-top:8px;width:100%"></canvas>
+        </div>
+
+        <!-- Active nodes -->
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Nodes active (15 min)</div>
+            <div id="live-nodes" style="font-size:36px;font-weight:bold;color:#3b82f6;transition:all 0.3s ease;font-variant-numeric:tabular-nums">0</div>
+            <div style="font-size:10px;color:#6b7280;margin-top:6px">unique nodes heard</div>
+        </div>
+
+        <!-- Live SNR/RSSI chart -->
+        <div style="background:#111827;border-radius:8px;padding:14px">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Live Signal (last 50 pkts)</div>
+            <canvas id="live-signal-chart" height="60"></canvas>
+            <div style="display:flex;gap:10px;margin-top:4px;font-size:10px">
+                <span style="color:#22c55e">● SNR (dB)</span>
+                <span style="color:#3b82f6">● RSSI/10</span>
+            </div>
+        </div>
+
+        <!-- Channel pulse -->
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em">Channel pulse</div>
+            <div id="live-pulse-dot" style="width:40px;height:40px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,0.7)"></div>
+            <div id="live-last-ago" style="font-size:11px;color:#9ca3af">waiting...</div>
+            <div id="live-last-info" style="font-size:10px;color:#6b7280;text-align:center;line-height:1.5">—</div>
+        </div>
+    </div>
+</div>
+
 <!-- Charts row 1: hourly + 7-day trend -->
 <div class="grid-2">
     <div class="card">
@@ -361,13 +415,13 @@
     </div>
     <div class="card">
         <div class="card-title">
-            🔁 Relayed Through Your Node (24h)
-            <span class="info-icon" data-tip="Packets retransmitted by your node. Higher count = your node is a critical link for that node's connectivity.">ⓘ</span>
+            🔁 TX Relay Trend (24h)
+            <span class="info-icon" data-tip="Number of packets your node relayed over time. Data from localStats snapshots every ~30 min.">ⓘ</span>
         </div>
-        <table class="tbl" id="relayed-table">
-            <thead><tr><th>Node</th><th>Count</th><th>% of relays</th></tr></thead>
-            <tbody></tbody>
-        </table>
+        <div id="relay-trend-empty" style="color:#9ca3af;font-size:12px;text-align:center;padding:20px 0;display:none">
+            No localStats data yet — arrives every ~30 min
+        </div>
+        <canvas id="relay-trend-chart" height="120"></canvas>
     </div>
 </div>
 
@@ -457,6 +511,16 @@ let _trackerInfo = null;
 // Global topology zoom state
 let _topoScale = 1, _topoPanX = 0, _topoPanY = 0;
 
+// ── Live monitor state ───────────────────────────────────────────
+const _livePacketTs = [];
+const _liveNodesSeen = {};
+const _liveSnr = [];
+const _liveRssi = [];
+const _liveSparkline = new Array(10).fill(0);
+let _liveLastPacket = null;
+let _liveSignalChart = null;
+let _liveSparklineChart = null;
+
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
     ws = new WebSocket(`ws://${location.hostname}:8765`);
@@ -483,6 +547,10 @@ function connectWS() {
             d = JSON.parse(e.data);
         } catch (err) {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
+            return;
+        }
+        if (d.type === 'packet_event') {
+            handlePacketEvent(d);
             return;
         }
         if (d.type === 'clear_all_stats_result') {
@@ -760,18 +828,43 @@ function renderAll(data) {
     topSendersData = data.top_senders || [];
     renderTopSenders();
 
-    // Relayed table
-    const tbody2 = document.querySelector('#relayed-table tbody');
-    const relTotal = data.relayed_packets || 0;
-    if (!(data.relayed_nodes||[]).length) {
-        tbody2.innerHTML = '<tr><td colspan="3" style="color:#9ca3af">No relayed packets yet.</td></tr>';
+    // TX Relay trend
+    const rh = data.radio_stats_history || [];
+    if (rh.length < 2) {
+        document.getElementById('relay-trend-empty').style.display = 'block';
+        document.getElementById('relay-trend-chart').style.display = 'none';
     } else {
-        tbody2.innerHTML = (data.relayed_nodes||[]).map(n => `
-            <tr>
-                <td title="${escHtml(n.from_id)}">${escHtml(n.from_name||n.from_id)}</td>
-                <td>${n.cnt}</td>
-                <td>${relTotal>0 ? (n.cnt/relTotal*100).toFixed(1) : '-'}%</td>
-            </tr>`).join('');
+        document.getElementById('relay-trend-empty').style.display = 'none';
+        document.getElementById('relay-trend-chart').style.display = '';
+        const rhLabels = rh.map(r => {
+            const d = new Date(r.ts * 1000);
+            return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+        });
+        if (charts['relay-trend-chart']) charts['relay-trend-chart'].destroy();
+        charts['relay-trend-chart'] = new Chart(document.getElementById('relay-trend-chart'), {
+            type: 'line',
+            data: {
+                labels: rhLabels,
+                datasets: [{
+                    label: 'TX Relays',
+                    data: rh.map(r => r.num_tx_relay || 0),
+                    borderColor: 'rgba(139,92,246,0.8)',
+                    backgroundColor: 'rgba(139,92,246,0.15)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 3
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } },
+                    y: { ticks: { color: '#6b7280' }, beginAtZero: true }
+                }
+            }
+        });
     }
 
     // Topology
@@ -1455,6 +1548,101 @@ function showUpdateBanner(version, name, body, url) {
     document.body.appendChild(modal);
     modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
 }
+
+// ── Live Monitor ─────────────────────────────────────────────────
+function initLiveCharts() {
+    const sCtx = document.getElementById('live-signal-chart');
+    if (!sCtx) return;
+    _liveSignalChart = new Chart(sCtx, {
+        type: 'line',
+        data: {
+            labels: new Array(50).fill(''),
+            datasets: [
+                { label: 'SNR', data: new Array(50).fill(null), borderColor: 'rgba(34,197,94,0.8)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false },
+                { label: 'RSSI/10', data: new Array(50).fill(null), borderColor: 'rgba(59,130,246,0.8)', borderWidth: 1.5, pointRadius: 0, tension: 0.3, fill: false }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false }, y: { display: false } }
+        }
+    });
+
+    const spCtx = document.getElementById('live-sparkline');
+    if (!spCtx) return;
+    _liveSparklineChart = new Chart(spCtx, {
+        type: 'bar',
+        data: {
+            labels: new Array(10).fill(''),
+            datasets: [{ data: _liveSparkline, backgroundColor: 'rgba(34,197,94,0.5)', borderWidth: 0 }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: { x: { display: false }, y: { display: false, beginAtZero: true } }
+        }
+    });
+}
+
+function handlePacketEvent(data) {
+    const now = Date.now();
+    _livePacketTs.push(now);
+    while (_livePacketTs.length > 0 && _livePacketTs[0] < now - 60000) _livePacketTs.shift();
+
+    if (data.from_id) _liveNodesSeen[data.from_id] = now;
+
+    if (data.snr != null) { _liveSnr.push(data.snr); if (_liveSnr.length > 50) _liveSnr.shift(); }
+    if (data.rssi != null) { _liveRssi.push(data.rssi / 10); if (_liveRssi.length > 50) _liveRssi.shift(); }
+
+    _liveLastPacket = { ts: now, portnum: data.portnum, snr: data.snr, rssi: data.rssi };
+
+    const dot = document.getElementById('live-pulse-dot');
+    if (dot) {
+        dot.style.animation = 'none';
+        dot.offsetHeight;
+        dot.style.animation = 'channelpulse 0.6s ease-out';
+    }
+
+    const li = document.getElementById('live-last-info');
+    if (li) {
+        const pn = (data.portnum || '').replace('_APP','');
+        li.textContent = `${pn} | SNR: ${data.snr != null ? data.snr.toFixed(1) + ' dB' : '—'} | RSSI: ${data.rssi != null ? data.rssi + ' dBm' : '—'}`;
+    }
+
+    if (_liveSignalChart) {
+        _liveSignalChart.data.datasets[0].data = [..._liveSnr];
+        _liveSignalChart.data.datasets[1].data = [..._liveRssi];
+        _liveSignalChart.data.labels = new Array(Math.max(_liveSnr.length, _liveRssi.length)).fill('');
+        _liveSignalChart.update('none');
+    }
+
+    updateLiveCounters();
+}
+
+function updateLiveCounters() {
+    const now = Date.now();
+
+    const ppm = _livePacketTs.filter(t => t > now - 60000).length;
+    const ppmEl = document.getElementById('live-ppm');
+    if (ppmEl) {
+        ppmEl.textContent = ppm;
+        ppmEl.style.color = ppm > 30 ? '#ef4444' : ppm > 10 ? '#f59e0b' : '#22c55e';
+    }
+
+    const activeNodes = Object.values(_liveNodesSeen).filter(t => t > now - 900000).length;
+    const nodesEl = document.getElementById('live-nodes');
+    if (nodesEl) nodesEl.textContent = activeNodes;
+
+    const agoEl = document.getElementById('live-last-ago');
+    if (agoEl && _liveLastPacket) {
+        const sec = Math.floor((now - _liveLastPacket.ts) / 1000);
+        agoEl.textContent = sec < 60 ? `${sec}s ago` : `${Math.floor(sec/60)}m ago`;
+    }
+}
+
+initLiveCharts();
+setInterval(updateLiveCounters, 1000);
 </script>
 </body>
 </html>
