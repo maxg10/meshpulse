@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_MAPPER_VERSION = '2.4.0'
+MAPPER_VERSION = '2.4.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -2677,7 +2677,7 @@ class ListenBasedMapper:
             'host': self.host,
             'port': self.port,
             'tracker': getattr(self, 'tracker_info', {}),
-            'mapper_version': MAPPER_MAPPER_VERSION,
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         try:
@@ -3824,7 +3824,7 @@ async def websocket_handler(websocket):
             'host': mapper.host,
             'port': mapper.port,
             'tracker': mapper.tracker_info,
-            'mapper_version': MAPPER_MAPPER_VERSION,
+            'mapper_version': MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         await websocket.send(status_msg)
@@ -4811,7 +4811,7 @@ async def websocket_handler(websocket):
                         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
                             info = {
                                 'backup_type': mode,
-                                'mapper_version': MAPPER_MAPPER_VERSION,
+                                'mapper_version': MAPPER_VERSION,
                                 'timestamp': datetime.now(_tz.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
                                 'hostname': _socket.gethostname(),
                                 'node_count': (len(mapper.nodes) + len(mapper.nodes_no_position)) if mapper else 0,
@@ -5003,7 +5003,7 @@ if __name__ == '__main__':
 
         # Initialize plugin system (once, before mapper loop)
         if PLUGINS_AVAILABLE:
-            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_MAPPER_VERSION)
+            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
             plugin_manager.load_enabled_plugins()
 
