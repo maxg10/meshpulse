@@ -27,6 +27,7 @@ import subprocess
 import json
 import time
 import re
+import collections
 from datetime import datetime
 import sys
 import os
@@ -708,6 +709,7 @@ class ListenBasedMapper:
         self.stats_db = StatsDB()
         self._last_packet_times = {}  # for anomaly detection
         self._last_radio_packet_time = time.time()  # watchdog: last time we got any packet from radio
+        self._packet_event_queue = collections.deque(maxlen=50)
 
         # Telemetry
         self._start_time = time.time()
@@ -1732,8 +1734,16 @@ class ListenBasedMapper:
         self._last_radio_packet_time = time.time()  # watchdog reset
         self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
 
-        if not via_mqtt and connected_clients:
-            asyncio.run(self.broadcast_packet_event(from_id, portnum, snr, rssi, hops))
+        if not via_mqtt:
+            self._packet_event_queue.append({
+                'type': 'packet_event',
+                'ts': int(time.time() * 1000),
+                'from_id': from_id,
+                'portnum': portnum,
+                'snr': snr,
+                'rssi': rssi,
+                'hops': hops
+            })
 
         # Anomaly detection - check all packet types
         now = int(time.time())
@@ -2681,21 +2691,6 @@ class ListenBasedMapper:
             msg.encode('utf-8')
         except UnicodeEncodeError:
             return
-        websockets.broadcast(set(connected_clients), msg)
-
-    async def broadcast_packet_event(self, from_id, portnum, snr, rssi, hops):
-        """Lightweight per-packet broadcast for live frontend widgets."""
-        if not connected_clients:
-            return
-        msg = safe_json({
-            'type': 'packet_event',
-            'ts': int(time.time() * 1000),
-            'from_id': from_id,
-            'portnum': portnum,
-            'snr': snr,
-            'rssi': rssi,
-            'hops': hops
-        })
         websockets.broadcast(set(connected_clients), msg)
 
     def _dedup_nodes(self):
@@ -4875,10 +4870,27 @@ async def websocket_handler(websocket):
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
+async def flush_packet_events():
+    """Drain packet_event queue every second and broadcast the most recent item."""
+    while True:
+        await asyncio.sleep(1)
+        if not mapper or not connected_clients or not mapper._packet_event_queue:
+            continue
+        event = None
+        while mapper._packet_event_queue:
+            event = mapper._packet_event_queue.popleft()
+        if event:
+            try:
+                websockets.broadcast(set(connected_clients), safe_json(event))
+            except Exception:
+                pass
+
+
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
     async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
+        asyncio.create_task(flush_packet_events())
         await asyncio.Future()  # Run forever
 
 
