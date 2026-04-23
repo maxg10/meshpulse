@@ -585,6 +585,11 @@ function connectWS() {
             return;
         }
         if (d.type === 'stats_data') {
+            if (d.data && d.data.loading) {
+                document.getElementById('stat-total').textContent = '...';
+                document.getElementById('stat-nodes').textContent = '...';
+                return;
+            }
             // If data looks empty (no packets, no nodes), retry once after 5s
             const isEmpty = !d.data || ((!d.data.total_packets || d.data.total_packets === 0) && (!d.data.top_senders || d.data.top_senders.length === 0));
             if (isEmpty && !window._statsRetried) {

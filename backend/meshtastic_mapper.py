@@ -93,8 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-VERSION = '2.3.0'
-MAPPER_VERSION = '2.4.0'
+MAPPER_MAPPER_VERSION = '2.4.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1586,7 +1585,7 @@ class ListenBasedMapper:
             uptime_hours = int((time.time() - self._start_time) / 3600)
             payload = json.dumps({
                 'anonymous_id': anon_id,
-                'version': VERSION,
+                'version': MAPPER_VERSION,
                 'connection_type': self.connection_type or 'unknown',
                 'platform': self._detect_platform(),
                 'os_info': self._get_os_info(),
@@ -1597,10 +1596,10 @@ class ListenBasedMapper:
                 'https://meshtastic.world/api/ping',
                 data=payload,
                 method='POST',
-                headers={'Content-Type': 'application/json', 'User-Agent': f'MeshtasticMapper/{VERSION}'}
+                headers={'Content-Type': 'application/json', 'User-Agent': f'MeshtasticMapper/{MAPPER_VERSION}'}
             )
             urllib.request.urlopen(req, timeout=10)
-            print(f"[TELEMETRY] Ping sent (v{VERSION}, {self.connection_type})")
+            print(f"[TELEMETRY] Ping sent (v{MAPPER_VERSION}, {self.connection_type})")
         except Exception as e:
             print(f"[TELEMETRY] Ping failed (non-critical): {e}")
 
@@ -2678,7 +2677,7 @@ class ListenBasedMapper:
             'host': self.host,
             'port': self.port,
             'tracker': getattr(self, 'tracker_info', {}),
-            'mapper_version': MAPPER_VERSION,
+            'mapper_version': MAPPER_MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         try:
@@ -3304,7 +3303,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print(f"Meshtastic Mapper - LISTEN MODE v{VERSION}")
+        print(f"Meshtastic Mapper - LISTEN MODE v{MAPPER_VERSION}")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -3825,7 +3824,7 @@ async def websocket_handler(websocket):
             'host': mapper.host,
             'port': mapper.port,
             'tracker': mapper.tracker_info,
-            'mapper_version': MAPPER_VERSION,
+            'mapper_version': MAPPER_MAPPER_VERSION,
             'timestamp': int(time.time())
         })
         await websocket.send(status_msg)
@@ -4737,7 +4736,7 @@ async def websocket_handler(websocket):
                             method='GET',
                             headers={
                                 'X-Api-Key': cov_key,
-                                'User-Agent': f'MeshtasticMapper/{VERSION}',
+                                'User-Agent': f'MeshtasticMapper/{MAPPER_VERSION}',
                             }
                         )
                         loop = asyncio.get_event_loop()
@@ -4781,7 +4780,7 @@ async def websocket_handler(websocket):
                             headers={
                                 'Content-Type': 'application/json',
                                 'X-Api-Key': cov_key,
-                                'User-Agent': f'MeshtasticMapper/{VERSION}',
+                                'User-Agent': f'MeshtasticMapper/{MAPPER_VERSION}',
                             }
                         )
                         loop = asyncio.get_event_loop()
@@ -4812,7 +4811,7 @@ async def websocket_handler(websocket):
                         with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as zf:
                             info = {
                                 'backup_type': mode,
-                                'mapper_version': MAPPER_VERSION,
+                                'mapper_version': MAPPER_MAPPER_VERSION,
                                 'timestamp': datetime.now(_tz.utc).strftime('%Y-%m-%dT%H:%M:%SZ'),
                                 'hostname': _socket.gethostname(),
                                 'node_count': (len(mapper.nodes) + len(mapper.nodes_no_position)) if mapper else 0,
@@ -5004,7 +5003,7 @@ if __name__ == '__main__':
 
         # Initialize plugin system (once, before mapper loop)
         if PLUGINS_AVAILABLE:
-            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
+            plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
             plugin_manager.load_enabled_plugins()
 
