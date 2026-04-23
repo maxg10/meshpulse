@@ -293,26 +293,30 @@
             <span style="font-size:10px;color:#ef4444;font-weight:bold">LIVE</span>
         </span>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start">
 
         <!-- Packets/min -->
-        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center">
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center;height:180px;overflow:hidden;display:flex;flex-direction:column">
             <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Packets / min</div>
             <div id="live-ppm" style="font-size:36px;font-weight:bold;color:#22c55e;transition:all 0.3s ease;font-variant-numeric:tabular-nums">0</div>
-            <canvas id="live-sparkline" height="30" style="margin-top:8px;width:100%"></canvas>
+            <div style="position:relative;height:40px;margin-top:8px">
+                <canvas id="live-sparkline" style="height:40px !important;max-height:40px"></canvas>
+            </div>
         </div>
 
         <!-- Active nodes -->
-        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center">
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center;height:180px;overflow:hidden;display:flex;flex-direction:column;justify-content:center">
             <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Nodes active (15 min)</div>
             <div id="live-nodes" style="font-size:36px;font-weight:bold;color:#3b82f6;transition:all 0.3s ease;font-variant-numeric:tabular-nums">0</div>
             <div style="font-size:10px;color:#6b7280;margin-top:6px">unique nodes heard</div>
         </div>
 
         <!-- Live SNR/RSSI chart -->
-        <div style="background:#111827;border-radius:8px;padding:14px">
+        <div style="background:#111827;border-radius:8px;padding:14px;height:180px;overflow:hidden;display:flex;flex-direction:column">
             <div style="font-size:11px;color:#6b7280;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em">Live Signal (last 50 pkts)</div>
-            <canvas id="live-signal-chart" height="60"></canvas>
+            <div style="position:relative;height:70px;flex:1">
+                <canvas id="live-signal-chart" style="height:70px !important;max-height:70px"></canvas>
+            </div>
             <div style="display:flex;gap:10px;margin-top:4px;font-size:10px">
                 <span style="color:#22c55e">● SNR (dB)</span>
                 <span style="color:#3b82f6">● RSSI/10</span>
@@ -320,9 +324,9 @@
         </div>
 
         <!-- Channel pulse -->
-        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+        <div style="background:#111827;border-radius:8px;padding:14px;text-align:center;height:180px;overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
             <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em">Channel pulse</div>
-            <div id="live-pulse-dot" style="width:40px;height:40px;border-radius:50%;background:#22c55e;box-shadow:0 0 0 0 rgba(34,197,94,0.7)"></div>
+            <div id="live-pulse-dot" style="width:40px;height:40px;border-radius:50%;background:#22c55e;display:block;margin:0 auto;box-shadow:0 0 0 0 rgba(34,197,94,0.7)"></div>
             <div id="live-last-ago" style="font-size:11px;color:#9ca3af">waiting...</div>
             <div id="live-last-info" style="font-size:10px;color:#6b7280;text-align:center;line-height:1.5">—</div>
         </div>
@@ -1609,15 +1613,6 @@ function handlePacketEvent(data) {
         const pn = (data.portnum || '').replace('_APP','');
         li.textContent = `${pn} | SNR: ${data.snr != null ? data.snr.toFixed(1) + ' dB' : '—'} | RSSI: ${data.rssi != null ? data.rssi + ' dBm' : '—'}`;
     }
-
-    if (_liveSignalChart) {
-        _liveSignalChart.data.datasets[0].data = [..._liveSnr];
-        _liveSignalChart.data.datasets[1].data = [..._liveRssi];
-        _liveSignalChart.data.labels = new Array(Math.max(_liveSnr.length, _liveRssi.length)).fill('');
-        _liveSignalChart.update('none');
-    }
-
-    updateLiveCounters();
 }
 
 function updateLiveCounters() {
@@ -1638,6 +1633,18 @@ function updateLiveCounters() {
     if (agoEl && _liveLastPacket) {
         const sec = Math.floor((now - _liveLastPacket.ts) / 1000);
         agoEl.textContent = sec < 60 ? `${sec}s ago` : `${Math.floor(sec/60)}m ago`;
+    }
+
+    if (_liveSignalChart) {
+        _liveSignalChart.data.datasets[0].data = [..._liveSnr];
+        _liveSignalChart.data.datasets[1].data = [..._liveRssi];
+        _liveSignalChart.data.labels = new Array(Math.max(_liveSnr.length, _liveRssi.length)).fill('');
+        _liveSignalChart.update('none');
+    }
+
+    if (_liveSparklineChart) {
+        _liveSparklineChart.data.datasets[0].data = [..._liveSparkline];
+        _liveSparklineChart.update('none');
     }
 }
 
