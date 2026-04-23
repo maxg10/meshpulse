@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.0
+- Fix: `showAlert` undefined in `stats.html` ws.onmessage — crashed Full Reset handler, preventing NoGPS nodes from being cleared (fix was in dev, now released)
+- Fix: `save_nodes_json()` → `save_nodes()` typo in backend full_reset handler (fix was in dev, now released)
+- Feature: Live Network Monitor panel in Stats — real-time Packets/min (60s sliding window), Active Nodes (15min window), Live SNR/RSSI scrolling chart, Channel Pulse widget
+- Feature: TX Relay Trend chart (24h) replacing empty "Relayed Through Your Node" table — shows numTxRelay history from localStats snapshots
+- Backend: New `radio_stats_history` SQLite table — stores every localStats snapshot with timestamp, 7-day retention
+- Backend: New `packet_event` WebSocket message — lightweight per-packet broadcast enabling real-time frontend widgets
+
 ## v2.3.0-stable
 - Feature: MQTT Proxy plugin — MQTT client proxy for trackers without WiFi (uplink, downlink, implicit ACK)
 - Feature: Plugin Store — browse and install plugins from meshtastic.world/plugins directly in Config → Plugins
