@@ -366,6 +366,9 @@ class StatsDB:
                 num_total_nodes INTEGER
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_radio_stats_ts ON radio_stats_history(ts)')
+            # One-time cleanup: remove bad rows written before Bug 1 fix (no localStats data)
+            c.execute('''DELETE FROM radio_stats_history
+                WHERE num_tx_relay IS NULL AND num_packets_rx IS NULL''')
             conn.commit()
             conn.close()
 
@@ -390,8 +393,13 @@ class StatsDB:
             conn.close()
 
     def log_radio_stats(self, radio_stats: dict):
-        """Store localStats snapshot. Only insert if at least one field non-zero."""
-        if not any(radio_stats.values()):
+        """Store localStats snapshot. Only insert if localStats-specific fields are present."""
+        if not any([
+            radio_stats.get('numPacketsTx'),
+            radio_stats.get('numPacketsRx'),
+            radio_stats.get('numTxRelay'),
+            radio_stats.get('channelUtilization'),
+        ]):
             return
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
@@ -2065,8 +2073,12 @@ class ListenBasedMapper:
                         radio_stats[field] = float(val) if '.' in val else int(val)
                 if radio_stats:
                     self.tracker_info['radio_stats'] = radio_stats
-                    self.stats_db.log_radio_stats(radio_stats)
                     tracker_updated = True
+                    # Only log to DB when this is a localStats packet (has TX/RX counters).
+                    # deviceMetrics packets share some field names (channelUtilization, airUtilTx)
+                    # and arrive every ~60s — logging them would flood radio_stats_history.
+                    if 'numTxRelay' in radio_stats or 'numPacketsTx' in radio_stats:
+                        self.stats_db.log_radio_stats(radio_stats)
 
                 if tracker_updated:
                     asyncio.run(self.broadcast_connection_status('connected'))
