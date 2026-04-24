@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.4.1
+- Fix: coverage API key not saved on serial connections — backend exited early without writing to disk when only coverage config was changed
+- Fix: radio_stats_history flooded with deviceMetrics every 60s — now correctly logs only real localStats packets (~30 min interval)
+- Fix: TX Relay and Bad Packets widgets showed cumulative values instead of per-interval deltas
+- Fix: radio_stats_history had NULL values — camelCase key name mismatch in log_radio_stats()
+
 ## v2.4.0
 - Fix: `showAlert` undefined in `stats.html` ws.onmessage — crashed Full Reset handler, preventing NoGPS nodes from being cleared (fix was in dev, now released)
 - Fix: `save_nodes_json()` → `save_nodes()` typo in backend full_reset handler (fix was in dev, now released)
