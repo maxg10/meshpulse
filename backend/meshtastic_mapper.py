@@ -3979,11 +3979,59 @@ async def websocket_handler(websocket):
                                     set_args = ['--reboot']
                                     applied.append('reboot')
                                 else:
+                                    _local_applied = []
+                                    if 'coverage' in changes:
+                                        cov = changes['coverage']
+                                        try:
+                                            with open(CONFIG_PATH, 'r') as f:
+                                                full_config = json.load(f)
+                                        except Exception:
+                                            full_config = {}
+                                        if 'server_url' in cov:
+                                            full_config['coverage_server_url'] = cov['server_url']
+                                            mapper.config['coverage_server_url'] = cov['server_url']
+                                        if 'api_key' in cov:
+                                            full_config['coverage_api_key'] = cov['api_key']
+                                            mapper.config['coverage_api_key'] = cov['api_key']
+                                        if 'antenna_gain' in cov:
+                                            full_config['coverage_antenna_gain'] = float(cov['antenna_gain'])
+                                            mapper.config['coverage_antenna_gain'] = float(cov['antenna_gain'])
+                                        if 'antenna_height' in cov:
+                                            full_config['coverage_antenna_height'] = float(cov['antenna_height'])
+                                            mapper.config['coverage_antenna_height'] = float(cov['antenna_height'])
+                                        if 'max_range_km' in cov:
+                                            full_config['coverage_max_range_km'] = int(cov['max_range_km'])
+                                            mapper.config['coverage_max_range_km'] = int(cov['max_range_km'])
+                                        try:
+                                            with open(CONFIG_PATH, 'w') as f:
+                                                json.dump(full_config, f, indent=2)
+                                            print(f"[CONFIG] Coverage config saved")
+                                            _local_applied.append('coverage')
+                                        except Exception as e:
+                                            print(f"[CONFIG] Coverage save error: {e}")
+
+                                    if 'telemetry_mapper' in changes:
+                                        tel = changes['telemetry_mapper']
+                                        try:
+                                            with open(CONFIG_PATH, 'r') as f:
+                                                full_config = json.load(f)
+                                        except Exception:
+                                            full_config = {}
+                                        full_config['telemetry_opt_out'] = bool(tel.get('opt_out', False))
+                                        mapper.config['telemetry_opt_out'] = bool(tel.get('opt_out', False))
+                                        try:
+                                            with open(CONFIG_PATH, 'w') as f:
+                                                json.dump(full_config, f, indent=2)
+                                            print(f"[CONFIG] Telemetry opt-out saved")
+                                            _local_applied.append('telemetry_mapper')
+                                        except Exception as e:
+                                            print(f"[CONFIG] Telemetry save error: {e}")
+
                                     await websocket.send(json.dumps({
                                         'type': 'config_saved',
                                         'success': True,
                                         'rebooting': False,
-                                        'applied': []
+                                        'applied': _local_applied
                                     }, ensure_ascii=False))
                                     continue
 
