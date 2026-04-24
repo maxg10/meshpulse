@@ -356,10 +356,10 @@
         <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
             📊 Radio Stats History (from localStats · updates every ~30 min)
         </div>
-        <div id="radio-history-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+        <div id="radio-history-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start">
 
             <!-- Widget: Channel Utilization -->
-            <div style="background:#111827;border-radius:8px;padding:14px">
+            <div style="background:#111827;border-radius:8px;padding:14px;height:180px;overflow:hidden;display:flex;flex-direction:column">
                 <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
                     Channel Util %
                 </div>
@@ -367,7 +367,9 @@
                     <span id="rh-chutil-val" style="font-size:28px;font-weight:bold;color:#f59e0b;font-variant-numeric:tabular-nums">—</span>
                     <span style="font-size:12px;color:#6b7280">%</span>
                 </div>
-                <canvas id="rh-chutil-chart" height="50"></canvas>
+                <div style="position:relative;height:80px">
+                    <canvas id="rh-chutil-chart" style="height:80px !important;max-height:80px"></canvas>
+                </div>
                 <div style="display:flex;gap:4px;margin-top:6px">
                     <button onclick="setRhRange('chutil','1h')" id="rh-chutil-btn-1h" class="rh-range-btn rh-active" data-chart="chutil">1h</button>
                     <button onclick="setRhRange('chutil','24h')" id="rh-chutil-btn-24h" class="rh-range-btn" data-chart="chutil">24h</button>
@@ -375,7 +377,7 @@
             </div>
 
             <!-- Widget: Air TX -->
-            <div style="background:#111827;border-radius:8px;padding:14px">
+            <div style="background:#111827;border-radius:8px;padding:14px;height:180px;overflow:hidden;display:flex;flex-direction:column">
                 <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
                     Air TX %
                 </div>
@@ -383,7 +385,9 @@
                     <span id="rh-airtx-val" style="font-size:28px;font-weight:bold;color:#3b82f6;font-variant-numeric:tabular-nums">—</span>
                     <span style="font-size:12px;color:#6b7280">%</span>
                 </div>
-                <canvas id="rh-airtx-chart" height="50"></canvas>
+                <div style="position:relative;height:80px">
+                    <canvas id="rh-airtx-chart" style="height:80px !important;max-height:80px"></canvas>
+                </div>
                 <div style="display:flex;gap:4px;margin-top:6px">
                     <button onclick="setRhRange('airtx','1h')" id="rh-airtx-btn-1h" class="rh-range-btn rh-active" data-chart="airtx">1h</button>
                     <button onclick="setRhRange('airtx','24h')" id="rh-airtx-btn-24h" class="rh-range-btn" data-chart="airtx">24h</button>
@@ -391,7 +395,7 @@
             </div>
 
             <!-- Widget: TX Relay delta -->
-            <div style="background:#111827;border-radius:8px;padding:14px">
+            <div style="background:#111827;border-radius:8px;padding:14px;height:180px;overflow:hidden;display:flex;flex-direction:column">
                 <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
                     TX Relay (delta)
                 </div>
@@ -399,7 +403,9 @@
                     <span id="rh-relay-val" style="font-size:28px;font-weight:bold;color:#8b5cf6;font-variant-numeric:tabular-nums">—</span>
                     <span style="font-size:12px;color:#6b7280">pkts</span>
                 </div>
-                <canvas id="rh-relay-chart" height="50"></canvas>
+                <div style="position:relative;height:80px">
+                    <canvas id="rh-relay-chart" style="height:80px !important;max-height:80px"></canvas>
+                </div>
                 <div style="display:flex;gap:4px;margin-top:6px">
                     <button onclick="setRhRange('relay','1h')" id="rh-relay-btn-1h" class="rh-range-btn rh-active" data-chart="relay">1h</button>
                     <button onclick="setRhRange('relay','24h')" id="rh-relay-btn-24h" class="rh-range-btn" data-chart="relay">24h</button>
@@ -407,7 +413,7 @@
             </div>
 
             <!-- Widget: Bad Packets -->
-            <div style="background:#111827;border-radius:8px;padding:14px">
+            <div style="background:#111827;border-radius:8px;padding:14px;height:180px;overflow:hidden;display:flex;flex-direction:column">
                 <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
                     Bad Packets
                 </div>
@@ -415,7 +421,9 @@
                     <span id="rh-bad-val" style="font-size:28px;font-weight:bold;color:#ef4444;font-variant-numeric:tabular-nums">—</span>
                     <span style="font-size:12px;color:#6b7280">count</span>
                 </div>
-                <canvas id="rh-bad-chart" height="50"></canvas>
+                <div style="position:relative;height:80px">
+                    <canvas id="rh-bad-chart" style="height:80px !important;max-height:80px"></canvas>
+                </div>
                 <div style="display:flex;gap:4px;margin-top:6px">
                     <button onclick="setRhRange('bad','1h')" id="rh-bad-btn-1h" class="rh-range-btn rh-active" data-chart="bad">1h</button>
                     <button onclick="setRhRange('bad','24h')" id="rh-bad-btn-24h" class="rh-range-btn" data-chart="bad">24h</button>
