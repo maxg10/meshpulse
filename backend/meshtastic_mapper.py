@@ -366,9 +366,11 @@ class StatsDB:
                 num_total_nodes INTEGER
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_radio_stats_ts ON radio_stats_history(ts)')
-            # One-time cleanup: remove bad rows written before Bug 1 fix (no localStats data)
+            # One-time cleanup: remove bad rows inserted by deviceMetrics (no localStats data)
             c.execute('''DELETE FROM radio_stats_history
-                WHERE num_tx_relay IS NULL AND num_packets_rx IS NULL''')
+                WHERE num_tx_relay IS NULL
+                AND num_packets_tx IS NULL
+                AND channel_utilization IS NULL''')
             conn.commit()
             conn.close()
 
@@ -2434,7 +2436,9 @@ class ListenBasedMapper:
                     radio_stats = {f: device_metrics[f] for f in radio_fields if f in device_metrics}
                 if radio_stats:
                     self.tracker_info['radio_stats'] = radio_stats
-                    self.stats_db.log_radio_stats(radio_stats)
+                    # Only log localStats (has numTxRelay/numPacketsTx), not deviceMetrics every 60s
+                    if 'numTxRelay' in radio_stats or 'numPacketsTx' in radio_stats:
+                        self.stats_db.log_radio_stats(radio_stats)
                     tracker_updated = True
 
                 if tracker_updated:
