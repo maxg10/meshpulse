@@ -1681,26 +1681,27 @@ let _rhData = [];
 
 function initRhCharts() {
     const configs = [
-        { id: 'chutil', canvas: 'rh-chutil-chart', color: 'rgba(245,158,11,0.8)', field: 'channel_utilization' },
-        { id: 'airtx',  canvas: 'rh-airtx-chart',  color: 'rgba(59,130,246,0.8)',  field: 'air_util_tx' },
-        { id: 'relay',  canvas: 'rh-relay-chart',   color: 'rgba(139,92,246,0.8)',  field: 'num_tx_relay' },
-        { id: 'bad',    canvas: 'rh-bad-chart',     color: 'rgba(239,68,68,0.8)',   field: 'num_packets_rx_bad' },
+        { id: 'chutil', canvas: 'rh-chutil-chart', color: 'rgba(245,158,11,0.8)', field: 'channel_utilization', type: 'line' },
+        { id: 'airtx',  canvas: 'rh-airtx-chart',  color: 'rgba(59,130,246,0.8)',  field: 'air_util_tx',          type: 'line' },
+        { id: 'relay',  canvas: 'rh-relay-chart',   color: 'rgba(139,92,246,0.8)',  field: 'num_tx_relay',         type: 'bar'  },
+        { id: 'bad',    canvas: 'rh-bad-chart',     color: 'rgba(239,68,68,0.8)',   field: 'num_packets_rx_bad',   type: 'bar'  },
     ];
     configs.forEach(cfg => {
         const ctx = document.getElementById(cfg.canvas);
         if (!ctx) return;
+        const isBar = cfg.type === 'bar';
         _rhCharts[cfg.id] = new Chart(ctx, {
-            type: 'line',
+            type: cfg.type,
             data: {
                 labels: [],
                 datasets: [{
                     data: [],
                     borderColor: cfg.color,
-                    backgroundColor: cfg.color.replace('0.8', '0.1'),
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 2,
-                    borderWidth: 1.5
+                    backgroundColor: cfg.color.replace('0.8', isBar ? '0.7' : '0.1'),
+                    fill: !isBar,
+                    tension: isBar ? 0 : 0.3,
+                    pointRadius: isBar ? 0 : 2,
+                    borderWidth: isBar ? 0 : 1.5
                 }]
             },
             options: {
@@ -1712,6 +1713,7 @@ function initRhCharts() {
                     x: { display: false },
                     y: {
                         display: true,
+                        beginAtZero: true,
                         ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 3 },
                         grid: { color: '#1f2937' }
                     }
@@ -1730,8 +1732,6 @@ function updateRhWidgets(radioHistory, radioStats) {
     if (radioStats && Object.keys(radioStats).length > 0) {
         const chUtil = radioStats.channelUtilization;
         const airTx = radioStats.airUtilTx;
-        const relay = radioStats.numTxRelay;
-        const bad = radioStats.numPacketsRxBad;
 
         const setVal = (id, val, decimals) => {
             const el = document.getElementById(id);
@@ -1739,11 +1739,7 @@ function updateRhWidgets(radioHistory, radioStats) {
         };
         setVal('rh-chutil-val', chUtil, 1);
         setVal('rh-airtx-val', airTx, 1);
-
-        const relEl = document.getElementById('rh-relay-val');
-        const badEl = document.getElementById('rh-bad-val');
-        if (relEl && relay != null) relEl.textContent = relay;
-        if (badEl && bad != null) badEl.textContent = bad;
+        // relay and bad big numbers are set by renderRhChart (delta total, not cumulative)
     }
 
     ['chutil', 'airtx', 'relay', 'bad'].forEach(id => renderRhChart(id));
@@ -1779,8 +1775,9 @@ function renderRhChart(id) {
     if (id === 'relay' || id === 'bad') {
         values = filtered.map((r, i) => {
             if (i === 0) return 0;
-            const delta = (r[field] || 0) - (filtered[i-1][field] || 0);
-            return Math.max(0, delta);
+            const curr = r[field] || 0;
+            const prev = filtered[i-1][field] || 0;
+            return curr > prev ? curr - prev : 0;
         });
         const total = values.reduce((a, b) => a + b, 0);
         const valEl = document.getElementById('rh-' + id + '-val');
