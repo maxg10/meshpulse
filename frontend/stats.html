@@ -153,6 +153,25 @@
             70% { box-shadow: 0 0 0 14px rgba(34,197,94,0); }
             100% { box-shadow: 0 0 0 0 rgba(34,197,94,0); }
         }
+        .rh-range-btn {
+            font-size: 10px;
+            padding: 2px 8px;
+            border: 1px solid #374151;
+            border-radius: 4px;
+            background: transparent;
+            color: #6b7280;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .rh-range-btn.rh-active {
+            background: #1f2937;
+            color: #e5e7eb;
+            border-color: #4b5563;
+        }
+        .rh-range-btn:hover {
+            border-color: #6b7280;
+            color: #e5e7eb;
+        }
     </style>
 </head>
 <body>
@@ -215,7 +234,7 @@
             <span class="info-icon" data-tip="Packets retransmitted through YOUR node. Higher = your node is well-positioned. Relay % = share of all traffic going through you.">ⓘ</span>
         </div>
         <div class="stat-big" id="stat-relayed">-</div>
-        <div class="stat-label"><span id="stat-relay-pct">-</span>% of all packets</div>
+        <div class="stat-label"><span id="stat-relayed-pct">—</span></div>
     </div>
     <div class="card">
         <div class="card-title">
@@ -329,6 +348,83 @@
             <div id="live-pulse-dot" style="width:40px;height:40px;border-radius:50%;background:#22c55e;display:block;margin:0 auto;box-shadow:0 0 0 0 rgba(34,197,94,0.7)"></div>
             <div id="live-last-ago" style="font-size:11px;color:#9ca3af">waiting...</div>
             <div id="live-last-info" style="font-size:10px;color:#6b7280;text-align:center;line-height:1.5">—</div>
+        </div>
+    </div>
+
+    <!-- Historical metrics row -->
+    <div style="margin-top:12px;padding-top:12px;border-top:1px solid #1f2937">
+        <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
+            📊 Radio Stats History (from localStats · updates every ~30 min)
+        </div>
+        <div id="radio-history-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px">
+
+            <!-- Widget: Channel Utilization -->
+            <div style="background:#111827;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
+                    Channel Util %
+                </div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+                    <span id="rh-chutil-val" style="font-size:28px;font-weight:bold;color:#f59e0b;font-variant-numeric:tabular-nums">—</span>
+                    <span style="font-size:12px;color:#6b7280">%</span>
+                </div>
+                <canvas id="rh-chutil-chart" height="50"></canvas>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                    <button onclick="setRhRange('chutil','1h')" id="rh-chutil-btn-1h" class="rh-range-btn rh-active" data-chart="chutil">1h</button>
+                    <button onclick="setRhRange('chutil','24h')" id="rh-chutil-btn-24h" class="rh-range-btn" data-chart="chutil">24h</button>
+                </div>
+            </div>
+
+            <!-- Widget: Air TX -->
+            <div style="background:#111827;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
+                    Air TX %
+                </div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+                    <span id="rh-airtx-val" style="font-size:28px;font-weight:bold;color:#3b82f6;font-variant-numeric:tabular-nums">—</span>
+                    <span style="font-size:12px;color:#6b7280">%</span>
+                </div>
+                <canvas id="rh-airtx-chart" height="50"></canvas>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                    <button onclick="setRhRange('airtx','1h')" id="rh-airtx-btn-1h" class="rh-range-btn rh-active" data-chart="airtx">1h</button>
+                    <button onclick="setRhRange('airtx','24h')" id="rh-airtx-btn-24h" class="rh-range-btn" data-chart="airtx">24h</button>
+                </div>
+            </div>
+
+            <!-- Widget: TX Relay delta -->
+            <div style="background:#111827;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
+                    TX Relay (delta)
+                </div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+                    <span id="rh-relay-val" style="font-size:28px;font-weight:bold;color:#8b5cf6;font-variant-numeric:tabular-nums">—</span>
+                    <span style="font-size:12px;color:#6b7280">pkts</span>
+                </div>
+                <canvas id="rh-relay-chart" height="50"></canvas>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                    <button onclick="setRhRange('relay','1h')" id="rh-relay-btn-1h" class="rh-range-btn rh-active" data-chart="relay">1h</button>
+                    <button onclick="setRhRange('relay','24h')" id="rh-relay-btn-24h" class="rh-range-btn" data-chart="relay">24h</button>
+                </div>
+            </div>
+
+            <!-- Widget: Bad Packets -->
+            <div style="background:#111827;border-radius:8px;padding:14px">
+                <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px">
+                    Bad Packets
+                </div>
+                <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:8px">
+                    <span id="rh-bad-val" style="font-size:28px;font-weight:bold;color:#ef4444;font-variant-numeric:tabular-nums">—</span>
+                    <span style="font-size:12px;color:#6b7280">count</span>
+                </div>
+                <canvas id="rh-bad-chart" height="50"></canvas>
+                <div style="display:flex;gap:4px;margin-top:6px">
+                    <button onclick="setRhRange('bad','1h')" id="rh-bad-btn-1h" class="rh-range-btn rh-active" data-chart="bad">1h</button>
+                    <button onclick="setRhRange('bad','24h')" id="rh-bad-btn-24h" class="rh-range-btn" data-chart="bad">24h</button>
+                </div>
+            </div>
+
+        </div>
+        <div id="rh-empty-note" style="display:none;font-size:11px;color:#6b7280;text-align:center;padding:8px 0">
+            ⏳ Waiting for localStats data — firmware sends this every ~30 min
         </div>
     </div>
 </div>
@@ -763,8 +859,17 @@ function renderAll(data) {
     document.getElementById('stat-mqtt-packets').textContent  = mqttP.toLocaleString();
     document.getElementById('stat-radio-pct').textContent = (radioP/tot*100).toFixed(0) + '%';
     document.getElementById('stat-mqtt-pct').textContent  = (mqttP/tot*100).toFixed(0) + '%';
-    document.getElementById('stat-relayed').textContent = (data.relayed_packets||0).toLocaleString();
-    document.getElementById('stat-relay-pct').textContent = data.relay_percentage||0;
+    const _rh = data.radio_stats_history || [];
+    let relayed24h = 0;
+    if (_rh.length >= 2) {
+        const _first = _rh[0].num_tx_relay || 0;
+        const _last = _rh[_rh.length - 1].num_tx_relay || 0;
+        relayed24h = Math.max(0, _last - _first);
+    }
+    document.getElementById('stat-relayed').textContent = relayed24h;
+    const _relayTotal = data.total_packets || 1;
+    const _relayPct = _relayTotal > 0 ? ((relayed24h / _relayTotal) * 100).toFixed(1) : '0.0';
+    document.getElementById('stat-relayed-pct').textContent = _relayPct + '% of all packets';
     document.getElementById('stat-nodes').textContent   = data.active_node_count || 0;
     document.getElementById('stat-anomalies').textContent = (data.anomalies||[]).length;
 
@@ -875,6 +980,9 @@ function renderAll(data) {
             }
         });
     }
+
+    // Radio history widgets
+    updateRhWidgets(data.radio_stats_history || [], data.radio_stats || {});
 
     // Topology
     renderTopology(data.top_senders||[], data.topology||[], data.local_node_id);
@@ -1558,6 +1666,135 @@ function showUpdateBanner(version, name, body, url) {
     modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
 }
 
+// ── Radio History Widgets ─────────────────────────────────────────
+const _rhCharts = {};
+const _rhRange = { chutil: '1h', airtx: '1h', relay: '1h', bad: '1h' };
+let _rhData = [];
+
+function initRhCharts() {
+    const configs = [
+        { id: 'chutil', canvas: 'rh-chutil-chart', color: 'rgba(245,158,11,0.8)', field: 'channel_utilization' },
+        { id: 'airtx',  canvas: 'rh-airtx-chart',  color: 'rgba(59,130,246,0.8)',  field: 'air_util_tx' },
+        { id: 'relay',  canvas: 'rh-relay-chart',   color: 'rgba(139,92,246,0.8)',  field: 'num_tx_relay' },
+        { id: 'bad',    canvas: 'rh-bad-chart',     color: 'rgba(239,68,68,0.8)',   field: 'num_packets_rx_bad' },
+    ];
+    configs.forEach(cfg => {
+        const ctx = document.getElementById(cfg.canvas);
+        if (!ctx) return;
+        _rhCharts[cfg.id] = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    borderColor: cfg.color,
+                    backgroundColor: cfg.color.replace('0.8', '0.1'),
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 2,
+                    borderWidth: 1.5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { display: false },
+                    y: {
+                        display: true,
+                        ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 3 },
+                        grid: { color: '#1f2937' }
+                    }
+                }
+            }
+        });
+        _rhCharts[cfg.id]._field = cfg.field;
+        _rhCharts[cfg.id]._id = cfg.id;
+    });
+}
+
+function updateRhWidgets(radioHistory, radioStats) {
+    if (!radioHistory) return;
+    _rhData = radioHistory;
+
+    if (radioStats && Object.keys(radioStats).length > 0) {
+        const chUtil = radioStats.channelUtilization;
+        const airTx = radioStats.airUtilTx;
+        const relay = radioStats.numTxRelay;
+        const bad = radioStats.numPacketsRxBad;
+
+        const setVal = (id, val, decimals) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val != null ? Number(val).toFixed(decimals) : '—';
+        };
+        setVal('rh-chutil-val', chUtil, 1);
+        setVal('rh-airtx-val', airTx, 1);
+
+        const relEl = document.getElementById('rh-relay-val');
+        const badEl = document.getElementById('rh-bad-val');
+        if (relEl && relay != null) relEl.textContent = relay;
+        if (badEl && bad != null) badEl.textContent = bad;
+    }
+
+    ['chutil', 'airtx', 'relay', 'bad'].forEach(id => renderRhChart(id));
+
+    const note = document.getElementById('rh-empty-note');
+    if (note) note.style.display = _rhData.length < 2 ? 'block' : 'none';
+}
+
+function renderRhChart(id) {
+    const chart = _rhCharts[id];
+    if (!chart || !_rhData.length) return;
+
+    const range = _rhRange[id];
+    const nowTs = Math.floor(Date.now() / 1000);
+    const cutoff = range === '1h' ? nowTs - 3600 : nowTs - 86400;
+
+    const filtered = _rhData.filter(r => r.ts >= cutoff);
+    if (!filtered.length) {
+        chart.data.labels = [];
+        chart.data.datasets[0].data = [];
+        chart.update('none');
+        return;
+    }
+
+    const field = chart._field;
+    const labels = filtered.map(r => {
+        const d = new Date(r.ts * 1000);
+        return d.getHours().toString().padStart(2,'0') + ':' +
+               d.getMinutes().toString().padStart(2,'0');
+    });
+
+    let values;
+    if (id === 'relay' || id === 'bad') {
+        values = filtered.map((r, i) => {
+            if (i === 0) return 0;
+            const delta = (r[field] || 0) - (filtered[i-1][field] || 0);
+            return Math.max(0, delta);
+        });
+        const total = values.reduce((a, b) => a + b, 0);
+        const valEl = document.getElementById('rh-' + id + '-val');
+        if (valEl) valEl.textContent = total;
+    } else {
+        values = filtered.map(r => r[field] != null ? Number(r[field]).toFixed(2) : null);
+    }
+
+    chart.data.labels = labels;
+    chart.data.datasets[0].data = values;
+    chart.update('none');
+}
+
+function setRhRange(id, range) {
+    _rhRange[id] = range;
+    ['1h', '24h'].forEach(r => {
+        const btn = document.getElementById('rh-' + id + '-btn-' + r);
+        if (btn) btn.classList.toggle('rh-active', r === range);
+    });
+    renderRhChart(id);
+}
+
 // ── Live Monitor ─────────────────────────────────────────────────
 function initLiveCharts() {
     const sCtx = document.getElementById('live-signal-chart');
@@ -1654,6 +1891,7 @@ function updateLiveCounters() {
 }
 
 initLiveCharts();
+initRhCharts();
 setInterval(updateLiveCounters, 1000);
 </script>
 </body>
