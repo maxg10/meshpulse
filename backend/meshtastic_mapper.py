@@ -486,26 +486,29 @@ class StatsDB:
             conn.close()
 
     def get_relay_nodes_for_map(self, local_node_id):
-        """Get nodes that have been relayed through our node, with packet counts."""
+        """Get nodes whose packets relayed through our node (we were relay_node_id)."""
         if not local_node_id:
             return []
-        since = int(time.time()) - 86400  # last 24h
+        since = int(time.time()) - 86400
         own_variants = [
-            local_node_id or '',
-            (local_node_id or '').lstrip('!'),
-            '!' + (local_node_id or '').lstrip('!')
+            local_node_id,
+            local_node_id.lstrip('!'),
+            '!' + local_node_id.lstrip('!')
         ]
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
-            rows = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
+            rows = c.execute('''
+                SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
-                WHERE ts > ? AND relayed_by_us = 1
+                WHERE ts > ?
+                AND relay_node_id IN (?, ?, ?)
                 AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id
                 ORDER BY cnt DESC
-                LIMIT 50''', (since, *own_variants)).fetchall()
+                LIMIT 50
+            ''', (since, *own_variants, *own_variants)).fetchall()
             conn.close()
             return [{'id': r['from_id'], 'name': r['from_name'], 'count': r['cnt']} for r in rows]
 
@@ -550,7 +553,15 @@ class StatsDB:
             c = conn.cursor()
 
             total = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ?', (since_24h,)).fetchone()['cnt']
-            relayed = c.execute('SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relayed_by_us = 1', (since_24h,)).fetchone()['cnt']
+            own_variants_relay = [
+                local_node_id or '',
+                (local_node_id or '').lstrip('!'),
+                '!' + (local_node_id or '').lstrip('!')
+            ]
+            relayed = c.execute(
+                'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relay_node_id IN (?,?,?)',
+                (since_24h, *own_variants_relay)
+            ).fetchone()['cnt']
             radio_total = c.execute(
                 'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND via_mqtt = 0',
                 (since_24h,)).fetchone()['cnt']
@@ -589,6 +600,15 @@ class StatsDB:
             topology = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as relay_count
                 FROM packets WHERE ts > ? AND relayed_by_us = 1
                 GROUP BY from_id''', (since_24h,)).fetchall()
+            relay_flow = c.execute('''
+                SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
+                FROM packets
+                WHERE ts > ? AND relay_node_id IN (?,?,?)
+                AND from_id NOT IN (?,?,?)
+                GROUP BY from_id
+                ORDER BY cnt DESC
+                LIMIT 50
+            ''', (since_24h, *own_variants_relay, *own_variants_relay)).fetchall()
 
             # SNR distribution (5 dB buckets)
             snr_dist = c.execute('''SELECT CAST(ROUND(snr/5.0)*5 AS INTEGER) as bucket, COUNT(*) as cnt
@@ -638,6 +658,7 @@ class StatsDB:
                 'anomalies': [dict(r) for r in anomalies],
                 'packet_types': [dict(r) for r in by_type],
                 'topology': [dict(r) for r in topology],
+                'relay_flow': [dict(r) for r in relay_flow],
                 'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
                 'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
                 'hop_distribution': [{'hops': r['hops'], 'cnt': r['cnt']} for r in hop_dist],
