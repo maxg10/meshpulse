@@ -22,7 +22,6 @@
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
     <link rel="stylesheet" href="styles.css?v=2.4.1">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -114,11 +113,6 @@
         .anomaly-item.info    { border-left-color: #3b82f6; background: #eff6ff; }
         .anomaly-item .anomaly-time { float: right; color: #9ca3af; font-size: 10px; }
 
-        /* Topology */
-        #topology-svg { width: 100%; height: 380px; border-radius: 6px; background: #f9fafb; }
-        .topo-legend { font-size: 10px; color: #6b7280; margin-top: 6px; display: flex; gap: 16px; flex-wrap: wrap; }
-        .topo-legend span { display: flex; align-items: center; gap: 4px; }
-
         /* Radio stat items */
         .radio-row { display: flex; justify-content: space-between; align-items: center;
             padding: 4px 0; border-bottom: 1px solid #e5e7eb; font-size: 12px; }
@@ -142,8 +136,6 @@
         .grid-2.equal-height { align-items: stretch; }
         .grid-2.equal-height .card { display: flex; flex-direction: column; justify-content: center; }
         .grid-2.equal-height .card canvas { flex: 1; min-height: 0; }
-        .topo-refresh-btn { font-size: 11px; background: #f3f4f6; border: 1px solid #d1d5db; border-radius: 4px; padding: 2px 8px; cursor: pointer; color: #374151; margin-left: auto; }
-        .topo-refresh-btn:hover { background: #e5e7eb; }
         @keyframes livepulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.3; }
@@ -533,19 +525,27 @@
     </div>
 </div>
 
-<!-- Topology -->
+<!-- Relay Flow -->
 <div class="full-width card">
     <div class="card-title">
-        🕸️ Network Topology (24h)
-        <span class="info-icon" data-tip="Network topology based on Neighbor Info packets (enable in Config → Telemetry). Shows direct radio links with SNR quality. Falls back to relay-based view if no neighbor data available.">ⓘ</span>
-        <button class="topo-refresh-btn" onclick="refreshTopology()">🔄 Refresh layout</button>
+        🔁 Relay Flow (24h)
+        <span class="info-icon" data-tip="Nodes whose packets passed through your node as a relay in the last 24h. Line thickness = relay count. Your node is the hub.">ⓘ</span>
     </div>
-    <svg id="topology-svg"></svg>
-    <div class="topo-legend">
-        <span><svg width="14" height="14"><rect x="1" y="1" width="12" height="12" fill="#3b82f6" rx="2"/></svg> Your node</span>
-        <span><svg width="14" height="14"><circle cx="7" cy="7" r="6" fill="#059669" opacity="0.8"/></svg> Heard node</span>
-        <span><svg width="30" height="14"><line x1="0" y1="7" x2="30" y2="7" stroke="#eab308" stroke-width="2"/></svg> Direct radio link (SNR)</span>
-        <span style="color:#6b7280">🟢 SNR ≥5dB · 🟡 SNR ≥-5dB · 🔴 SNR &lt;-5dB · Enable Neighbor Info in Config for accurate topology</span>
+    <div id="relay-flow-empty" style="color:#9ca3af;font-size:13px;text-align:center;
+         padding:40px 0;display:none">
+        No relay data yet — your node hasn't been used as a relay in the last 24h,
+        or relay_node data is not available for your firmware version.
+    </div>
+    <svg id="relay-flow-svg" style="width:100%;height:420px;display:block"></svg>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#6b7280;
+         margin-top:8px;padding-top:8px;border-top:1px solid #1f2937">
+        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
+              stroke="#8b5cf6" stroke-width="4"/></svg> High relay count (≥10)</span>
+        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
+              stroke="#3b82f6" stroke-width="2.5"/></svg> Medium (3-9)</span>
+        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
+              stroke="#6b7280" stroke-width="1.5"/></svg> Low (1-2)</span>
+        <span style="margin-left:auto">Data window: last 24h</span>
     </div>
 </div>
 
@@ -610,14 +610,11 @@ let radioStats = null;
 let _lastKnownRadioStats = null;  // persists last non-zero values
 let _lastRadioStatsTime = null;   // timestamp of last non-zero update
 let charts = {};
-let topoState = null;
 let topSendersData = [];
 let topSendersNodesMap = {};
 let topSendersSortCol = 'last_seen';
 let topSendersSortDir = -1; // -1 = desc (newest first)
 let _trackerInfo = null;
-// Global topology zoom state
-let _topoScale = 1, _topoPanX = 0, _topoPanY = 0;
 
 // ── Live monitor state ───────────────────────────────────────────
 const _livePacketTs = [];
@@ -992,8 +989,8 @@ function renderAll(data) {
     // Radio history widgets
     updateRhWidgets(data.radio_stats_history || [], data.radio_stats || {});
 
-    // Topology
-    renderTopology(data.top_senders||[], data.topology||[], data.local_node_id);
+    // Relay Flow
+    renderRelayFlow(data.relay_flow || []);
 
     // Anomalies
     renderAnomalies(data.anomalies||[]);
@@ -1196,297 +1193,107 @@ function renderHealthScore(rs, data) {
     brk.innerHTML = issues.length ? issues.map(i => `<div>• ${i}</div>`).join('') : '<div style="color:#059669">No issues detected</div>';
 }
 
-// ── Topology ─────────────────────────────────────────────────────
-function renderTopology(topSenders, topologyData, localNodeId) {
-    const svg = document.getElementById('topology-svg');
+// ── Relay Flow ────────────────────────────────────────────────────
+function renderRelayFlow(relayData) {
+    const svg = document.getElementById('relay-flow-svg');
+    const empty = document.getElementById('relay-flow-empty');
     if (!svg) return;
-    const neighborGraph = window._lastStatsData?.neighbor_graph || [];
-    if (neighborGraph.length > 0) {
-        renderNeighborTopology(neighborGraph, localNodeId);
-    } else {
-        renderRelayTopology(topSenders, topologyData, localNodeId);
-    }
-}
 
-function renderNeighborTopology(edges, localNodeId) {
-    const svg = document.getElementById('topology-svg');
-    const W = svg.clientWidth || 900;
-    const H = 500;
     svg.innerHTML = '';
-    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
 
-    if (!edges || edges.length === 0) {
-        svg.innerHTML = `<text x="${W/2}" y="${H/2}" text-anchor="middle" fill="#9ca3af" font-size="13">No neighbor data yet. Enable Neighbor Info module in Config → Telemetry.</text>`;
+    if (!relayData || relayData.length === 0) {
+        if (empty) empty.style.display = 'block';
+        svg.style.display = 'none';
         return;
     }
+    if (empty) empty.style.display = 'none';
+    svg.style.display = 'block';
 
-    let scale = _topoScale, panX = _topoPanX, panY = _topoPanY, isDragging = false, startX, startY;
+    const W = svg.clientWidth || 800;
+    const H = 420;
+    const cx = W / 2;
+    const cy = H / 2;
+    const maxCount = Math.max(...relayData.map(r => r.cnt));
 
-    // Zoom group — all content goes inside this
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.id = 'topo-zoom-group';
-    svg.appendChild(g);
+    const radius = Math.min(W, H) * 0.35;
+    const angleStep = (2 * Math.PI) / relayData.length;
 
-    function applyTransform() {
-        g.setAttribute('transform', `translate(${panX},${panY}) scale(${scale})`);
-        _topoScale = scale; _topoPanX = panX; _topoPanY = panY;
-    }
+    // Draw lines first (behind nodes)
+    relayData.forEach((node, i) => {
+        const angle = i * angleStep - Math.PI / 2;
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
 
-    applyTransform(); // restore saved state
+        const weight = node.cnt >= 10 ? 4 : node.cnt >= 3 ? 2.5 : 1.5;
+        const color = node.cnt >= 10 ? '#8b5cf6' : node.cnt >= 3 ? '#3b82f6' : '#6b7280';
+        const opacity = 0.4 + (node.cnt / maxCount) * 0.6;
 
-    // Mouse drag to pan
-    svg.addEventListener('mousedown', (e) => {
-        if (e.target.closest('.topo-btn')) return;
-        isDragging = true;
-        startX = e.clientX - panX;
-        startY = e.clientY - panY;
-        svg.style.cursor = 'grabbing';
-    });
-    svg.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-        panX = e.clientX - startX;
-        panY = e.clientY - startY;
-        applyTransform();
-    });
-    svg.addEventListener('mouseup', () => { isDragging = false; svg.style.cursor = 'grab'; });
-    svg.addEventListener('mouseleave', () => { isDragging = false; svg.style.cursor = 'grab'; });
-    svg.style.cursor = 'grab';
-
-    function zoomBy(factor) {
-        const svgW = svg.clientWidth || 900;
-        const svgH = parseInt(svg.getAttribute('height')) || 500;
-        const cx = svgW / 2, cy = svgH / 2;
-        panX = cx - factor * (cx - panX);
-        panY = cy - factor * (cy - panY);
-        scale = Math.max(0.2, Math.min(5, scale * factor));
-        applyTransform();
-    }
-
-    // +/- buttons inside SVG (like Leaflet)
-    const btnGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    btnGroup.setAttribute('class', 'topo-controls');
-
-    function makeSvgBtn(x, y, label, onClick) {
-        const bg = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        bg.setAttribute('class', 'topo-btn');
-        bg.style.cursor = 'pointer';
-
-        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        rect.setAttribute('x', x); rect.setAttribute('y', y);
-        rect.setAttribute('width', 24); rect.setAttribute('height', 24);
-        rect.setAttribute('rx', 4);
-        rect.setAttribute('fill', 'white');
-        rect.setAttribute('stroke', '#d1d5db');
-        rect.setAttribute('stroke-width', '1');
-
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', x + 12); text.setAttribute('y', y + 16);
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('font-size', '14');
-        text.setAttribute('font-weight', 'bold');
-        text.setAttribute('fill', '#374151');
-        text.setAttribute('pointer-events', 'none');
-        text.textContent = label;
-
-        bg.appendChild(rect);
-        bg.appendChild(text);
-        bg.addEventListener('click', onClick);
-
-        bg.addEventListener('mouseenter', () => rect.setAttribute('fill', '#f3f4f6'));
-        bg.addEventListener('mouseleave', () => rect.setAttribute('fill', 'white'));
-
-        return bg;
-    }
-
-    btnGroup.appendChild(makeSvgBtn(4, 10, '+', () => zoomBy(1.3)));
-    btnGroup.appendChild(makeSvgBtn(4, 38, '−', () => zoomBy(1 / 1.3)));
-    btnGroup.appendChild(makeSvgBtn(4, 70, '⌂', () => {
-        scale = 1; panX = 0; panY = 0;
-        _topoScale = 1; _topoPanX = 0; _topoPanY = 0;
-        applyTransform();
-    }));
-
-    svg.appendChild(btnGroup); // buttons on top of zoom group
-
-    const nodeMap = {};
-    const nodesMap = window._lastStatsData?.nodes || {};
-
-    edges.forEach(e => {
-        if (!nodeMap[e.from_id]) nodeMap[e.from_id] = { id: e.from_id, name: nodesMap[e.from_id]?.name || e.from_name || e.from_id };
-        if (!nodeMap[e.neighbor_id]) nodeMap[e.neighbor_id] = { id: e.neighbor_id, name: nodesMap[e.neighbor_id]?.name || e.neighbor_name || e.neighbor_id };
-    });
-
-    const nodes = Object.values(nodeMap);
-    const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.35;
-    nodes.forEach((n, i) => {
-        const angle = (i / nodes.length) * 2 * Math.PI - Math.PI / 2;
-        n.x = cx + r * Math.cos(angle);
-        n.y = cy + r * Math.sin(angle);
-        if (n.id === localNodeId) { n.x = cx; n.y = cy; }
-    });
-
-    const ns = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    const ls = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-
-    edges.forEach(e => {
-        const from = nodeMap[e.from_id];
-        const to = nodeMap[e.neighbor_id];
-        if (!from || !to) return;
-        const snr = e.snr ?? 0;
-        const color = snr >= 5 ? '#22c55e' : snr >= -5 ? '#eab308' : '#ef4444';
         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', from.x); line.setAttribute('y1', from.y);
-        line.setAttribute('x2', to.x); line.setAttribute('y2', to.y);
+        line.setAttribute('x1', cx); line.setAttribute('y1', cy);
+        line.setAttribute('x2', x); line.setAttribute('y2', y);
         line.setAttribute('stroke', color);
-        line.setAttribute('stroke-width', '1.5');
-        line.setAttribute('stroke-opacity', '0.6');
-        ls.appendChild(line);
-        const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
-        const lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        lbl.setAttribute('x', mx); lbl.setAttribute('y', my);
-        lbl.setAttribute('text-anchor', 'middle');
-        lbl.setAttribute('font-size', '9');
-        lbl.setAttribute('fill', color);
-        lbl.textContent = snr.toFixed(1) + 'dB';
-        ls.appendChild(lbl);
+        line.setAttribute('stroke-width', weight);
+        line.setAttribute('opacity', opacity);
+        svg.appendChild(line);
+
+        const mx = (cx + x) / 2;
+        const my = (cy + y) / 2;
+        const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        badge.setAttribute('x', mx);
+        badge.setAttribute('y', my);
+        badge.setAttribute('text-anchor', 'middle');
+        badge.setAttribute('font-size', '10');
+        badge.setAttribute('fill', color);
+        badge.setAttribute('font-weight', 'bold');
+        badge.textContent = node.cnt;
+        svg.appendChild(badge);
     });
 
-    nodes.forEach(n => {
-        const isLocal = n.id === localNodeId;
-        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        g.setAttribute('transform', `translate(${n.x},${n.y})`);
-        if (isLocal) {
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-            rect.setAttribute('x', -8); rect.setAttribute('y', -8);
-            rect.setAttribute('width', 16); rect.setAttribute('height', 16);
-            rect.setAttribute('fill', '#3b82f6'); rect.setAttribute('rx', 2);
-            g.appendChild(rect);
-        } else {
-            const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            circle.setAttribute('r', 7);
-            circle.setAttribute('fill', '#059669');
-            circle.setAttribute('opacity', '0.85');
-            g.appendChild(circle);
-        }
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('text-anchor', 'middle');
-        text.setAttribute('dy', 20);
-        text.setAttribute('font-size', '9');
-        text.setAttribute('fill', '#374151');
-        text.textContent = (n.name || n.id).substring(0, 12);
-        g.appendChild(text);
-        ns.appendChild(g);
+    // Draw relay nodes
+    relayData.forEach((node, i) => {
+        const angle = i * angleStep - Math.PI / 2;
+        const x = cx + radius * Math.cos(angle);
+        const y = cy + radius * Math.sin(angle);
+
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', x); circle.setAttribute('cy', y);
+        circle.setAttribute('r', 8);
+        circle.setAttribute('fill', '#1f2937');
+        circle.setAttribute('stroke', node.cnt >= 10 ? '#8b5cf6' : node.cnt >= 3 ? '#3b82f6' : '#6b7280');
+        circle.setAttribute('stroke-width', 2);
+        svg.appendChild(circle);
+
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        const labelX = x + (Math.cos(angle) > 0 ? 12 : -12);
+        const labelY = y + (Math.sin(angle) > 0.5 ? 20 : Math.sin(angle) < -0.5 ? -12 : 4);
+        label.setAttribute('x', labelX);
+        label.setAttribute('y', labelY);
+        label.setAttribute('text-anchor', Math.cos(angle) > 0 ? 'start' : 'end');
+        label.setAttribute('font-size', '11');
+        label.setAttribute('fill', '#e5e7eb');
+        const displayName = node.from_name && node.from_name !== node.from_id
+            ? node.from_name : node.from_id;
+        label.textContent = displayName.substring(0, 18);
+        svg.appendChild(label);
     });
 
-    g.appendChild(ls);
-    g.appendChild(ns);
-}
+    // Center node (our tracker)
+    const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    centerCircle.setAttribute('cx', cx); centerCircle.setAttribute('cy', cy);
+    centerCircle.setAttribute('r', 18);
+    centerCircle.setAttribute('fill', '#1d4ed8');
+    centerCircle.setAttribute('stroke', '#3b82f6');
+    centerCircle.setAttribute('stroke-width', 3);
+    svg.appendChild(centerCircle);
 
-function renderRelayTopology(nodes, relayed, localId) {
-    const w = document.getElementById('topology-svg').clientWidth || 800;
-    const h = 500;
-
-    // Build data
-    const nodeMap = {};
-    nodes.forEach(n => {
-        nodeMap[n.from_id] = { id:n.from_id, name:n.from_name||n.from_id, count:n.cnt, isRouter:n.from_id===localId };
-    });
-    if (localId && !nodeMap[localId]) {
-        nodeMap[localId] = { id:localId, name:'Your Node', count:0, isRouter:true };
-    }
-    const newNodes = Object.values(nodeMap);
-    const newLinks = (relayed||[])
-        .map(r => ({ source:r.from_id, target:localId, count:r.relay_count||1 }))
-        .filter(l => nodeMap[l.source] && nodeMap[l.target] && l.source !== l.target);
-
-    // Always cache latest data so manual refresh can use it
-    if (!topoState) topoState = {};
-    topoState.lastNodes = newNodes;
-    topoState.lastLinks = newLinks;
-    topoState.lastW     = w;
-
-    if (!topoState.sim) {
-        // First load: build SVG and run simulation
-        _topoInit(newNodes, newLinks, w, h);
-    } else {
-        // Auto-refresh: update tooltips/labels only — NO restart, NO movement, NO scroll jump
-        topoState.nodeG.selectAll('g.topo-node').each(function(d) {
-            const nd = nodeMap[d.id];
-            if (!nd) return;
-            d.count = nd.count;
-            d3.select(this).select('title').text(`${nd.name}\n${nd.count} packets`);
-            d3.select(this).select('text').text((nd.name||nd.id).substring(0,14));
-        });
-    }
-}
-
-function _topoInit(newNodes, newLinks, w, h) {
-    const svg = d3.select('#topology-svg');
-    svg.selectAll('*').remove();
-    const zoom = d3.zoom().scaleExtent([0.3, 4]).on('zoom', e => topoState.g.attr('transform', e.transform));
-    svg.call(zoom);
-    const g = svg.append('g');
-    const linkG = g.append('g');
-    const nodeG = g.append('g');
-
-    const sim = d3.forceSimulation(newNodes)
-        .force('link',      d3.forceLink(newLinks).id(d=>d.id).distance(100))
-        .force('charge',    d3.forceManyBody().strength(-220))
-        .force('center',    d3.forceCenter(w/2, h/2))
-        .force('collision', d3.forceCollide(32));
-
-    topoState = { ...topoState, sim, g, linkG, nodeG };
-    _topoDrawLinks(newLinks);
-    _topoDrawNodes(newNodes, sim);
-    sim.on('tick', _topoTick);
-}
-
-// Manual refresh: re-runs simulation from scratch with latest data
-function refreshTopology() {
-    if (!topoState || !topoState.lastNodes) return;
-    topoState.sim = null;
-    _topoInit(topoState.lastNodes, topoState.lastLinks, topoState.lastW || 800, 500);
-}
-
-function _topoDrawLinks(links) {
-    const linkSel = topoState.linkG.selectAll('line').data(links);
-    linkSel.exit().remove();
-    const enter = linkSel.enter().append('line');
-    topoState.linkSel = enter.merge(linkSel)
-        .attr('stroke', '#94a3b8').attr('stroke-opacity', 0.6)
-        .attr('stroke-width', d => Math.min(Math.log(d.count+1)+1, 5));
-}
-
-function _topoDrawNodes(gNodes, sim) {
-    const nodeSel = topoState.nodeG.selectAll('g.topo-node').data(gNodes, d => d.id);
-    nodeSel.exit().remove();
-    const enter = nodeSel.enter().append('g').attr('class','topo-node')
-        .call(d3.drag()
-            .on('start', (ev,d) => { if(!ev.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
-            .on('drag',  (ev,d) => { d.fx=ev.x; d.fy=ev.y; })
-            .on('end',   (ev,d) => { if(!ev.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }));
-    enter.each(function(d) {
-        const el = d3.select(this);
-        const r  = Math.min(Math.log(d.count+1)*4+8, 24);
-        if (d.isRouter) {
-            el.append('rect').attr('width',r*2).attr('height',r*2).attr('x',-r).attr('y',-r)
-              .attr('fill','#3b82f6').attr('rx',3);
-        } else {
-            el.append('circle').attr('r',r).attr('fill','#059669').attr('opacity',0.85);
-        }
-        el.append('title').text(`${d.name}\n${d.count} packets`);
-        el.append('text').text((d.name||d.id).substring(0,14))
-            .attr('text-anchor','middle').attr('dy', d => Math.min(Math.log(d.count+1)*4+8, 25)+14)
-            .attr('font-size','9px').attr('fill','#374151');
-    });
-    topoState.nodeSel = enter.merge(nodeSel);
-}
-
-function _topoTick() {
-    if (!topoState || !topoState.linkSel) return;
-    topoState.linkSel.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
-                     .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
-    topoState.nodeSel.attr('transform', d=>`translate(${d.x},${d.y})`);
+    const centerLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    centerLabel.setAttribute('x', cx); centerLabel.setAttribute('y', cy + 4);
+    centerLabel.setAttribute('text-anchor', 'middle');
+    centerLabel.setAttribute('font-size', '11');
+    centerLabel.setAttribute('fill', 'white');
+    centerLabel.setAttribute('font-weight', 'bold');
+    centerLabel.textContent = '📡';
+    svg.appendChild(centerLabel);
 }
 
 // ── Anomaly helpers ───────────────────────────────────────────────
