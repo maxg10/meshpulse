@@ -429,6 +429,52 @@
     </div>
 </div>
 
+<!-- Relay Activity -->
+<div class="full-width card">
+    <div class="card-title">
+        🔁 Relay Activity (24h)
+        <span class="info-icon" data-tip="Hourly relay activity based on firmware numTxRelay counter from localStats snapshots (~30 min interval). Shows when your node is busiest as a relay.">ⓘ</span>
+    </div>
+    <div id="relay-activity-empty" style="color:#9ca3af;font-size:13px;
+         text-align:center;padding:30px 0;display:none">
+        ⏳ No localStats data yet — arrives every ~30 min
+    </div>
+    <div id="relay-activity-stats" style="display:flex;gap:24px;
+         margin-bottom:16px;flex-wrap:wrap">
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Total (24h)</div>
+            <div id="ra-total" style="font-size:28px;font-weight:bold;
+                 color:#8b5cf6;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">packets relayed</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Avg / hour</div>
+            <div id="ra-per-hour" style="font-size:28px;font-weight:bold;
+                 color:#3b82f6;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">pkts/h</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Avg / min</div>
+            <div id="ra-per-min" style="font-size:28px;font-weight:bold;
+                 color:#22c55e;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">pkts/min</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Peak hour</div>
+            <div id="ra-peak" style="font-size:18px;font-weight:bold;
+                 color:#f59e0b;font-variant-numeric:tabular-nums">—</div>
+            <div id="ra-peak-count" style="font-size:10px;color:#6b7280">pkts</div>
+        </div>
+    </div>
+    <div style="position:relative;height:180px;width:100%">
+        <canvas id="relay-activity-chart"></canvas>
+    </div>
+</div>
+
 <!-- Charts row 1: hourly + 7-day trend -->
 <div class="grid-2">
     <div class="card">
@@ -511,52 +557,6 @@
         </tr></thead>
         <tbody></tbody>
     </table>
-</div>
-
-<!-- Relay Activity -->
-<div class="full-width card">
-    <div class="card-title">
-        🔁 Relay Activity (24h)
-        <span class="info-icon" data-tip="Hourly relay activity based on firmware numTxRelay counter from localStats snapshots (~30 min interval). Shows when your node is busiest as a relay.">ⓘ</span>
-    </div>
-    <div id="relay-activity-empty" style="color:#9ca3af;font-size:13px;
-         text-align:center;padding:30px 0;display:none">
-        ⏳ No localStats data yet — arrives every ~30 min
-    </div>
-    <div id="relay-activity-stats" style="display:flex;gap:24px;
-         margin-bottom:16px;flex-wrap:wrap">
-        <div style="text-align:center">
-            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
-                        letter-spacing:0.05em">Total (24h)</div>
-            <div id="ra-total" style="font-size:28px;font-weight:bold;
-                 color:#8b5cf6;font-variant-numeric:tabular-nums">—</div>
-            <div style="font-size:10px;color:#6b7280">packets relayed</div>
-        </div>
-        <div style="text-align:center">
-            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
-                        letter-spacing:0.05em">Avg / hour</div>
-            <div id="ra-per-hour" style="font-size:28px;font-weight:bold;
-                 color:#3b82f6;font-variant-numeric:tabular-nums">—</div>
-            <div style="font-size:10px;color:#6b7280">pkts/h</div>
-        </div>
-        <div style="text-align:center">
-            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
-                        letter-spacing:0.05em">Avg / min</div>
-            <div id="ra-per-min" style="font-size:28px;font-weight:bold;
-                 color:#22c55e;font-variant-numeric:tabular-nums">—</div>
-            <div style="font-size:10px;color:#6b7280">pkts/min</div>
-        </div>
-        <div style="text-align:center">
-            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
-                        letter-spacing:0.05em">Peak hour</div>
-            <div id="ra-peak" style="font-size:18px;font-weight:bold;
-                 color:#f59e0b;font-variant-numeric:tabular-nums">—</div>
-            <div id="ra-peak-count" style="font-size:10px;color:#6b7280">pkts</div>
-        </div>
-    </div>
-    <div style="position:relative;height:180px;width:100%">
-        <canvas id="relay-activity-chart"></canvas>
-    </div>
 </div>
 
 <!-- Anomalies -->
