@@ -495,6 +495,11 @@ class StatsDB:
             local_node_id.lstrip('!'),
             '!' + local_node_id.lstrip('!')
         ]
+        last_byte_hex = ''
+        try:
+            last_byte_hex = f"relay_{int(local_node_id.replace('!',''), 16) & 0xFF:02x}"
+        except Exception:
+            last_byte_hex = ''
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -503,12 +508,15 @@ class StatsDB:
                 SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
                 WHERE ts > ?
-                AND relay_node_id IN (?, ?, ?)
+                AND (
+                    relay_node_id IN (?, ?, ?)
+                    OR relay_node_id = ?
+                )
                 AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id
                 ORDER BY cnt DESC
                 LIMIT 50
-            ''', (since, *own_variants, *own_variants)).fetchall()
+            ''', (since, *own_variants, last_byte_hex, *own_variants)).fetchall()
             conn.close()
             return [{'id': r['from_id'], 'name': r['from_name'], 'count': r['cnt']} for r in rows]
 
@@ -558,9 +566,16 @@ class StatsDB:
                 (local_node_id or '').lstrip('!'),
                 '!' + (local_node_id or '').lstrip('!')
             ]
+            last_byte_hex = ''
+            if local_node_id:
+                try:
+                    last_byte_hex = f"relay_{int(local_node_id.replace('!',''), 16) & 0xFF:02x}"
+                except Exception:
+                    last_byte_hex = ''
             relayed = c.execute(
-                'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relay_node_id IN (?,?,?)',
-                (since_24h, *own_variants_relay)
+                '''SELECT COUNT(*) as cnt FROM packets
+                   WHERE ts > ? AND (relay_node_id IN (?,?,?) OR relay_node_id = ?)''',
+                (since_24h, *own_variants_relay, last_byte_hex)
             ).fetchone()['cnt']
             radio_total = c.execute(
                 'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND via_mqtt = 0',
@@ -603,12 +618,19 @@ class StatsDB:
             relay_flow = c.execute('''
                 SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
-                WHERE ts > ? AND relay_node_id IN (?,?,?)
+                WHERE ts > ?
+                AND (
+                    relay_node_id IN (?,?,?)
+                    OR relay_node_id = ?
+                )
                 AND from_id NOT IN (?,?,?)
                 GROUP BY from_id
                 ORDER BY cnt DESC
                 LIMIT 50
-            ''', (since_24h, *own_variants_relay, *own_variants_relay)).fetchall()
+            ''', (since_24h,
+                  *own_variants_relay,
+                  last_byte_hex,
+                  *own_variants_relay)).fetchall()
 
             # SNR distribution (5 dB buckets)
             snr_dist = c.execute('''SELECT CAST(ROUND(snr/5.0)*5 AS INTEGER) as bucket, COUNT(*) as cnt
