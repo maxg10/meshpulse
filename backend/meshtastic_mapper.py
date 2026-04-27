@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.4.0'
+MAPPER_VERSION = '2.4.2'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -597,24 +597,11 @@ class StatsDB:
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
-            own_variants = [
-                local_node_id or '',
-                (local_node_id or '').lstrip('!'),
-                '!' + (local_node_id or '').lstrip('!')
-            ]
-            relayed_nodes = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
-                FROM packets WHERE ts > ? AND relayed_by_us = 1
-                AND from_id NOT IN (?, ?, ?)
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
-                (since_24h, *own_variants)).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
                 FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
-            topology = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as relay_count
-                FROM packets WHERE ts > ? AND relayed_by_us = 1
-                GROUP BY from_id''', (since_24h,)).fetchall()
             relay_flow = c.execute('''
                 SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
@@ -676,10 +663,8 @@ class StatsDB:
                 'top_senders': [dict(r) for r in top_senders],
                 'active_node_count': active_node_count,
                 'hourly_activity': [{'hour': r['hour'], 'count': r['cnt']} for r in hourly],
-                'relayed_nodes': [dict(r) for r in relayed_nodes],
                 'anomalies': [dict(r) for r in anomalies],
                 'packet_types': [dict(r) for r in by_type],
-                'topology': [dict(r) for r in topology],
                 'relay_flow': [dict(r) for r in relay_flow],
                 'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
                 'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
@@ -2810,9 +2795,6 @@ class ListenBasedMapper:
             for sender in result.get('top_senders', []):
                 if sender['from_id'] in all_current_names:
                     sender['from_name'] = all_current_names[sender['from_id']]
-            for node in result.get('relayed_nodes', []):
-                if node['from_id'] in all_current_names:
-                    node['from_name'] = all_current_names[node['from_id']]
             for anomaly in result.get('anomalies', []):
                 if anomaly.get('node_id') in all_current_names:
                     anomaly['node_name'] = all_current_names[anomaly['node_id']]

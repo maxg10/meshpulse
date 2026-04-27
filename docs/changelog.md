@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.4.2
+- Fix: Relayed (24h) now uses firmware numTxRelay delta from radio_stats_history — accurate relay count instead of always-zero Python API detection
+- Remove: TX Relay Trend chart — replaced by TX Relay delta widget in Radio Stats History
+- Cleanup: removed dead relayed_nodes and topology queries from backend stats
+
 ## v2.4.0
 - Fix: `showAlert` undefined in `stats.html` ws.onmessage — crashed Full Reset handler, preventing NoGPS nodes from being cleared (fix was in dev, now released)
 - Fix: `save_nodes_json()` → `save_nodes()` typo in backend full_reset handler (fix was in dev, now released)
