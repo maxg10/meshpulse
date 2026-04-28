@@ -703,6 +703,43 @@ def load_config():
     return config
 
 
+def _version_newer(a, b):
+    try:
+        return tuple(int(x) for x in a.split('.')) > \
+               tuple(int(x) for x in b.split('.'))
+    except Exception:
+        return False
+
+
+def _check_plugin_updates():
+    """Check plugin store for updates once, 60 s after startup."""
+    import time as _time
+    import urllib.request
+    _time.sleep(60)
+    try:
+        cfg = load_config()
+        store_url = cfg.get('plugin_store_url',
+            'https://meshtastic.world/plugins/plugins.json')
+        with urllib.request.urlopen(store_url, timeout=10) as r:
+            store_data = json.loads(r.read().decode())
+        store_plugins = {p['id']: p['version']
+            for p in store_data.get('plugins', [])}
+        updates = []
+        for pid, instance in (plugin_manager.plugins if plugin_manager else {}).items():
+            manifest = getattr(instance, '_manifest', None) or {}
+            local_ver = manifest.get('version', '0.0.0')
+            store_ver = store_plugins.get(pid)
+            if store_ver and _version_newer(store_ver, local_ver):
+                updates.append({'id': pid, 'local': local_ver,
+                    'available': store_ver})
+        if updates:
+            print(f"[PLUGINS] Updates available: {[u['id'] for u in updates]}")
+        if plugin_manager is not None:
+            plugin_manager._pending_updates = updates
+    except Exception as e:
+        print(f"[PLUGINS] Update check failed: {e}")
+
+
 def save_config(connection_type, host=None, port=None):
     """Save connection config to JSON file"""
     config = {'connection_type': connection_type, 'host': host, 'port': port}
@@ -4566,9 +4603,11 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'get_plugins':
                     if plugin_manager:
                         plugins = plugin_manager.list_plugins()
+                        updates = getattr(plugin_manager, '_pending_updates', [])
                         await websocket.send(json.dumps({
                             'type': 'plugins_list',
-                            'plugins': plugins
+                            'plugins': plugins,
+                            'available_updates': updates
                         }, ensure_ascii=False))
 
                 elif data.get('type') == 'enable_plugin':
@@ -5108,6 +5147,8 @@ if __name__ == '__main__':
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
             plugin_manager.load_enabled_plugins()
+            t = threading.Thread(target=_check_plugin_updates, daemon=True)
+            t.start()
 
         # Mapper loop with runtime restart support
         _watchdog_started = False

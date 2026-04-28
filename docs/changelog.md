@@ -4,6 +4,7 @@
 - Fix: Relayed (24h) card now shows real relay count from firmware numTxRelay delta (radio_stats_history) — replaces always-zero Python API detection
 - Feature: New Relay Activity (24h) panel — total relayed, avg/hour, avg/min, peak hour, hourly bar chart
 - Remove: Relay Flow section — replaced by Relay Activity with real data
+- Feature: Auto-check for plugin updates on startup (60s delay) — shows badge and toast notification when updates available
 
 ## v2.4.2
 - Fix: Relayed (24h) now uses firmware numTxRelay delta from radio_stats_history — accurate relay count instead of always-zero Python API detection

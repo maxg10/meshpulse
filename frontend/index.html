@@ -424,6 +424,19 @@
                                     loadPluginFrontend(p);
                                 }
                             });
+                            // Show update badge on Config nav link
+                            var pluginUpdates = data.available_updates || [];
+                            document.getElementById('plugin-update-badge')?.remove();
+                            if (pluginUpdates.length > 0) {
+                                var configLink = document.querySelector('a[href*="config.html"]');
+                                if (configLink) {
+                                    var badge = document.createElement('span');
+                                    badge.id = 'plugin-update-badge';
+                                    badge.style.cssText = 'background:#f59e0b;color:#000;border-radius:50%;font-size:10px;padding:1px 5px;margin-left:4px;font-weight:bold';
+                                    badge.textContent = pluginUpdates.length;
+                                    configLink.appendChild(badge);
+                                }
+                            }
                         } else if (data.type === 'plugin_data') {
                             // Forward to plugin WebSocket callbacks
                             var channel = data.channel;
