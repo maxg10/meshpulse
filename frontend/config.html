@@ -1874,6 +1874,12 @@ function connectWS() {
             } else {
                 showAlert('❌ ' + (d.error || 'Save failed'), 'error');
             }
+        } else if (d.type === 'plugin_progress') {
+            if (d.status === 'installing') {
+                showAlert('⏳ ' + (d.message || 'Installing...') + ' This may take up to 60s...', 'info');
+            } else if (d.status === 'done') {
+                showAlert('✅ ' + (d.message || 'Plugin enabled successfully'), 'success');
+            }
         } else if (d.type === 'store_plugins') {
             if (d.success) {
                 renderStorePlugins(d.plugins, d.store_url);
@@ -2306,6 +2312,14 @@ function renderPluginConfig(plugin) {
 }
 
 function togglePlugin(pluginId, enable) {
+    if (enable) {
+        var btn = document.querySelector('button[onclick*="' + pluginId + '"][onclick*=", true)"]');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Enabling...';
+        }
+        showAlert('⏳ Enabling plugin... This may take up to 60s while dependencies are installed.', 'info');
+    }
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             type: enable ? 'enable_plugin' : 'disable_plugin',
@@ -2464,7 +2478,7 @@ function installFromStore(downloadUrl, pluginId, pluginName) {
     if (!confirm(msg)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
-        showAlert((isUpdate ? '⏳ Updating ' : '⏳ Downloading ') + pluginName + '...', 'info');
+        showAlert('📦 Installing plugin... This may take up to 60s while dependencies are installed.', 'info');
     }
 }
 

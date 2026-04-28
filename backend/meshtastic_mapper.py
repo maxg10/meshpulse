@@ -4573,7 +4573,20 @@ async def websocket_handler(websocket):
 
                 elif data.get('type') == 'enable_plugin':
                     if plugin_manager:
-                        result = plugin_manager.enable(data.get('plugin_id', ''))
+                        plugin_id = data.get('plugin_id', '')
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_progress',
+                            'plugin_id': plugin_id,
+                            'status': 'installing',
+                            'message': 'Installing dependencies...'
+                        }, ensure_ascii=False))
+                        result = plugin_manager.enable(plugin_id)
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_progress',
+                            'plugin_id': plugin_id,
+                            'status': 'done',
+                            'message': 'Plugin enabled successfully'
+                        }, ensure_ascii=False))
                         await websocket.send(json.dumps({
                             'type': 'plugin_enabled', **result
                         }, ensure_ascii=False))
