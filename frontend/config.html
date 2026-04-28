@@ -2271,6 +2271,7 @@ function renderPluginsList(plugins) {
                 '</div>' +
             '</div>' +
             '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || 'No description') + '</div>' +
+            (p.documentation || p.homepage || p.repository ? '<a href="' + escHtml(p.documentation || p.homepage || p.repository) + '" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;display:inline-flex;align-items:center;gap:3px;margin-top:4px">📖 Documentation</a>' : '') +
             '<div style="margin-top:6px;color:#6b7280;font-size:11px">' +
                 'By ' + escHtml((p.author && p.author.name) || 'Unknown') +
                 (p.has_backend ? ' · <span style="color:#3b82f6">Backend</span>' : '') +
@@ -2465,6 +2466,7 @@ function renderStorePlugins(plugins, storeUrl) {
                 '<div>' + actionBtn + '</div>' +
             '</div>' +
             '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || '') + '</div>' +
+            (p.documentation ? '<a href="' + escHtml(p.documentation) + '" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;display:inline-flex;align-items:center;gap:3px;margin-top:4px">📖 Documentation</a>' : '') +
             '<div style="margin-top:6px;font-size:11px;color:#6b7280">' +
                 'By ' + authorStr + ' · ' + typeBadge +
                 (p.category ? ' · <span style="color:#f59e0b">' + escHtml(p.category) + '</span>' : '') +
