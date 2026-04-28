@@ -553,6 +553,17 @@ function playBeep() {
 
 connectWS();
 
+// Pre-select DM recipient when arriving from map "Send Message" button
+(function() {
+    const raw = localStorage.getItem('meshtastic_dm_target');
+    if (!raw) return;
+    localStorage.removeItem('meshtastic_dm_target');
+    try {
+        const target = JSON.parse(raw);
+        if (target.id && target.name) selectDMNode(target.id, target.name);
+    } catch(e) {}
+})();
+
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);
 
