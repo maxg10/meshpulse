@@ -705,6 +705,9 @@ class PluginManager:
                         'frontend': manifest.get('frontend'),
                         'config_schema': manifest.get('config', {}),
                         'config': self._load_plugin_config(plugin_dir, manifest),
+                        'documentation': manifest.get('documentation', ''),
+                        'homepage': manifest.get('homepage', ''),
+                        'repository': manifest.get('repository', ''),
                     })
 
         return plugins
