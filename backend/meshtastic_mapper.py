@@ -5163,6 +5163,8 @@ if __name__ == '__main__':
             # Update plugin_manager's mapper reference for each new mapper instance
             if plugin_manager:
                 plugin_manager.mapper = mapper
+                for plugin in plugin_manager.plugins.values():
+                    plugin._mapper = mapper
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()

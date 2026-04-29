@@ -576,7 +576,16 @@ class PluginManager:
         elif hasattr(mapper, '_serial_iface') and mapper._serial_iface:
             def _serial_send():
                 mapper._serial_iface.sendText(text, channelIndex=channel, destinationId=dest)
-            await loop.run_in_executor(None, _serial_send)
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _serial_send),
+                    timeout=10
+                )
+                print(f"[PLUGINS] Serial send OK: {text[:30]!r} → {dest}")
+            except asyncio.TimeoutError:
+                print(f"[PLUGINS] Serial send TIMEOUT: {dest}")
+            except Exception as e:
+                print(f"[PLUGINS] Serial send ERROR: {e}")
 
     # ── Interface Access ────────────────────────────────────────
 
