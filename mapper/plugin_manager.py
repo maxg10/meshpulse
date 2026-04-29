@@ -559,7 +559,7 @@ class PluginManager:
             return
 
         dest = to_id if to_id else '^all'
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if mapper.connection_type == 'tcp' and mapper.host:
             def _tcp_send():
