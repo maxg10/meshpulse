@@ -559,7 +559,7 @@ class PluginManager:
             return
 
         dest = to_id if to_id else '^all'
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
 
         if mapper.connection_type == 'tcp' and mapper.host:
             def _tcp_send():
@@ -576,7 +576,16 @@ class PluginManager:
         elif hasattr(mapper, '_serial_iface') and mapper._serial_iface:
             def _serial_send():
                 mapper._serial_iface.sendText(text, channelIndex=channel, destinationId=dest)
-            await loop.run_in_executor(None, _serial_send)
+            try:
+                await asyncio.wait_for(
+                    loop.run_in_executor(None, _serial_send),
+                    timeout=10
+                )
+                print(f"[PLUGINS] Serial send OK: {text[:30]!r} → {dest}")
+            except asyncio.TimeoutError:
+                print(f"[PLUGINS] Serial send TIMEOUT: {dest}")
+            except Exception as e:
+                print(f"[PLUGINS] Serial send ERROR: {e}")
 
     # ── Interface Access ────────────────────────────────────────
 
@@ -705,6 +714,9 @@ class PluginManager:
                         'frontend': manifest.get('frontend'),
                         'config_schema': manifest.get('config', {}),
                         'config': self._load_plugin_config(plugin_dir, manifest),
+                        'documentation': manifest.get('documentation', ''),
+                        'homepage': manifest.get('homepage', ''),
+                        'repository': manifest.get('repository', ''),
                     })
 
         return plugins

@@ -220,6 +220,7 @@
                 <option value="0">CLIENT</option>
                 <option value="1">CLIENT_MUTE (no rebroadcast)</option>
                 <option value="2">ROUTER</option>
+                <option value="3">ROUTER_CLIENT (relay + messaging)</option>
                 <option value="3">CLIENT_BASE (no GPS broadcast)</option>
                 <option value="4">TRACKER</option>
                 <option value="5">SENSOR</option>
@@ -227,6 +228,7 @@
                 <option value="7">TAK</option>
                 <option value="8">TAK_TRACKER</option>
                 <option value="9">LOST_AND_FOUND</option>
+                <option value="8">CLIENT_HIDDEN (hidden from map)</option>
                 <option value="11">ROUTER_LATE</option>
             </select>
         </div>
@@ -1836,6 +1838,20 @@ function connectWS() {
             // If connected — don't update status here, let connection_status handle it
         } else if (d.type === 'plugins_list') {
             renderPluginsList(d.plugins);
+            var pluginUpdates = d.available_updates || [];
+            document.getElementById('plugin-update-badge')?.remove();
+            if (pluginUpdates.length > 0) {
+                var pluginsTab = document.querySelector('button[onclick*="plugins"]');
+                if (pluginsTab) {
+                    var badge = document.createElement('span');
+                    badge.id = 'plugin-update-badge';
+                    badge.style.cssText = 'background:#f59e0b;color:#000;border-radius:50%;font-size:10px;padding:1px 5px;margin-left:4px;font-weight:bold';
+                    badge.textContent = pluginUpdates.length;
+                    pluginsTab.appendChild(badge);
+                }
+                var names = pluginUpdates.map(function(u) { return u.id.split('/')[1] || u.id; }).join(', ');
+                showAlert('🔄 Plugin updates available: ' + names + ' — check Config → Plugins', 'info');
+            }
         } else if (d.type === 'plugin_enabled' || d.type === 'plugin_disabled') {
             if (d.success) {
                 showAlert('✅ Plugin ' + (d.type === 'plugin_enabled' ? 'enabled' : 'disabled'), 'success');
@@ -1873,6 +1889,12 @@ function connectWS() {
                 showAlert('✅ Plugin settings saved', 'success');
             } else {
                 showAlert('❌ ' + (d.error || 'Save failed'), 'error');
+            }
+        } else if (d.type === 'plugin_progress') {
+            if (d.status === 'installing') {
+                showAlert('⏳ ' + (d.message || 'Installing...') + ' This may take up to 60s...', 'info');
+            } else if (d.status === 'done') {
+                showAlert('✅ ' + (d.message || 'Plugin enabled successfully'), 'success');
             }
         } else if (d.type === 'store_plugins') {
             if (d.success) {
@@ -2251,6 +2273,7 @@ function renderPluginsList(plugins) {
                 '</div>' +
             '</div>' +
             '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || 'No description') + '</div>' +
+            (p.documentation || p.homepage || p.repository ? '<a href="' + escHtml(p.documentation || p.homepage || p.repository) + '" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;display:inline-flex;align-items:center;gap:3px;margin-top:4px">📖 Documentation</a>' : '') +
             '<div style="margin-top:6px;color:#6b7280;font-size:11px">' +
                 'By ' + escHtml((p.author && p.author.name) || 'Unknown') +
                 (p.has_backend ? ' · <span style="color:#3b82f6">Backend</span>' : '') +
@@ -2306,6 +2329,14 @@ function renderPluginConfig(plugin) {
 }
 
 function togglePlugin(pluginId, enable) {
+    if (enable) {
+        var btn = document.querySelector('button[onclick*="' + pluginId + '"][onclick*=", true)"]');
+        if (btn) {
+            btn.disabled = true;
+            btn.textContent = '⏳ Enabling...';
+        }
+        showAlert('⏳ Enabling plugin... This may take up to 60s while dependencies are installed.', 'info');
+    }
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
             type: enable ? 'enable_plugin' : 'disable_plugin',
@@ -2437,6 +2468,7 @@ function renderStorePlugins(plugins, storeUrl) {
                 '<div>' + actionBtn + '</div>' +
             '</div>' +
             '<div style="color:#9ca3af;font-size:12px;margin-top:6px">' + escHtml(p.description || '') + '</div>' +
+            (p.documentation ? '<a href="' + escHtml(p.documentation) + '" target="_blank" style="font-size:11px;color:#3b82f6;text-decoration:none;display:inline-flex;align-items:center;gap:3px;margin-top:4px">📖 Documentation</a>' : '') +
             '<div style="margin-top:6px;font-size:11px;color:#6b7280">' +
                 'By ' + authorStr + ' · ' + typeBadge +
                 (p.category ? ' · <span style="color:#f59e0b">' + escHtml(p.category) + '</span>' : '') +
@@ -2464,7 +2496,7 @@ function installFromStore(downloadUrl, pluginId, pluginName) {
     if (!confirm(msg)) return;
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'install_from_store', download_url: downloadUrl, plugin_id: pluginId}));
-        showAlert((isUpdate ? '⏳ Updating ' : '⏳ Downloading ') + pluginName + '...', 'info');
+        showAlert('📦 Installing plugin... This may take up to 60s while dependencies are installed.', 'info');
     }
 }
 

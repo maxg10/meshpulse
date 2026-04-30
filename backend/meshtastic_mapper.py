@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.4.1'
+MAPPER_VERSION = '2.4.4'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -495,6 +495,11 @@ class StatsDB:
             local_node_id.lstrip('!'),
             '!' + local_node_id.lstrip('!')
         ]
+        last_byte_hex = ''
+        try:
+            last_byte_hex = f"relay_{int(local_node_id.replace('!',''), 16) & 0xFF:02x}"
+        except Exception:
+            last_byte_hex = ''
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
             conn.row_factory = sqlite3.Row
@@ -503,12 +508,15 @@ class StatsDB:
                 SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
                 WHERE ts > ?
-                AND relay_node_id IN (?, ?, ?)
+                AND (
+                    relay_node_id IN (?, ?, ?)
+                    OR relay_node_id = ?
+                )
                 AND from_id NOT IN (?, ?, ?)
                 GROUP BY from_id
                 ORDER BY cnt DESC
                 LIMIT 50
-            ''', (since, *own_variants, *own_variants)).fetchall()
+            ''', (since, *own_variants, last_byte_hex, *own_variants)).fetchall()
             conn.close()
             return [{'id': r['from_id'], 'name': r['from_name'], 'count': r['cnt']} for r in rows]
 
@@ -558,9 +566,16 @@ class StatsDB:
                 (local_node_id or '').lstrip('!'),
                 '!' + (local_node_id or '').lstrip('!')
             ]
+            last_byte_hex = ''
+            if local_node_id:
+                try:
+                    last_byte_hex = f"relay_{int(local_node_id.replace('!',''), 16) & 0xFF:02x}"
+                except Exception:
+                    last_byte_hex = ''
             relayed = c.execute(
-                'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND relay_node_id IN (?,?,?)',
-                (since_24h, *own_variants_relay)
+                '''SELECT COUNT(*) as cnt FROM packets
+                   WHERE ts > ? AND (relay_node_id IN (?,?,?) OR relay_node_id = ?)''',
+                (since_24h, *own_variants_relay, last_byte_hex)
             ).fetchone()['cnt']
             radio_total = c.execute(
                 'SELECT COUNT(*) as cnt FROM packets WHERE ts > ? AND via_mqtt = 0',
@@ -582,33 +597,27 @@ class StatsDB:
             hourly = c.execute('''SELECT (ts/3600)*3600 as hour, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY hour ORDER BY hour''', (since_24h,)).fetchall()
-            own_variants = [
-                local_node_id or '',
-                (local_node_id or '').lstrip('!'),
-                '!' + (local_node_id or '').lstrip('!')
-            ]
-            relayed_nodes = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
-                FROM packets WHERE ts > ? AND relayed_by_us = 1
-                AND from_id NOT IN (?, ?, ?)
-                GROUP BY from_id ORDER BY cnt DESC LIMIT 20''',
-                (since_24h, *own_variants)).fetchall()
             anomalies = c.execute('''SELECT ts, node_id, node_name, anomaly_type, details, severity
                 FROM anomalies WHERE ts > ? ORDER BY ts DESC LIMIT 50''', (since_24h,)).fetchall()
             by_type = c.execute('''SELECT portnum, COUNT(*) as cnt
                 FROM packets WHERE ts > ?
                 GROUP BY portnum ORDER BY cnt DESC''', (since_24h,)).fetchall()
-            topology = c.execute('''SELECT from_id, MAX(from_name) as from_name, COUNT(*) as relay_count
-                FROM packets WHERE ts > ? AND relayed_by_us = 1
-                GROUP BY from_id''', (since_24h,)).fetchall()
             relay_flow = c.execute('''
                 SELECT from_id, MAX(from_name) as from_name, COUNT(*) as cnt
                 FROM packets
-                WHERE ts > ? AND relay_node_id IN (?,?,?)
+                WHERE ts > ?
+                AND (
+                    relay_node_id IN (?,?,?)
+                    OR relay_node_id = ?
+                )
                 AND from_id NOT IN (?,?,?)
                 GROUP BY from_id
                 ORDER BY cnt DESC
                 LIMIT 50
-            ''', (since_24h, *own_variants_relay, *own_variants_relay)).fetchall()
+            ''', (since_24h,
+                  *own_variants_relay,
+                  last_byte_hex,
+                  *own_variants_relay)).fetchall()
 
             # SNR distribution (5 dB buckets)
             snr_dist = c.execute('''SELECT CAST(ROUND(snr/5.0)*5 AS INTEGER) as bucket, COUNT(*) as cnt
@@ -654,10 +663,8 @@ class StatsDB:
                 'top_senders': [dict(r) for r in top_senders],
                 'active_node_count': active_node_count,
                 'hourly_activity': [{'hour': r['hour'], 'count': r['cnt']} for r in hourly],
-                'relayed_nodes': [dict(r) for r in relayed_nodes],
                 'anomalies': [dict(r) for r in anomalies],
                 'packet_types': [dict(r) for r in by_type],
-                'topology': [dict(r) for r in topology],
                 'relay_flow': [dict(r) for r in relay_flow],
                 'snr_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in snr_dist],
                 'rssi_distribution': [{'bucket': r['bucket'], 'cnt': r['cnt']} for r in rssi_dist],
@@ -694,6 +701,43 @@ def load_config():
     config.setdefault('coverage_max_range_km', 50)
     config.setdefault('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
     return config
+
+
+def _version_newer(a, b):
+    try:
+        return tuple(int(x) for x in a.split('.')) > \
+               tuple(int(x) for x in b.split('.'))
+    except Exception:
+        return False
+
+
+def _check_plugin_updates():
+    """Check plugin store for updates once, 60 s after startup."""
+    import time as _time
+    import urllib.request
+    _time.sleep(60)
+    try:
+        cfg = load_config()
+        store_url = cfg.get('plugin_store_url',
+            'https://meshtastic.world/plugins/plugins.json')
+        with urllib.request.urlopen(store_url, timeout=10) as r:
+            store_data = json.loads(r.read().decode())
+        store_plugins = {p['id']: p['version']
+            for p in store_data.get('plugins', [])}
+        updates = []
+        for pid, instance in (plugin_manager.plugins if plugin_manager else {}).items():
+            manifest = getattr(instance, '_manifest', None) or {}
+            local_ver = manifest.get('version', '0.0.0')
+            store_ver = store_plugins.get(pid)
+            if store_ver and _version_newer(store_ver, local_ver):
+                updates.append({'id': pid, 'local': local_ver,
+                    'available': store_ver})
+        if updates:
+            print(f"[PLUGINS] Updates available: {[u['id'] for u in updates]}")
+        if plugin_manager is not None:
+            plugin_manager._pending_updates = updates
+    except Exception as e:
+        print(f"[PLUGINS] Update check failed: {e}")
 
 
 def save_config(connection_type, host=None, port=None):
@@ -2605,7 +2649,8 @@ class ListenBasedMapper:
                 self.messages[channel_index] = self.messages[channel_index][:50]
 
             dm_marker = " [DM]" if message['is_dm'] else ""
-            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
+            connection_label = "[USB]" if self.connection_type == 'serial' else "[TCP]"
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {connection_label}")
             relay_node_raw = packet.get('relayNode')
             self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
@@ -2613,7 +2658,8 @@ class ListenBasedMapper:
                 plugin_manager.dispatch_hook_sync('on_message', message)
             return True
         except Exception as e:
-            print(f"[TCP] text parse error: {e}")
+            conn_label = self.connection_type.upper() if self.connection_type else 'TCP'
+            print(f"[{conn_label}] text parse error: {e}")
         return False
 
     async def broadcast_node_update(self, node_data):
@@ -2788,9 +2834,6 @@ class ListenBasedMapper:
             for sender in result.get('top_senders', []):
                 if sender['from_id'] in all_current_names:
                     sender['from_name'] = all_current_names[sender['from_id']]
-            for node in result.get('relayed_nodes', []):
-                if node['from_id'] in all_current_names:
-                    node['from_name'] = all_current_names[node['from_id']]
             for anomaly in result.get('anomalies', []):
                 if anomaly.get('node_id') in all_current_names:
                     anomaly['node_name'] = all_current_names[anomaly['node_id']]
@@ -3930,7 +3973,10 @@ async def websocket_handler(websocket):
                         try:
                             conn_type = mapper.connection_type
                             if conn_type == 'serial':
-                                base_cmd = [mapper.meshtastic_cmd, '--port', mapper.port]
+                                cli_port = mapper.port
+                                if not cli_port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    cli_port = getattr(mapper._serial_iface.iface, 'devPath', None)
+                                base_cmd = [mapper.meshtastic_cmd, '--port', cli_port]
                             elif conn_type == 'tcp':
                                 base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
                             else:
@@ -3938,6 +3984,25 @@ async def websocket_handler(websocket):
 
                             set_args = []
                             owner_args = []
+
+                            # Apply neighborinfo changes via Python API before serial disconnect
+                            if 'neighborinfo' in changes:
+                                ni = changes.pop('neighborinfo')
+                                ni_iface = None
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    ni_iface = mapper._serial_iface.iface
+                                elif conn_type == 'tcp' and mapper._tcp_iface:
+                                    ni_iface = mapper._tcp_iface
+                                if not ni_iface:
+                                    raise Exception('No active connection for neighborinfo config')
+                                node = ni_iface.localNode
+                                for key, val in ni.items():
+                                    if key == 'neighbor_info_enabled':
+                                        node.moduleConfig.neighbor_info.enabled = bool(val)
+                                    elif key == 'update_interval':
+                                        node.moduleConfig.neighbor_info.update_interval = int(val)
+                                node.writeConfig('neighbor_info')
+                                applied.append('neighborinfo')
 
                             if 'user' in changes:
                                 u = changes['user']
@@ -3986,7 +4051,6 @@ async def websocket_handler(websocket):
 
                             module_section_map = {
                                 'mqtt': 'mqtt',
-                                'neighborinfo': 'neighborinfo',
                                 'store_forward': 'store_forward',
                                 'ext_notification': 'ext_notification',
                                 'range_test': 'range_test',
@@ -4003,9 +4067,6 @@ async def websocket_handler(websocket):
                                         if section == 'mqtt' and key in mqtt_skip_fields:
                                             continue
                                         full_key = f'{cli_section}.{key}'
-                                        # Fix key mismatches between frontend and CLI
-                                        if section == 'neighborinfo' and key == 'neighbor_info_enabled':
-                                            full_key = 'neighborinfo.enabled'
                                         if isinstance(val, bool):
                                             val = 'true' if val else 'false'
                                         set_args.extend(['--set', full_key, str(val)])
@@ -4016,7 +4077,7 @@ async def websocket_handler(websocket):
                                     set_args = ['--reboot']
                                     applied.append('reboot')
                                 else:
-                                    _local_applied = []
+                                    _local_applied = list(applied)
                                     if 'coverage' in changes:
                                         cov = changes['coverage']
                                         try:
@@ -4148,6 +4209,8 @@ async def websocket_handler(websocket):
 
                             if conn_type == 'serial':
                                 port = mapper.port
+                                if not port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    port = getattr(mapper._serial_iface.iface, 'devPath', None)
                                 cmd = [mapper.meshtastic_cmd, '--port', port,
                                        '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
                             elif conn_type == 'tcp':
@@ -4211,6 +4274,8 @@ async def websocket_handler(websocket):
 
                             if conn_type == 'serial':
                                 port = mapper.port
+                                if not port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    port = getattr(mapper._serial_iface.iface, 'devPath', None)
                                 cmd = [mapper.meshtastic_cmd, '--port', port, '--remove-fixed-position']
                             elif conn_type == 'tcp':
                                 cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--remove-fixed-position']
@@ -4562,14 +4627,29 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'get_plugins':
                     if plugin_manager:
                         plugins = plugin_manager.list_plugins()
+                        updates = getattr(plugin_manager, '_pending_updates', [])
                         await websocket.send(json.dumps({
                             'type': 'plugins_list',
-                            'plugins': plugins
+                            'plugins': plugins,
+                            'available_updates': updates
                         }, ensure_ascii=False))
 
                 elif data.get('type') == 'enable_plugin':
                     if plugin_manager:
-                        result = plugin_manager.enable(data.get('plugin_id', ''))
+                        plugin_id = data.get('plugin_id', '')
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_progress',
+                            'plugin_id': plugin_id,
+                            'status': 'installing',
+                            'message': 'Installing dependencies...'
+                        }, ensure_ascii=False))
+                        result = plugin_manager.enable(plugin_id)
+                        await websocket.send(json.dumps({
+                            'type': 'plugin_progress',
+                            'plugin_id': plugin_id,
+                            'status': 'done',
+                            'message': 'Plugin enabled successfully'
+                        }, ensure_ascii=False))
                         await websocket.send(json.dumps({
                             'type': 'plugin_enabled', **result
                         }, ensure_ascii=False))
@@ -5091,6 +5171,8 @@ if __name__ == '__main__':
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
             plugin_manager.load_enabled_plugins()
+            t = threading.Thread(target=_check_plugin_updates, daemon=True)
+            t.start()
 
         # Mapper loop with runtime restart support
         _watchdog_started = False
@@ -5105,6 +5187,8 @@ if __name__ == '__main__':
             # Update plugin_manager's mapper reference for each new mapper instance
             if plugin_manager:
                 plugin_manager.mapper = mapper
+                for plugin in plugin_manager.plugins.values():
+                    plugin._mapper = mapper
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()

@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Messages</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.4.1">
+    <link rel="stylesheet" href="styles.css?v=2.4.4">
     <style>
         * { box-sizing: border-box; }
         body { font-family: Arial, sans-serif; background: #f3f4f6; margin: 0; }
@@ -552,6 +552,17 @@ function playBeep() {
 }
 
 connectWS();
+
+// Pre-select DM recipient when arriving from map "Send Message" button
+(function() {
+    const raw = localStorage.getItem('meshtastic_dm_target');
+    if (!raw) return;
+    localStorage.removeItem('meshtastic_dm_target');
+    try {
+        const target = JSON.parse(raw);
+        if (target.id && target.name) selectDMNode(target.id, target.name);
+    } catch(e) {}
+})();
 
 // Check for updates (non-blocking, once per session)
 setTimeout(checkForUpdates, 3000);

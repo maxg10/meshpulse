@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>Meshtastic Network Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.4.1">
+    <link rel="stylesheet" href="styles.css?v=2.4.4">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -223,7 +223,7 @@
     <div class="card">
         <div class="card-title">
             🔁 Relayed (24h)
-            <span class="info-icon" data-tip="Packets retransmitted through YOUR node. Higher = your node is well-positioned. Relay % = share of all traffic going through you.">ⓘ</span>
+            <span class="info-icon" data-tip="Packets relayed by your node in the last 24h. Source: firmware numTxRelay counter via localStats (~30 min intervals).">ⓘ</span>
         </div>
         <div class="stat-big" id="stat-relayed">-</div>
         <div class="stat-label"><span id="stat-relayed-pct">—</span></div>
@@ -429,6 +429,52 @@
     </div>
 </div>
 
+<!-- Relay Activity -->
+<div class="full-width card">
+    <div class="card-title">
+        🔁 Relay Activity (24h)
+        <span class="info-icon" data-tip="Hourly relay activity based on firmware numTxRelay counter from localStats snapshots (~30 min interval). Shows when your node is busiest as a relay.">ⓘ</span>
+    </div>
+    <div id="relay-activity-empty" style="color:#9ca3af;font-size:13px;
+         text-align:center;padding:30px 0;display:none">
+        ⏳ No localStats data yet — arrives every ~30 min
+    </div>
+    <div id="relay-activity-stats" style="display:flex;gap:24px;
+         margin-bottom:16px;flex-wrap:wrap">
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Total (24h)</div>
+            <div id="ra-total" style="font-size:28px;font-weight:bold;
+                 color:#8b5cf6;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">packets relayed</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Avg / hour</div>
+            <div id="ra-per-hour" style="font-size:28px;font-weight:bold;
+                 color:#3b82f6;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">pkts/h</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Avg / min</div>
+            <div id="ra-per-min" style="font-size:28px;font-weight:bold;
+                 color:#22c55e;font-variant-numeric:tabular-nums">—</div>
+            <div style="font-size:10px;color:#6b7280">pkts/min</div>
+        </div>
+        <div style="text-align:center">
+            <div style="font-size:11px;color:#6b7280;text-transform:uppercase;
+                        letter-spacing:0.05em">Peak hour</div>
+            <div id="ra-peak" style="font-size:18px;font-weight:bold;
+                 color:#f59e0b;font-variant-numeric:tabular-nums">—</div>
+            <div id="ra-peak-count" style="font-size:10px;color:#6b7280">pkts</div>
+        </div>
+    </div>
+    <div style="position:relative;height:180px;width:100%">
+        <canvas id="relay-activity-chart"></canvas>
+    </div>
+</div>
+
 <!-- Charts row 1: hourly + 7-day trend -->
 <div class="grid-2">
     <div class="card">
@@ -490,63 +536,27 @@
 </div>
 
 <!-- Tables row -->
-<div class="grid-2">
-    <div class="card">
-        <div class="card-title">
-            🔊 Most Active Nodes (24h)
-            <span class="info-icon" data-tip="Nodes sending the most packets. Normal stationary nodes: ~1 packet per 15–30 min. High counts may indicate aggressive broadcast settings.">ⓘ</span>
-            <button class="export-btn" onclick="exportCSV()">📥 Export CSV</button>
-        </div>
-        <div class="data-win" id="dw-senders"></div>
-        <table class="tbl" id="top-senders-table">
-            <thead><tr>
-                <th class="sortable" data-col="from_name" onclick="sortTopSenders('from_name')">Node <span class="sort-arrow"></span></th>
-                <th>ID</th>
-                <th class="sortable" data-col="cnt" onclick="sortTopSenders('cnt')">Pkts <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="avg_snr" onclick="sortTopSenders('avg_snr')">SNR <span class="sort-arrow"></span></th>
-                <th class="sortable" data-col="avg_rssi" onclick="sortTopSenders('avg_rssi')">RSSI <span class="sort-arrow"></span></th>
-                <th>Type</th>
-                <th>Via</th>
-                <th class="sortable" data-col="last_seen" onclick="sortTopSenders('last_seen')">Last Pkt <span class="sort-arrow active">▼</span></th>
-                <th></th><th></th>
-            </tr></thead>
-            <tbody></tbody>
-        </table>
-    </div>
-    <div class="card">
-        <div class="card-title">
-            🔁 TX Relay Trend (24h)
-            <span class="info-icon" data-tip="Number of packets your node relayed over time. Data from localStats snapshots every ~30 min.">ⓘ</span>
-        </div>
-        <div id="relay-trend-empty" style="color:#9ca3af;font-size:12px;text-align:center;padding:20px 0;display:none">
-            No localStats data yet — arrives every ~30 min
-        </div>
-        <canvas id="relay-trend-chart" height="120"></canvas>
-    </div>
-</div>
-
-<!-- Relay Flow -->
 <div class="full-width card">
     <div class="card-title">
-        🔁 Relay Flow (24h)
-        <span class="info-icon" data-tip="Nodes whose packets passed through your node as a relay in the last 24h. Line thickness = relay count. Your node is the hub.">ⓘ</span>
+        🔊 Most Active Nodes (24h)
+        <span class="info-icon" data-tip="Nodes sending the most packets. Normal stationary nodes: ~1 packet per 15–30 min. High counts may indicate aggressive broadcast settings.">ⓘ</span>
+        <button class="export-btn" onclick="exportCSV()">📥 Export CSV</button>
     </div>
-    <div id="relay-flow-empty" style="color:#9ca3af;font-size:13px;text-align:center;
-         padding:40px 0;display:none">
-        No relay data yet — your node hasn't been used as a relay in the last 24h,
-        or relay_node data is not available for your firmware version.
-    </div>
-    <svg id="relay-flow-svg" style="width:100%;height:420px;display:block"></svg>
-    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:11px;color:#6b7280;
-         margin-top:8px;padding-top:8px;border-top:1px solid #1f2937">
-        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
-              stroke="#8b5cf6" stroke-width="4"/></svg> High relay count (≥10)</span>
-        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
-              stroke="#3b82f6" stroke-width="2.5"/></svg> Medium (3-9)</span>
-        <span><svg width="30" height="10"><line x1="0" y1="5" x2="30" y2="5"
-              stroke="#6b7280" stroke-width="1.5"/></svg> Low (1-2)</span>
-        <span style="margin-left:auto">Data window: last 24h</span>
-    </div>
+    <div class="data-win" id="dw-senders"></div>
+    <table class="tbl" id="top-senders-table">
+        <thead><tr>
+            <th class="sortable" data-col="from_name" onclick="sortTopSenders('from_name')">Node <span class="sort-arrow"></span></th>
+            <th>ID</th>
+            <th class="sortable" data-col="cnt" onclick="sortTopSenders('cnt')">Pkts <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="avg_snr" onclick="sortTopSenders('avg_snr')">SNR <span class="sort-arrow"></span></th>
+            <th class="sortable" data-col="avg_rssi" onclick="sortTopSenders('avg_rssi')">RSSI <span class="sort-arrow"></span></th>
+            <th>Type</th>
+            <th>Via</th>
+            <th class="sortable" data-col="last_seen" onclick="sortTopSenders('last_seen')">Last Pkt <span class="sort-arrow active">▼</span></th>
+            <th></th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+    </table>
 </div>
 
 <!-- Anomalies -->
@@ -864,17 +874,35 @@ function renderAll(data) {
     document.getElementById('stat-mqtt-packets').textContent  = mqttP.toLocaleString();
     document.getElementById('stat-radio-pct').textContent = (radioP/tot*100).toFixed(0) + '%';
     document.getElementById('stat-mqtt-pct').textContent  = (mqttP/tot*100).toFixed(0) + '%';
-    const _rh = data.radio_stats_history || [];
+    const rh = data.radio_stats_history || [];
     let relayed24h = 0;
-    if (_rh.length >= 2) {
-        const _first = _rh[0].num_tx_relay || 0;
-        const _last = _rh[_rh.length - 1].num_tx_relay || 0;
-        relayed24h = Math.max(0, _last - _first);
+    let relayedPerMin = 0;
+    let relayedPerHour = 0;
+
+    if (rh.length >= 2) {
+        const nowTs = Math.floor(Date.now() / 1000);
+        const cutoff = nowTs - 86400;
+        const filtered = rh.filter(r => r.ts >= cutoff && r.num_tx_relay != null);
+        if (filtered.length >= 2) {
+            let totalDelta = 0;
+            for (let i = 1; i < filtered.length; i++) {
+                const delta = (filtered[i].num_tx_relay || 0) - (filtered[i-1].num_tx_relay || 0);
+                if (delta > 0) totalDelta += delta;
+            }
+            relayed24h = totalDelta;
+            relayedPerMin = relayed24h > 0 ? (relayed24h / 1440).toFixed(1) : 0;
+            relayedPerHour = relayed24h > 0 ? Math.round(relayed24h / 24) : 0;
+        }
     }
-    document.getElementById('stat-relayed').textContent = relayed24h;
-    const _relayTotal = data.total_packets || 1;
-    const _relayPct = _relayTotal > 0 ? ((relayed24h / _relayTotal) * 100).toFixed(1) : '0.0';
-    document.getElementById('stat-relayed-pct').textContent = _relayPct + '% of all packets';
+    const relayedEl = document.getElementById('stat-relayed');
+    if (relayedEl) relayedEl.textContent = relayed24h.toLocaleString();
+    const relayedPctEl = document.getElementById('stat-relayed-pct');
+    if (relayedPctEl) {
+        relayedPctEl.innerHTML =
+            `<span style="font-size:11px;color:#6b7280">
+             ~${relayedPerMin}/min &nbsp;·&nbsp; ~${relayedPerHour.toLocaleString()}/h avg
+             </span>`;
+    }
     document.getElementById('stat-nodes').textContent   = data.active_node_count || 0;
     document.getElementById('stat-anomalies').textContent = (data.anomalies||[]).length;
 
@@ -947,50 +975,11 @@ function renderAll(data) {
     topSendersData = data.top_senders || [];
     renderTopSenders();
 
-    // TX Relay trend
-    const rh = data.radio_stats_history || [];
-    if (rh.length < 2) {
-        document.getElementById('relay-trend-empty').style.display = 'block';
-        document.getElementById('relay-trend-chart').style.display = 'none';
-    } else {
-        document.getElementById('relay-trend-empty').style.display = 'none';
-        document.getElementById('relay-trend-chart').style.display = '';
-        const rhLabels = rh.map(r => {
-            const d = new Date(r.ts * 1000);
-            return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
-        });
-        if (charts['relay-trend-chart']) charts['relay-trend-chart'].destroy();
-        charts['relay-trend-chart'] = new Chart(document.getElementById('relay-trend-chart'), {
-            type: 'line',
-            data: {
-                labels: rhLabels,
-                datasets: [{
-                    label: 'TX Relays',
-                    data: rh.map(r => r.num_tx_relay || 0),
-                    borderColor: 'rgba(139,92,246,0.8)',
-                    backgroundColor: 'rgba(139,92,246,0.15)',
-                    fill: true,
-                    tension: 0.3,
-                    pointRadius: 3
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: { ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 8 } },
-                    y: { ticks: { color: '#6b7280' }, beginAtZero: true }
-                }
-            }
-        });
-    }
-
     // Radio history widgets
     updateRhWidgets(data.radio_stats_history || [], data.radio_stats || {});
 
-    // Relay Flow
-    renderRelayFlow(data.relay_flow || []);
+    // Relay Activity
+    renderRelayActivity(data.radio_stats_history || []);
 
     // Anomalies
     renderAnomalies(data.anomalies||[]);
@@ -1193,107 +1182,97 @@ function renderHealthScore(rs, data) {
     brk.innerHTML = issues.length ? issues.map(i => `<div>• ${i}</div>`).join('') : '<div style="color:#059669">No issues detected</div>';
 }
 
-// ── Relay Flow ────────────────────────────────────────────────────
-function renderRelayFlow(relayData) {
-    const svg = document.getElementById('relay-flow-svg');
-    const empty = document.getElementById('relay-flow-empty');
-    if (!svg) return;
+// ── Relay Activity ────────────────────────────────────────────────
+function renderRelayActivity(radioHistory) {
+    const empty = document.getElementById('relay-activity-empty');
+    const stats = document.getElementById('relay-activity-stats');
+    const canvas = document.getElementById('relay-activity-chart');
 
-    svg.innerHTML = '';
-
-    if (!relayData || relayData.length === 0) {
+    if (!radioHistory || radioHistory.length < 2) {
         if (empty) empty.style.display = 'block';
-        svg.style.display = 'none';
+        if (stats) stats.style.display = 'none';
+        if (canvas) canvas.style.display = 'none';
         return;
     }
     if (empty) empty.style.display = 'none';
-    svg.style.display = 'block';
+    if (stats) stats.style.display = 'flex';
+    if (canvas) canvas.style.display = 'block';
 
-    const W = svg.clientWidth || 800;
-    const H = 420;
-    const cx = W / 2;
-    const cy = H / 2;
-    const maxCount = Math.max(...relayData.map(r => r.cnt));
+    const nowTs = Math.floor(Date.now() / 1000);
+    const cutoff = nowTs - 86400;
+    const filtered = radioHistory.filter(r => r.ts >= cutoff && r.num_tx_relay != null);
 
-    const radius = Math.min(W, H) * 0.35;
-    const angleStep = (2 * Math.PI) / relayData.length;
+    if (filtered.length < 2) {
+        if (empty) empty.style.display = 'block';
+        if (stats) stats.style.display = 'none';
+        if (canvas) canvas.style.display = 'none';
+        return;
+    }
 
-    // Draw lines first (behind nodes)
-    relayData.forEach((node, i) => {
-        const angle = i * angleStep - Math.PI / 2;
-        const x = cx + radius * Math.cos(angle);
-        const y = cy + radius * Math.sin(angle);
+    const intervals = [];
+    for (let i = 1; i < filtered.length; i++) {
+        const delta = (filtered[i].num_tx_relay || 0) - (filtered[i-1].num_tx_relay || 0);
+        intervals.push({ ts: filtered[i].ts, delta: delta > 0 ? delta : 0 });
+    }
 
-        const weight = node.cnt >= 10 ? 4 : node.cnt >= 3 ? 2.5 : 1.5;
-        const color = node.cnt >= 10 ? '#8b5cf6' : node.cnt >= 3 ? '#3b82f6' : '#6b7280';
-        const opacity = 0.4 + (node.cnt / maxCount) * 0.6;
-
-        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-        line.setAttribute('x1', cx); line.setAttribute('y1', cy);
-        line.setAttribute('x2', x); line.setAttribute('y2', y);
-        line.setAttribute('stroke', color);
-        line.setAttribute('stroke-width', weight);
-        line.setAttribute('opacity', opacity);
-        svg.appendChild(line);
-
-        const mx = (cx + x) / 2;
-        const my = (cy + y) / 2;
-        const badge = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        badge.setAttribute('x', mx);
-        badge.setAttribute('y', my);
-        badge.setAttribute('text-anchor', 'middle');
-        badge.setAttribute('font-size', '10');
-        badge.setAttribute('fill', color);
-        badge.setAttribute('font-weight', 'bold');
-        badge.textContent = node.cnt;
-        svg.appendChild(badge);
+    const hourlyMap = {};
+    intervals.forEach(iv => {
+        const d = new Date(iv.ts * 1000);
+        const hourKey = d.getHours();
+        const hourLabel = d.getHours().toString().padStart(2,'0') + ':00';
+        if (!hourlyMap[hourKey]) hourlyMap[hourKey] = { label: hourLabel, count: 0 };
+        hourlyMap[hourKey].count += iv.delta;
     });
 
-    // Draw relay nodes
-    relayData.forEach((node, i) => {
-        const angle = i * angleStep - Math.PI / 2;
-        const x = cx + radius * Math.cos(angle);
-        const y = cy + radius * Math.sin(angle);
+    const hours = Object.keys(hourlyMap).sort((a,b) => a-b);
+    const labels = hours.map(h => hourlyMap[h].label);
+    const values = hours.map(h => hourlyMap[h].count);
 
-        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-        circle.setAttribute('cx', x); circle.setAttribute('cy', y);
-        circle.setAttribute('r', 8);
-        circle.setAttribute('fill', '#1f2937');
-        circle.setAttribute('stroke', node.cnt >= 10 ? '#8b5cf6' : node.cnt >= 3 ? '#3b82f6' : '#6b7280');
-        circle.setAttribute('stroke-width', 2);
-        svg.appendChild(circle);
+    const total = values.reduce((a,b) => a+b, 0);
+    const perHour = hours.length > 0 ? Math.round(total / 24) : 0;
+    const perMin = (total / 1440).toFixed(1);
+    const maxVal = Math.max(...values);
+    const maxIdx = values.indexOf(maxVal);
+    const peakLabel = maxIdx >= 0 ? labels[maxIdx] : '—';
 
-        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        const labelX = x + (Math.cos(angle) > 0 ? 12 : -12);
-        const labelY = y + (Math.sin(angle) > 0.5 ? 20 : Math.sin(angle) < -0.5 ? -12 : 4);
-        label.setAttribute('x', labelX);
-        label.setAttribute('y', labelY);
-        label.setAttribute('text-anchor', Math.cos(angle) > 0 ? 'start' : 'end');
-        label.setAttribute('font-size', '11');
-        label.setAttribute('fill', '#e5e7eb');
-        const displayName = node.from_name && node.from_name !== node.from_id
-            ? node.from_name : node.from_id;
-        label.textContent = displayName.substring(0, 18);
-        svg.appendChild(label);
+    document.getElementById('ra-total').textContent = total.toLocaleString();
+    document.getElementById('ra-per-hour').textContent = perHour.toLocaleString();
+    document.getElementById('ra-per-min').textContent = perMin;
+    document.getElementById('ra-peak').textContent = peakLabel;
+    document.getElementById('ra-peak-count').textContent = maxVal.toLocaleString() + ' pkts';
+
+    if (charts['relay-activity-chart']) charts['relay-activity-chart'].destroy();
+    charts['relay-activity-chart'] = new Chart(canvas, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                data: values,
+                backgroundColor: values.map(v =>
+                    v === maxVal ? 'rgba(245,158,11,0.8)' : 'rgba(139,92,246,0.6)'
+                ),
+                borderWidth: 0,
+                borderRadius: 3
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: {
+                    ticks: { color: '#6b7280', font: { size: 10 } },
+                    grid: { display: false }
+                },
+                y: {
+                    ticks: { color: '#6b7280', font: { size: 10 } },
+                    grid: { color: '#1f2937' },
+                    beginAtZero: true
+                }
+            }
+        }
     });
-
-    // Center node (our tracker)
-    const centerCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    centerCircle.setAttribute('cx', cx); centerCircle.setAttribute('cy', cy);
-    centerCircle.setAttribute('r', 18);
-    centerCircle.setAttribute('fill', '#1d4ed8');
-    centerCircle.setAttribute('stroke', '#3b82f6');
-    centerCircle.setAttribute('stroke-width', 3);
-    svg.appendChild(centerCircle);
-
-    const centerLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    centerLabel.setAttribute('x', cx); centerLabel.setAttribute('y', cy + 4);
-    centerLabel.setAttribute('text-anchor', 'middle');
-    centerLabel.setAttribute('font-size', '11');
-    centerLabel.setAttribute('fill', 'white');
-    centerLabel.setAttribute('font-weight', 'bold');
-    centerLabel.textContent = '📡';
-    svg.appendChild(centerLabel);
 }
 
 // ── Anomaly helpers ───────────────────────────────────────────────
