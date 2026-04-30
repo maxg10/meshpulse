@@ -1,5 +1,19 @@
 # Changelog
 
+## v2.4.4
+- Fix: plugin send_mesh_message uses get_running_loop() for correct event loop
+- Fix: plugin serial send wrapped in asyncio.wait_for with timeout and logging
+- Fix: plugin._mapper updated on mapper restart
+- Fix: CLI config commands use actual detected serial port (not hardcoded ttyACM0)
+- Fix: neighborinfo saved via Python API instead of CLI
+- Fix: [USB] label for serial packets instead of [TCP]
+- Fix: pre-select DM recipient when clicking Send Message on map
+- Fix: ROUTER_CLIENT and CLIENT_HIDDEN in device role dropdown
+- Feature: plugin documentation link on plugin cards
+- Feature: auto-check plugin updates on startup with badge and toast notification
+- Feature: progress feedback during plugin install/enable
+- UI: Relay Activity card above hourly charts
+
 ## v2.4.3
 - Fix: Relayed (24h) card now shows real relay count from firmware numTxRelay delta (radio_stats_history) — replaces always-zero Python API detection
 - Feature: New Relay Activity (24h) panel — total relayed, avg/hour, avg/min, peak hour, hourly bar chart
