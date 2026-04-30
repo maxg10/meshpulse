@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.4.3'
+MAPPER_VERSION = '2.4.4'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -2649,7 +2649,8 @@ class ListenBasedMapper:
                 self.messages[channel_index] = self.messages[channel_index][:50]
 
             dm_marker = " [DM]" if message['is_dm'] else ""
-            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} [TCP]")
+            connection_label = "[USB]" if self.connection_type == 'serial' else "[TCP]"
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {connection_label}")
             relay_node_raw = packet.get('relayNode')
             self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
@@ -2657,7 +2658,8 @@ class ListenBasedMapper:
                 plugin_manager.dispatch_hook_sync('on_message', message)
             return True
         except Exception as e:
-            print(f"[TCP] text parse error: {e}")
+            conn_label = self.connection_type.upper() if self.connection_type else 'TCP'
+            print(f"[{conn_label}] text parse error: {e}")
         return False
 
     async def broadcast_node_update(self, node_data):
@@ -3971,7 +3973,10 @@ async def websocket_handler(websocket):
                         try:
                             conn_type = mapper.connection_type
                             if conn_type == 'serial':
-                                base_cmd = [mapper.meshtastic_cmd, '--port', mapper.port]
+                                cli_port = mapper.port
+                                if not cli_port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    cli_port = getattr(mapper._serial_iface.iface, 'devPath', None)
+                                base_cmd = [mapper.meshtastic_cmd, '--port', cli_port]
                             elif conn_type == 'tcp':
                                 base_cmd = [mapper.meshtastic_cmd, '--host', mapper.host]
                             else:
@@ -3979,6 +3984,25 @@ async def websocket_handler(websocket):
 
                             set_args = []
                             owner_args = []
+
+                            # Apply neighborinfo changes via Python API before serial disconnect
+                            if 'neighborinfo' in changes:
+                                ni = changes.pop('neighborinfo')
+                                ni_iface = None
+                                if conn_type == 'serial' and mapper._serial_iface:
+                                    ni_iface = mapper._serial_iface.iface
+                                elif conn_type == 'tcp' and mapper._tcp_iface:
+                                    ni_iface = mapper._tcp_iface
+                                if not ni_iface:
+                                    raise Exception('No active connection for neighborinfo config')
+                                node = ni_iface.localNode
+                                for key, val in ni.items():
+                                    if key == 'neighbor_info_enabled':
+                                        node.moduleConfig.neighbor_info.enabled = bool(val)
+                                    elif key == 'update_interval':
+                                        node.moduleConfig.neighbor_info.update_interval = int(val)
+                                node.writeConfig('neighbor_info')
+                                applied.append('neighborinfo')
 
                             if 'user' in changes:
                                 u = changes['user']
@@ -4027,7 +4051,6 @@ async def websocket_handler(websocket):
 
                             module_section_map = {
                                 'mqtt': 'mqtt',
-                                'neighborinfo': 'neighborinfo',
                                 'store_forward': 'store_forward',
                                 'ext_notification': 'ext_notification',
                                 'range_test': 'range_test',
@@ -4044,9 +4067,6 @@ async def websocket_handler(websocket):
                                         if section == 'mqtt' and key in mqtt_skip_fields:
                                             continue
                                         full_key = f'{cli_section}.{key}'
-                                        # Fix key mismatches between frontend and CLI
-                                        if section == 'neighborinfo' and key == 'neighbor_info_enabled':
-                                            full_key = 'neighborinfo.enabled'
                                         if isinstance(val, bool):
                                             val = 'true' if val else 'false'
                                         set_args.extend(['--set', full_key, str(val)])
@@ -4057,7 +4077,7 @@ async def websocket_handler(websocket):
                                     set_args = ['--reboot']
                                     applied.append('reboot')
                                 else:
-                                    _local_applied = []
+                                    _local_applied = list(applied)
                                     if 'coverage' in changes:
                                         cov = changes['coverage']
                                         try:
@@ -4189,6 +4209,8 @@ async def websocket_handler(websocket):
 
                             if conn_type == 'serial':
                                 port = mapper.port
+                                if not port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    port = getattr(mapper._serial_iface.iface, 'devPath', None)
                                 cmd = [mapper.meshtastic_cmd, '--port', port,
                                        '--setlat', str(lat), '--setlon', str(lon), '--setalt', str(alt)]
                             elif conn_type == 'tcp':
@@ -4252,6 +4274,8 @@ async def websocket_handler(websocket):
 
                             if conn_type == 'serial':
                                 port = mapper.port
+                                if not port and mapper._serial_iface and mapper._serial_iface.iface:
+                                    port = getattr(mapper._serial_iface.iface, 'devPath', None)
                                 cmd = [mapper.meshtastic_cmd, '--port', port, '--remove-fixed-position']
                             elif conn_type == 'tcp':
                                 cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--remove-fixed-position']
