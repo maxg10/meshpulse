@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.4.6-stable
+- Fix: Plugin re-enabled automatically after update — was getting
+  stuck as disabled because install() called disable() but never
+  re-enabled after extracting the new version
+- Fix: "Installing plugin... up to 60s" message now persists until
+  install actually finishes — was disappearing after 5s due to
+  generic showAlert auto-dismiss timeout, leaving user staring at
+  empty status bar during the actual install
+
+## v2.4.5
+- Fix: update tracker name in nodes[] when long_name changes
+
 ## v2.4.4
 - Fix: plugin send_mesh_message uses get_running_loop() for correct event loop
 - Fix: plugin serial send wrapped in asyncio.wait_for with timeout and logging
