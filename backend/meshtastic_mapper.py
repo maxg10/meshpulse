@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.4.4'
+MAPPER_VERSION = '2.4.5'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -2896,11 +2896,17 @@ class ListenBasedMapper:
                 else:
                     nodes_no_pos_list.append(tracker_entry)
             else:
-                # Update role on existing tracker node (may have changed since last run)
+                # Update role and name on existing tracker node (may have changed since last run)
+                tracker_long_name = (
+                    self.tracker_info.get('long_name') or
+                    self.local_node_id
+                )
                 if self.local_node_id in self.nodes:
                     self.nodes[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
+                    self.nodes[self.local_node_id]['name'] = tracker_long_name
                 elif self.local_node_id in self.nodes_no_position:
                     self.nodes_no_position[self.local_node_id]['role'] = self.tracker_info.get('role', 'CLIENT')
+                    self.nodes_no_position[self.local_node_id]['name'] = tracker_long_name
 
             # Get relay stats for map visualization
             try:
