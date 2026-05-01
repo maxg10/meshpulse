@@ -183,9 +183,11 @@ class PluginManager:
                     }
 
                 plugin_dir = self._get_plugin_dir(plugin_id)
+                was_enabled = False
 
                 if os.path.exists(plugin_dir):
                     if plugin_id in self.enabled_ids:
+                        was_enabled = True
                         self.disable(plugin_id)
                     shutil.rmtree(plugin_dir)
 
@@ -211,12 +213,23 @@ class PluginManager:
                             except subprocess.CalledProcessError as e:
                                 print(f"[PLUGINS] Warning: pip install failed: {e}")
 
+                # Re-enable if it was enabled before update — preserves user state
+                if was_enabled:
+                    print(f"[PLUGINS] Re-enabling {plugin_id} after update...")
+                    enable_result = self.enable(plugin_id)
+                    if not enable_result.get('success'):
+                        print(f"[PLUGINS] Warning: re-enable after update failed: "
+                              f"{enable_result.get('error')}")
+                        # Don't fail the whole install — user can enable manually
+                        was_enabled = False  # so frontend doesn't think it's enabled
+
                 print(f"[PLUGINS] Installed {plugin_id} v{manifest.get('version')}")
                 return {
                     'success': True,
                     'plugin_id': plugin_id,
                     'name': manifest.get('name'),
-                    'version': manifest.get('version')
+                    'version': manifest.get('version'),
+                    'was_enabled': was_enabled
                 }
 
         except Exception as e:
