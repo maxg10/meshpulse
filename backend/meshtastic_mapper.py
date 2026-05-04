@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.4.6'
+MAPPER_VERSION = '2.4.7'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -1214,13 +1214,29 @@ class ListenBasedMapper:
                 'enabled': getattr(en, 'enabled', False),
                 'active': getattr(en, 'active', False),
                 'alert_message': getattr(en, 'alert_message', False),
+                'alert_message_buzzer': getattr(en, 'alert_message_buzzer', False),
+                'alert_message_vibra': getattr(en, 'alert_message_vibra', False),
                 'alert_bell': getattr(en, 'alert_bell', False),
+                'alert_bell_buzzer': getattr(en, 'alert_bell_buzzer', False),
+                'alert_bell_vibra': getattr(en, 'alert_bell_vibra', False),
+                'output': getattr(en, 'output', 0),
+                'output_buzzer': getattr(en, 'output_buzzer', 0),
+                'output_vibra': getattr(en, 'output_vibra', 0),
                 'output_ms': getattr(en, 'output_ms', 0),
                 'nag_timeout': getattr(en, 'nag_timeout', 0),
                 'use_pwm': getattr(en, 'use_pwm', False),
+                'use_i2s_as_buzzer': getattr(en, 'use_i2s_as_buzzer', False),
             }
         except Exception as e:
-            config['ext_notification'] = {'enabled': False, 'active': False, 'alert_message': False, 'alert_bell': False, 'output_ms': 0, 'nag_timeout': 0, 'use_pwm': False, 'error': str(e)}
+            config['ext_notification'] = {
+                'enabled': False, 'active': False,
+                'alert_message': False, 'alert_message_buzzer': False, 'alert_message_vibra': False,
+                'alert_bell': False, 'alert_bell_buzzer': False, 'alert_bell_vibra': False,
+                'output': 0, 'output_buzzer': 0, 'output_vibra': 0,
+                'output_ms': 0, 'nag_timeout': 0,
+                'use_pwm': False, 'use_i2s_as_buzzer': False,
+                'error': str(e)
+            }
 
         try:
             rt = node.moduleConfig.range_test
@@ -1498,8 +1514,12 @@ class ListenBasedMapper:
 
         if 'ext_notification' in changes:
             en = node.moduleConfig.external_notification
+            bool_fields = ('enabled', 'active', 'alert_message', 'alert_bell',
+                           'alert_message_buzzer', 'alert_message_vibra',
+                           'alert_bell_buzzer', 'alert_bell_vibra',
+                           'use_pwm', 'use_i2s_as_buzzer')
             for key, val in changes['ext_notification'].items():
-                if key in ('enabled', 'active', 'alert_message', 'alert_bell', 'use_pwm'):
+                if key in bool_fields:
                     setattr(en, key, bool(val))
                 else:
                     setattr(en, key, int(val))

@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.4.7-stable
+- External Notification: added 8 missing fields (alert_message_buzzer,
+  alert_message_vibra, alert_bell_buzzer, alert_bell_vibra,
+  use_i2s_as_buzzer, output, output_buzzer, output_vibra) and
+  regrouped UI into General / Triggers / Output Configuration
+  sub-sections with English tooltips. Existing legacy fields kept
+  with "(legacy)" labels for compatibility.
+- Fix: needsReboot logic now covers all module configs (not just
+  lora/device). Module configs only load at boot, so changes to
+  any module now correctly prompt for reboot. Affected sections:
+  mqtt, serial_module, ext_notification, store_forward, range_test,
+  canned_message, paxcounter, audio, neighbor_info, detection_sensor,
+  ambient_lighting, remote_hardware, network, bluetooth, security,
+  power.
+
 ## v2.4.6-stable
 - Fix: Plugin re-enabled automatically after update — was getting
   stuck as disabled because install() called disable() but never
