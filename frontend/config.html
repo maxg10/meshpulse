@@ -870,36 +870,90 @@
     <div class="card">
         <div class="card-title">🔔 External Notification</div>
         <div class="alert alert-info" style="margin-bottom:10px">ℹ️ Trigger a buzzer, LED or vibration motor via GPIO when messages arrive.</div>
+
+        <!-- ── Sub-section: General ───────────────────────────────── -->
+        <div style="margin-top:8px;margin-bottom:6px;font-weight:600;color:#374151;font-size:13px;border-bottom:1px solid #e5e7eb;padding-bottom:4px">General</div>
+
         <div class="field-check">
             <input type="checkbox" id="ext_notification.enabled" onchange="markChanged(this)">
-            <label for="ext_notification.enabled">Enabled</label>
-        </div>
-        <div class="field-check">
-            <input type="checkbox" id="ext_notification.active" onchange="markChanged(this)">
-            <label for="ext_notification.active">Active High <span class="tip" onmouseenter="showTip('If true, GPIO goes HIGH to activate. If false, GPIO goes LOW to activate.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
-        </div>
-        <div class="field-check">
-            <input type="checkbox" id="ext_notification.alert_message" onchange="markChanged(this)">
-            <label for="ext_notification.alert_message">Alert on Message <span class="tip" onmouseenter="showTip('Trigger notification when a text message is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
-        </div>
-        <div class="field-check">
-            <input type="checkbox" id="ext_notification.alert_bell" onchange="markChanged(this)">
-            <label for="ext_notification.alert_bell">Alert on Bell <span class="tip" onmouseenter="showTip('Trigger notification when a bell character is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
-        </div>
-        <div class="field-check">
-            <input type="checkbox" id="ext_notification.use_pwm" onchange="markChanged(this)">
-            <label for="ext_notification.use_pwm">Use PWM <span class="tip" onmouseenter="showTip('Use PWM output instead of simple on/off. Required for some buzzers.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+            <label for="ext_notification.enabled">Enabled <span class="tip" onmouseenter="showTip('Master switch — turns the entire External Notification module on/off.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
         </div>
         <div class="field-row">
             <div class="field">
-                <label>Output Duration (ms) <span class="tip" onmouseenter="showTip('How long to activate the output in milliseconds. 0 = default (1000ms).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <label>Output Duration (ms) <span class="tip" onmouseenter="showTip('How long to activate the output for each alert. 0 = 1000ms default.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">0 = 1000ms default</div>
                 <input type="number" id="ext_notification.output_ms" min="0" max="10000" oninput="markChanged(this)">
             </div>
             <div class="field">
-                <label>Nag Timeout (seconds) <span class="tip" onmouseenter="showTip('Keep repeating the alert for this many seconds until acknowledged. 0 = disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <label>Nag Timeout (seconds) <span class="tip" onmouseenter="showTip('Repeat the alert every N seconds until acknowledged. 0 = disabled (alert plays once).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
                 <div class="desc">0 = disabled</div>
                 <input type="number" id="ext_notification.nag_timeout" min="0" max="3600" oninput="markChanged(this)">
+            </div>
+        </div>
+
+        <!-- ── Sub-section: Triggers ──────────────────────────────── -->
+        <div style="margin-top:14px;margin-bottom:6px;font-weight:600;color:#374151;font-size:13px;border-bottom:1px solid #e5e7eb;padding-bottom:4px">Triggers</div>
+
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_message" onchange="markChanged(this)">
+            <label for="ext_notification.alert_message">Alert on Message (legacy) <span class="tip" onmouseenter="showTip('Trigger notification when any text message is received. Legacy field — most firmwares now use the per-output flags below. Enable BOTH this and the corresponding Buzzer/Vibra for guaranteed compatibility.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_message_buzzer" onchange="markChanged(this)">
+            <label for="ext_notification.alert_message_buzzer">Message → Buzzer <span class="tip" onmouseenter="showTip('Trigger the buzzer when a text message is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_message_vibra" onchange="markChanged(this)">
+            <label for="ext_notification.alert_message_vibra">Message → Vibra <span class="tip" onmouseenter="showTip('Trigger the vibration motor when a text message is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_bell" onchange="markChanged(this)">
+            <label for="ext_notification.alert_bell">Alert on Bell (legacy) <span class="tip" onmouseenter="showTip('Trigger notification when a bell character (\a) is received. Legacy field — most firmwares now use the per-output flags below.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_bell_buzzer" onchange="markChanged(this)">
+            <label for="ext_notification.alert_bell_buzzer">Bell → Buzzer <span class="tip" onmouseenter="showTip('Trigger the buzzer when a bell character is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.alert_bell_vibra" onchange="markChanged(this)">
+            <label for="ext_notification.alert_bell_vibra">Bell → Vibra <span class="tip" onmouseenter="showTip('Trigger the vibration motor when a bell character is received.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+
+        <!-- ── Sub-section: Output Configuration ──────────────────── -->
+        <div style="margin-top:14px;margin-bottom:6px;font-weight:600;color:#374151;font-size:13px;border-bottom:1px solid #e5e7eb;padding-bottom:4px">Output Configuration</div>
+
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.active" onchange="markChanged(this)">
+            <label for="ext_notification.active">Active High <span class="tip" onmouseenter="showTip('If enabled, GPIO output goes HIGH to activate (3.3V). If disabled, GPIO goes LOW (0V). Depends on your buzzer/LED wiring.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.use_pwm" onchange="markChanged(this)">
+            <label for="ext_notification.use_pwm">Use PWM <span class="tip" onmouseenter="showTip('Use PWM signal instead of simple on/off. Required for some passive buzzers that need a frequency to make sound.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-check">
+            <input type="checkbox" id="ext_notification.use_i2s_as_buzzer" onchange="markChanged(this)">
+            <label for="ext_notification.use_i2s_as_buzzer">Use I2S as Buzzer <span class="tip" onmouseenter="showTip('Use I2S DAC peripheral as the buzzer output instead of a simple GPIO. Only for boards with built-in I2S audio (rare).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Output GPIO Pin <span class="tip" onmouseenter="showTip('Generic notification output pin (LED, relay). 0 = use board default. Used when neither buzzer nor vibra is configured.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = board default</div>
+                <input type="number" id="ext_notification.output" min="0" max="48" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <label>Buzzer GPIO Pin <span class="tip" onmouseenter="showTip('GPIO pin connected to the buzzer. 0 = use board default (if your board has a built-in buzzer).',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = board default</div>
+                <input type="number" id="ext_notification.output_buzzer" min="0" max="48" oninput="markChanged(this)">
+            </div>
+        </div>
+        <div class="field-row">
+            <div class="field">
+                <label>Vibra Motor GPIO Pin <span class="tip" onmouseenter="showTip('GPIO pin connected to the vibration motor. 0 = use board default or disabled.',event)" onmouseleave="gTip.style.display='none'">ⓘ</span></label>
+                <div class="desc">0 = board default / disabled</div>
+                <input type="number" id="ext_notification.output_vibra" min="0" max="48" oninput="markChanged(this)">
+            </div>
+            <div class="field">
+                <!-- empty placeholder for grid alignment -->
             </div>
         </div>
     </div>
@@ -2041,8 +2095,16 @@ function populateForm(config) {
     setField('ext_notification.enabled', config.ext_notification?.enabled ?? false);
     setField('ext_notification.active', config.ext_notification?.active ?? false);
     setField('ext_notification.alert_message', config.ext_notification?.alert_message ?? false);
+    setField('ext_notification.alert_message_buzzer', config.ext_notification?.alert_message_buzzer ?? false);
+    setField('ext_notification.alert_message_vibra', config.ext_notification?.alert_message_vibra ?? false);
     setField('ext_notification.alert_bell', config.ext_notification?.alert_bell ?? false);
+    setField('ext_notification.alert_bell_buzzer', config.ext_notification?.alert_bell_buzzer ?? false);
+    setField('ext_notification.alert_bell_vibra', config.ext_notification?.alert_bell_vibra ?? false);
     setField('ext_notification.use_pwm', config.ext_notification?.use_pwm ?? false);
+    setField('ext_notification.use_i2s_as_buzzer', config.ext_notification?.use_i2s_as_buzzer ?? false);
+    setField('ext_notification.output', config.ext_notification?.output ?? 0);
+    setField('ext_notification.output_buzzer', config.ext_notification?.output_buzzer ?? 0);
+    setField('ext_notification.output_vibra', config.ext_notification?.output_vibra ?? 0);
     setField('ext_notification.output_ms', config.ext_notification?.output_ms ?? 0);
     setField('ext_notification.nag_timeout', config.ext_notification?.nag_timeout ?? 0);
 
@@ -2159,7 +2221,18 @@ function saveConfig() {
         showAlert('❌ Not connected to device', 'error');
         return;
     }
-    const needsReboot = 'lora' in pendingChanges || 'device' in pendingChanges;
+    // Sections that require a device reboot for changes to take effect.
+        // Module configs are only loaded at boot, so any change to them
+        // needs a reboot. Some local configs (display, position, telemetry
+        // intervals) update live and are excluded.
+        const REBOOT_REQUIRED = [
+            'lora', 'device', 'network', 'bluetooth', 'security', 'power',
+            'mqtt', 'serial_module', 'ext_notification', 'store_forward',
+            'range_test', 'canned_message', 'paxcounter', 'audio',
+            'neighbor_info', 'detection_sensor', 'ambient_lighting',
+            'remote_hardware'
+        ];
+        const needsReboot = Object.keys(pendingChanges).some(k => REBOOT_REQUIRED.includes(k));
     if (needsReboot) {
         if (!confirm('⚠️ Some changes require a device reboot to take effect. Reboot after saving?')) return;
     }

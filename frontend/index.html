@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>Meshtastic Mapper</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.3.0">
+    <link rel="stylesheet" href="styles.css?v=2.4.8">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -1698,9 +1698,11 @@
             let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
             if (filterDirect) {
                 filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
+                filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
             }
             if (hideUnknownHops) {
                 filteredNodes = filteredNodes.filter(n => (n.hops !== null && n.hops !== undefined) || isOwnTracker(n.id));
+                filteredNoGps = filteredNoGps.filter(n => n.hops !== null && n.hops !== undefined);
             }
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
@@ -1782,12 +1784,6 @@
             }
 
             // Update no-GPS nodes panel
-            if (filterDirect) {
-                filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
-            }
-            if (hideUnknownHops) {
-                filteredNoGps = filteredNoGps.filter(n => n.hops !== null && n.hops !== undefined);
-            }
             filteredNoGps.sort((a, b) => b.ts - a.ts);
             document.getElementById('no-gps-cnt').textContent = filteredNoGps.length;
             const noGpsList = document.getElementById('no-gps-list');
