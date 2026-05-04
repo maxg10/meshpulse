@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.4.8-stable
+- Fix: node counter (#cnt) now correctly respects "Show only direct"
+  and "Hide unknown hops" filters for the no-GPS nodes section.
+  Previously filteredNoGps was filtered after the counter was already
+  rendered, causing the count to be inflated (e.g. "220 (11+209)"
+  instead of "12 (11+1)" in direct-only mode).
+
 ## v2.4.7-stable
 - External Notification: added 8 missing fields (alert_message_buzzer,
   alert_message_vibra, alert_bell_buzzer, alert_bell_vibra,
