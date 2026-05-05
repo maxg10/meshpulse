@@ -489,13 +489,44 @@
                                 }
                             }
                         } else if (data.type === 'traceroute_status') {
-                            console.log('[WS] Traceroute status:', data.status);
+                            console.log('[WS] Traceroute status:', data.status, data);
                             const body = document.getElementById('traceroute-body');
                             if (body) {
                                 if (data.status === 'starting' && data.connection_type === 'serial') {
                                     body.innerHTML = '<div id="traceroute-loading">⚠️ Pausing listener for traceroute...</div>';
                                 } else if (data.status === 'starting') {
-                                    body.innerHTML = '<div id="traceroute-loading">🔍 Running traceroute...</div>';
+                                    body.innerHTML = '<div id="traceroute-loading">🔍 Sending traceroute...</div>';
+                                } else if (data.status === 'attempt') {
+                                    // Reset countdown for this specific attempt
+                                    if (tracerouteCountdown) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; }
+                                    const attemptNum = data.attempt || 1;
+                                    const totalAttempts = data.total_attempts || 1;
+                                    const perAttemptTimeout = data.timeout_per_attempt || 45;
+                                    let secsLeft = perAttemptTimeout;
+
+                                    const renderProgress = () => {
+                                        const el = document.getElementById('traceroute-loading');
+                                        if (!el) return;
+                                        const attemptLabel = totalAttempts > 1
+                                            ? `Attempt ${attemptNum}/${totalAttempts}`
+                                            : 'Running';
+                                        const icon = attemptNum > 1 ? '🔁' : '🔍';
+                                        if (secsLeft > 0) {
+                                            el.innerHTML = `${icon} ${attemptLabel}... (${secsLeft}s)`;
+                                        } else {
+                                            el.innerHTML = `⏱️ ${attemptLabel} - waiting...`;
+                                        }
+                                    };
+                                    body.innerHTML = `<div id="traceroute-loading">🔍 Attempt ${attemptNum}/${totalAttempts}...</div>`;
+                                    renderProgress();
+                                    tracerouteCountdown = setInterval(() => {
+                                        secsLeft--;
+                                        renderProgress();
+                                        if (secsLeft <= -3) {
+                                            clearInterval(tracerouteCountdown);
+                                            tracerouteCountdown = null;
+                                        }
+                                    }, 1000);
                                 } else if (data.status === 'reconnecting') {
                                     if (tracerouteCountdown) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; }
                                     body.innerHTML = '<div id="traceroute-loading">🔄 Restarting listener...</div>';
@@ -1143,34 +1174,20 @@
                 closeTraceroutePanel();
                 const node = allNodes.find(n => n.id === nodeId) || allNodesNoGps.find(n => n.id === nodeId);
                 document.getElementById('traceroute-title').textContent = '🔍 Traceroute: ' + (node ? node.name : nodeId);
-                const initMsg = '⏳ Running traceroute... (60s)';
+                const initMsg = '⏳ Sending traceroute request...';
                 document.getElementById('traceroute-body').innerHTML = `<div id="traceroute-loading">${initMsg}</div>`;
                 document.getElementById('traceroute-panel').style.display = 'block';
                 window._tracerouteNodeId = nodeId;
                 ws.send(JSON.stringify({type: 'traceroute', node_id: nodeId}));
-                if (tracerouteCountdown) clearInterval(tracerouteCountdown);
-                let secsLeft = 60;
-                tracerouteCountdown = setInterval(() => {
-                    const el = document.getElementById('traceroute-loading');
-                    if (!el) { clearInterval(tracerouteCountdown); tracerouteCountdown = null; return; }
-                    secsLeft--;
-                    if (secsLeft > 0) {
-                        el.textContent = `⏳ Running traceroute... (${secsLeft}s)`;
-                    } else {
-                        el.textContent = '⏱️ Still waiting...';
-                        clearInterval(tracerouteCountdown);
-                        tracerouteCountdown = null;
-                    }
-                }, 1000);
                 if (tracerouteTimeout) clearTimeout(tracerouteTimeout);
                 tracerouteTimeout = setTimeout(() => {
                     tracerouteTimeout = null;
                     if (window._tracerouteNodeId) {
                         document.getElementById('traceroute-body').innerHTML =
-                            '<div style="color:#374151;padding:10px;">⏱️ No response received. The node may be too far (3+ hops) or temporarily unreachable.</div>' +
+                            '<div style="color:#374151;padding:10px;">⏱️ Frontend safety timeout (110s) reached. Backend may still be processing — check the panel again in a moment, or close and retry.</div>' +
                             '<button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>';
                     }
-                }, 90000);
+                }, 110000);
             };
             if (connType === 'serial') {
                 // Python API: no listener pause needed
@@ -1194,12 +1211,19 @@
             if (data.error) {
                 const err = data.error.toLowerCase();
                 let msg;
-                if (err.includes('timed out') || err.includes('timeout')) {
-                    msg = '⏱️ Traceroute timed out. Node did not respond within 60 seconds. This can happen when the node is too far, busy, or temporarily unreachable.';
+                if (err.includes('no response after') || err.includes('timed out') || err.includes('timeout')) {
+                    msg = '⏱️ <b>Traceroute failed</b><br><br>' + escHtml(data.error) + '<br><br>' +
+                          '<span style="color:#6b7280;font-size:11px;">Possible causes:</span><br>' +
+                          '<span style="color:#6b7280;font-size:11px;">• Node has traceroute disabled in firmware</span><br>' +
+                          '<span style="color:#6b7280;font-size:11px;">• Radio path is asymmetric or too lossy</span><br>' +
+                          '<span style="color:#6b7280;font-size:11px;">• Node is busy (high channel utilization)</span><br><br>' +
+                          '<span style="color:#6b7280;font-size:11px;">Try again — sometimes a different mesh path works.</span>';
                 } else if (err.includes('no route')) {
-                    msg = '🚫 No route found. Node is unreachable from your tracker.';
+                    msg = '🚫 <b>No route found</b><br><br>Node is unreachable from your tracker.';
+                } else if (err.includes('not connected')) {
+                    msg = '🔌 <b>Tracker not connected</b><br><br>Reconnect the tracker and try again.';
                 } else {
-                    msg = '❌ Traceroute failed. Try again later.';
+                    msg = '❌ <b>Traceroute failed</b><br><br>' + escHtml(data.error);
                 }
                 body.innerHTML = `<div style="color:#374151;padding:10px;">${msg}</div><button onclick="closeTraceroutePanel()" style="margin-top:8px;width:100%;padding:4px;cursor:pointer;">✕ Close</button>`;
                 return;

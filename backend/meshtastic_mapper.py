@@ -3792,6 +3792,18 @@ async def run_traceroute(node_id, websocket):
                 for attempt in range(1, MAX_ATTEMPTS + 1):
                     print(f"[TRACEROUTE] === Attempt {attempt}/{MAX_ATTEMPTS} for {node_id} ===")
 
+                    # Notify frontend about attempt number (best effort, ignore errors)
+                    try:
+                        await websocket.send(json.dumps({
+                            'type': 'traceroute_status',
+                            'status': 'attempt',
+                            'attempt': attempt,
+                            'total_attempts': MAX_ATTEMPTS,
+                            'timeout_per_attempt': PER_ATTEMPT_TIMEOUT
+                        }, ensure_ascii=False))
+                    except Exception:
+                        pass
+
                     # Reset state przed każdą próbą
                     mapper._pending_traceroute_result = None
                     mapper._traceroute_event = asyncio.Event()
@@ -3875,10 +3887,15 @@ async def run_traceroute(node_id, websocket):
                     }, ensure_ascii=False))
                 else:
                     print(f"[TRACEROUTE] === FAILED after {total_elapsed:.1f}s, {MAX_ATTEMPTS} attempts ===")
+                    # Construct detailed error message for frontend
+                    if final_error and 'imeout' in final_error:
+                        detailed_error = f'No response after {MAX_ATTEMPTS} attempts ({total_elapsed:.0f}s total)'
+                    else:
+                        detailed_error = final_error or 'Unknown error'
                     await websocket.send(json.dumps({
                         'type': 'traceroute_result',
                         'node_id': node_id,
-                        'error': final_error or 'Unknown error'
+                        'error': detailed_error
                     }, ensure_ascii=False))
 
             except Exception as e:
