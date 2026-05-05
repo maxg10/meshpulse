@@ -761,6 +761,9 @@ class ListenBasedMapper:
         self._tcp_iface = None
         self._cli_reboot_pending = False
         self._pending_traceroute_result = None
+        self._traceroute_event = None      # asyncio.Event do wybudzania z callbacka
+        self._traceroute_loop = None       # event loop do call_soon_threadsafe
+        self._traceroute_expected_from = None  # node_id którego traceroute oczekujemy
         self.config = {}  # Populated with load_config() after construction
         self.json_path = '/var/www/html/meshtastic/nodes.json'
         self.meshtastic_cmd = shutil.which('meshtastic') or os.path.expanduser('~/.local/bin/meshtastic')
@@ -3227,6 +3230,14 @@ class ListenBasedMapper:
             decoded_keys = list(packet.get('decoded', {}).keys()) if isinstance(packet.get('decoded'), dict) else 'not-a-dict'
             print(f"[TRACEROUTE] Decoded keys: {decoded_keys}")
 
+        # Wake up any waiting coroutine in the asyncio event loop
+        if self._traceroute_event is not None and self._traceroute_loop is not None:
+            try:
+                self._traceroute_loop.call_soon_threadsafe(self._traceroute_event.set)
+                print(f"[TRACEROUTE] Event signaled to event loop")
+            except Exception as e:
+                print(f"[TRACEROUTE] Failed to signal event: {e}")
+
     def _run_tcp(self):
         """Run TCP listener using the Python Meshtastic API (no subprocess)."""
         last_save = time.time()
@@ -3766,62 +3777,115 @@ async def run_traceroute(node_id, websocket):
                     }, ensure_ascii=False))
                     return
 
-                mapper._pending_traceroute_result = None
+                # Lazy imports — protobufy meshtastic
+                from meshtastic import mesh_pb2, portnums_pb2
+
                 import time as _time_module
-                tr_start = _time_module.time()
-                print(f"[TRACEROUTE] → Sending to {node_id} via serial Python API (hopLimit=5)...")
+                MAX_ATTEMPTS = 2          # original + 1 retry
+                PER_ATTEMPT_TIMEOUT = 45  # sekundy na pojedynczą próbę
+                iface = mapper._serial_iface.iface
 
-                try:
-                    await loop.run_in_executor(
-                        None,
-                        lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
-                    )
-                    elapsed = _time_module.time() - tr_start
-                    print(f"[TRACEROUTE] ✓ sendTraceRoute() returned after {elapsed:.1f}s (no library exception)")
-                except Exception as send_err:
-                    elapsed = _time_module.time() - tr_start
-                    import traceback
-                    print(f"[TRACEROUTE] ✗ sendTraceRoute() raised after {elapsed:.1f}s: {type(send_err).__name__}: {send_err}")
-                    print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
-                    # Jeszcze nie poddajemy się — może callback już ustawił wynik mimo wyjątku
+                final_result = None
+                final_error = None
+                tr_total_start = _time_module.time()
 
-                print(f"[TRACEROUTE] Polling for result (max 60s)...")
-                # Small yield to let any pending callbacks complete
-                await asyncio.sleep(0.5)
-                for i in range(60):
-                    await asyncio.sleep(1)
-                    if mapper._pending_traceroute_result:
-                        elapsed = _time_module.time() - tr_start
-                        print(f"[TRACEROUTE] ✓ Got result after {elapsed:.1f}s total (polled {i+1}s)")
-                        result = mapper._pending_traceroute_result
-                        mapper._pending_traceroute_result = None
-                        all_known = {**mapper.nodes, **mapper.nodes_no_position}
-                        for hop in result['route'] + result['route_back']:
-                            hop_id = hop.get('id')
-                            if hop_id and hop_id in all_known:
-                                n = all_known[hop_id]
-                                if 'lat' in n:
-                                    hop['lat'] = n['lat']
-                                    hop['lon'] = n['lon']
-                                hop['name'] = n.get('name', hop.get('name', hop_id))
-                        await websocket.send(json.dumps({
-                            'type': 'traceroute_result',
-                            'node_id': node_id,
-                            'route': result['route'],
-                            'route_back': result['route_back'],
-                            'raw': ''
-                        }, ensure_ascii=False))
-                        return
+                for attempt in range(1, MAX_ATTEMPTS + 1):
+                    print(f"[TRACEROUTE] === Attempt {attempt}/{MAX_ATTEMPTS} for {node_id} ===")
 
-                elapsed = _time_module.time() - tr_start
-                print(f"[TRACEROUTE] ✗ Polling timeout after {elapsed:.1f}s — no result captured by callback")
-                await websocket.send(json.dumps({
-                    'type': 'traceroute_result',
-                    'node_id': node_id,
-                    'error': 'Timeout - no traceroute response received'
-                }, ensure_ascii=False))
+                    # Reset state przed każdą próbą
+                    mapper._pending_traceroute_result = None
+                    mapper._traceroute_event = asyncio.Event()
+                    mapper._traceroute_loop = loop
+                    mapper._traceroute_expected_from = node_id
+
+                    attempt_start = _time_module.time()
+
+                    # Wyślij pakiet RouteDiscovery (non-blocking)
+                    try:
+                        r = mesh_pb2.RouteDiscovery()
+                        await loop.run_in_executor(
+                            None,
+                            lambda: iface.sendData(
+                                r,
+                                destinationId=node_id,
+                                portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
+                                wantResponse=True,
+                                hopLimit=5
+                            )
+                        )
+                        send_elapsed = _time_module.time() - attempt_start
+                        print(f"[TRACEROUTE] → Packet sent in {send_elapsed:.1f}s, waiting for response (max {PER_ATTEMPT_TIMEOUT}s)...")
+                    except Exception as send_err:
+                        import traceback
+                        send_elapsed = _time_module.time() - attempt_start
+                        print(f"[TRACEROUTE] ✗ sendData() failed after {send_elapsed:.1f}s: {type(send_err).__name__}: {send_err}")
+                        print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
+                        final_error = f"Send failed: {send_err}"
+                        continue
+
+                    # Czekaj na event (wybudzony z callbacka) z naszym timeoutem
+                    try:
+                        await asyncio.wait_for(
+                            mapper._traceroute_event.wait(),
+                            timeout=PER_ATTEMPT_TIMEOUT
+                        )
+                        attempt_elapsed = _time_module.time() - attempt_start
+                        print(f"[TRACEROUTE] ✓ Event received after {attempt_elapsed:.1f}s")
+
+                        if mapper._pending_traceroute_result:
+                            final_result = mapper._pending_traceroute_result
+                            mapper._pending_traceroute_result = None
+                            print(f"[TRACEROUTE] ✓ SUCCESS on attempt {attempt} after {attempt_elapsed:.1f}s")
+                            break
+                        else:
+                            print(f"[TRACEROUTE] ⚠ Event fired but no _pending_traceroute_result — strange")
+                            final_error = "Event fired but no result captured"
+                    except asyncio.TimeoutError:
+                        attempt_elapsed = _time_module.time() - attempt_start
+                        print(f"[TRACEROUTE] ✗ Attempt {attempt} timed out after {attempt_elapsed:.1f}s")
+                        final_error = "Timeout - no traceroute response received"
+                        if attempt < MAX_ATTEMPTS:
+                            print(f"[TRACEROUTE] Will retry...")
+                            await asyncio.sleep(2)
+
+                # Cleanup state
+                mapper._traceroute_event = None
+                mapper._traceroute_loop = None
+                mapper._traceroute_expected_from = None
+
+                total_elapsed = _time_module.time() - tr_total_start
+
+                if final_result:
+                    print(f"[TRACEROUTE] === DONE in {total_elapsed:.1f}s total ===")
+                    all_known = {**mapper.nodes, **mapper.nodes_no_position}
+                    for hop in final_result['route'] + final_result['route_back']:
+                        hop_id = hop.get('id')
+                        if hop_id and hop_id in all_known:
+                            n = all_known[hop_id]
+                            if 'lat' in n:
+                                hop['lat'] = n['lat']
+                                hop['lon'] = n['lon']
+                            hop['name'] = n.get('name', hop.get('name', hop_id))
+                    await websocket.send(json.dumps({
+                        'type': 'traceroute_result',
+                        'node_id': node_id,
+                        'route': final_result['route'],
+                        'route_back': final_result['route_back'],
+                        'raw': ''
+                    }, ensure_ascii=False))
+                else:
+                    print(f"[TRACEROUTE] === FAILED after {total_elapsed:.1f}s, {MAX_ATTEMPTS} attempts ===")
+                    await websocket.send(json.dumps({
+                        'type': 'traceroute_result',
+                        'node_id': node_id,
+                        'error': final_error or 'Unknown error'
+                    }, ensure_ascii=False))
+
             except Exception as e:
                 import traceback
+                mapper._traceroute_event = None
+                mapper._traceroute_loop = None
+                mapper._traceroute_expected_from = None
                 print(f"[TRACEROUTE] ✗ Outer exception in serial handler: {type(e).__name__}: {e}")
                 print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
                 await websocket.send(json.dumps({
