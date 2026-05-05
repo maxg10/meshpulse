@@ -3173,6 +3173,9 @@ class ListenBasedMapper:
 
     def _handle_traceroute_packet(self, packet):
         """Handle incoming traceroute response packet from Python API."""
+        from_num = packet.get('from', 0)
+        to_num = packet.get('to', 0)
+        print(f"[TRACEROUTE] ← Callback fired: from=!{from_num:08x} to=!{to_num:08x}")
         try:
             decoded = packet.get('decoded', {})
             # Python API puts data in 'traceroute' field, not 'routeDiscovery'
@@ -3196,9 +3199,6 @@ class ListenBasedMapper:
                     'snr': round(snr / 4.0, 2) if snr is not None else None
                 }
 
-            from_num = packet.get('from', 0)
-            to_num = packet.get('to', 0)
-
             # Full route: our node -> intermediate hops -> destination
             full_route = [num_to_hop(from_num)]
             for i, num in enumerate(route_nums):
@@ -3220,7 +3220,12 @@ class ListenBasedMapper:
             }
             print(f"[TRACEROUTE] Result parsed: {len(full_route)} hops forward, {len(full_route_back)} hops back")
         except Exception as e:
+            import traceback
             print(f"[TRACEROUTE] Error parsing packet: {e}")
+            print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
+            print(f"[TRACEROUTE] Raw packet keys: {list(packet.keys())}")
+            decoded_keys = list(packet.get('decoded', {}).keys()) if isinstance(packet.get('decoded'), dict) else 'not-a-dict'
+            print(f"[TRACEROUTE] Decoded keys: {decoded_keys}")
 
     def _run_tcp(self):
         """Run TCP listener using the Python Meshtastic API (no subprocess)."""
@@ -3754,6 +3759,7 @@ async def run_traceroute(node_id, websocket):
         if conn_type == 'serial':
             try:
                 if not mapper._serial_iface or not mapper._serial_iface.iface:
+                    print(f"[TRACEROUTE] Aborting: serial interface not connected")
                     await websocket.send(json.dumps({
                         'type': 'traceroute_result',
                         'node_id': node_id, 'error': 'Not connected'
@@ -3761,17 +3767,32 @@ async def run_traceroute(node_id, websocket):
                     return
 
                 mapper._pending_traceroute_result = None
-                print(f"[TRACEROUTE] Sending traceroute via serial Python API...")
-                await loop.run_in_executor(
-                    None,
-                    lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
-                )
-                print(f"[TRACEROUTE] Sent, checking for result...")
+                import time as _time_module
+                tr_start = _time_module.time()
+                print(f"[TRACEROUTE] → Sending to {node_id} via serial Python API (hopLimit=5)...")
+
+                try:
+                    await loop.run_in_executor(
+                        None,
+                        lambda: mapper._serial_iface.iface.sendTraceRoute(node_id, hopLimit=5)
+                    )
+                    elapsed = _time_module.time() - tr_start
+                    print(f"[TRACEROUTE] ✓ sendTraceRoute() returned after {elapsed:.1f}s (no library exception)")
+                except Exception as send_err:
+                    elapsed = _time_module.time() - tr_start
+                    import traceback
+                    print(f"[TRACEROUTE] ✗ sendTraceRoute() raised after {elapsed:.1f}s: {type(send_err).__name__}: {send_err}")
+                    print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
+                    # Jeszcze nie poddajemy się — może callback już ustawił wynik mimo wyjątku
+
+                print(f"[TRACEROUTE] Polling for result (max 60s)...")
                 # Small yield to let any pending callbacks complete
                 await asyncio.sleep(0.5)
-                for _ in range(60):
+                for i in range(60):
                     await asyncio.sleep(1)
                     if mapper._pending_traceroute_result:
+                        elapsed = _time_module.time() - tr_start
+                        print(f"[TRACEROUTE] ✓ Got result after {elapsed:.1f}s total (polled {i+1}s)")
                         result = mapper._pending_traceroute_result
                         mapper._pending_traceroute_result = None
                         all_known = {**mapper.nodes, **mapper.nodes_no_position}
@@ -3792,12 +3813,17 @@ async def run_traceroute(node_id, websocket):
                         }, ensure_ascii=False))
                         return
 
+                elapsed = _time_module.time() - tr_start
+                print(f"[TRACEROUTE] ✗ Polling timeout after {elapsed:.1f}s — no result captured by callback")
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
                     'node_id': node_id,
                     'error': 'Timeout - no traceroute response received'
                 }, ensure_ascii=False))
             except Exception as e:
+                import traceback
+                print(f"[TRACEROUTE] ✗ Outer exception in serial handler: {type(e).__name__}: {e}")
+                print(f"[TRACEROUTE] Traceback:\n{traceback.format_exc()}")
                 await websocket.send(json.dumps({
                     'type': 'traceroute_result',
                     'node_id': node_id, 'error': str(e)
