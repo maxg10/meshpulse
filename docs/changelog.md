@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.4.9-stable
+- Traceroute reliability overhaul: replaced blocking `sendTraceRoute()` with non-blocking
+  `sendData()` + `asyncio.Event` + automatic retry (2 attempts, 45 s each). No more hangs.
+- Traceroute UX: per-attempt countdown (`🔍 Attempt 1/2... (45s)`), better timeout messages,
+  frontend safety timeout extended to 110 s.
+- Smart packet provenance tags: hardcoded `[TCP]` replaced with `[USB/TCP→radio/relay×N/mqtt]`
+  format showing both connection type and packet route.
+- Frontend: `📡` (radio) / `🌐 MQTT` icons next to "Hops:" in node popups and no-GPS panel.
+- Fix: `[TCP] parse error` in except blocks renamed to `[ERROR]` (fired on serial too).
+
 ## v2.4.8-stable
 - Fix: node counter (#cnt) now correctly respects "Show only direct"
   and "Hide unknown hops" filters for the no-GPS nodes section.
