@@ -2628,7 +2628,7 @@ startConfigRetry();
 
 // Unread messages badge
 const _bc = new BroadcastChannel('meshtastic_msgs');
-_bc.onmessage = (e) => { if (e.data === 'reset') updateNavUnread(); };
+_bc.onmessage = (e) => { if (e.data?.type === 'unread_reset') updateNavUnread(); };
 function updateNavUnread() {
     const cnt = parseInt(localStorage.getItem('meshtastic_unread') || '0');
     const el = document.getElementById('nav-messages');

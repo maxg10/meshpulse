@@ -263,7 +263,7 @@
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
-        _bc.onmessage = (e) => { if (e.data === 'reset') updateNavUnread(); };
+        _bc.onmessage = (e) => { if (e.data?.type === 'unread_reset') updateNavUnread(); };
         function updateNavUnread() {
             const cnt = parseInt(localStorage.getItem('meshtastic_unread') || '0');
             const el = document.getElementById('nav-messages');
@@ -407,11 +407,9 @@
                             updateDisplay();
                         } else if (data.type === 'new_message') {
                             console.log('[WS] New message from:', data.message.from_id);
-                            if (document.hidden) {
-                                const cur = parseInt(localStorage.getItem('meshtastic_unread') || '0');
-                                localStorage.setItem('meshtastic_unread', cur + 1);
-                                updateNavUnread();
-                            }
+                            const cur = parseInt(localStorage.getItem('meshtastic_unread') || '0');
+                            localStorage.setItem('meshtastic_unread', cur + 1);
+                            updateNavUnread();
                             // Notify plugins
                             Object.keys(pluginMessageCallbacks).forEach(function(key) {
                                 try { pluginMessageCallbacks[key](data.message || data); }
