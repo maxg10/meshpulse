@@ -1822,7 +1822,7 @@
                     <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
-                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
+                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
@@ -1874,7 +1874,7 @@
                         SNR: ${escHtml(String(n.snr))} dB<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}Alt: ${escHtml(String(n.alt))}m<br>
-                        Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'}<br>
+                        Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
                         ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
                 }

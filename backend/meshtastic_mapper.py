@@ -2376,7 +2376,7 @@ class ListenBasedMapper:
                     self.tracker_info['lon'] = round(lon, 6)
                     self.tracker_info['alt'] = alt or 0
                 marker = "✚" if is_new else "↻"
-                print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} [TCP]")
+                print(f"{marker} {node_id} {name[:20]} @ {lat:.4f},{lon:.4f} {self._packet_route_tag(packet)}")
                 self._update_message_names(node_id, name)
                 relay_node_raw = packet.get('relayNode')
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
@@ -2398,7 +2398,7 @@ class ListenBasedMapper:
                     'source': 'live'
                 }
                 marker = "✚" if is_new else "↻"
-                print(f"{marker} {node_id} {name[:20]} (no GPS) [TCP]")
+                print(f"{marker} {node_id} {name[:20]} (no GPS) {self._packet_route_tag(packet)}")
                 self._update_message_names(node_id, name)
                 relay_node_raw = packet.get('relayNode')
                 self.log_packet_to_stats(node_id, 'NODEINFO_APP', hops, snr, None, via_mqtt, relay_node_raw)
@@ -2408,7 +2408,7 @@ class ListenBasedMapper:
                     plugin_manager.dispatch_hook_sync('on_node_update', self.nodes_no_position.get(node_id))
             return True
         except Exception as e:
-            print(f"[TCP] nodeinfo parse error: {e}")
+            print(f"[ERROR] nodeinfo parse: {e}")
         return False
 
     def parse_position_from_packet(self, packet):
@@ -2448,7 +2448,7 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 })
-                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+                print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops} {self._packet_route_tag(packet)}")
             else:
                 self.nodes[node_id] = {
                     'id': node_id,
@@ -2473,7 +2473,7 @@ class ListenBasedMapper:
                 if node_id in self.nodes_no_position:
                     del self.nodes_no_position[node_id]
                     print(f"[GPS] {node_id} moved from no-GPS to GPS list")
-                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} [TCP]")
+                print(f"✚ {node_id} NEW from position @ {lat:.4f},{lon:.4f} hops={hops} {self._packet_route_tag(packet)}")
 
             if node_id == self.local_node_id:
                 self.tracker_info['lat'] = round(lat, 6)
@@ -2492,7 +2492,7 @@ class ListenBasedMapper:
                 })
             return True
         except Exception as e:
-            print(f"[TCP] position parse error: {e}")
+            print(f"[ERROR] position parse: {e}")
         return False
 
     def parse_telemetry_from_packet(self, packet):
@@ -2591,7 +2591,7 @@ class ListenBasedMapper:
                 self.nodes[node_id]['source'] = 'live'
                 if telemetry_update:
                     self.nodes[node_id].update(telemetry_update)
-                print(f"♡ {node_id} telemetry heartbeat [TCP]")
+                print(f"♡ {node_id} telemetry heartbeat {self._packet_route_tag(packet)}")
                 asyncio.run(self.broadcast_node_update(self.nodes[node_id]))
                 asyncio.run(self.broadcast_stats_update())
                 if plugin_manager:
@@ -2613,7 +2613,7 @@ class ListenBasedMapper:
                 self.nodes_no_position[node_id]['source'] = 'live'
                 if telemetry_update:
                     self.nodes_no_position[node_id].update(telemetry_update)
-                print(f"♡ {node_id} telemetry heartbeat (no GPS) [TCP]")
+                print(f"♡ {node_id} telemetry heartbeat (no GPS) {self._packet_route_tag(packet)}")
                 asyncio.run(self.broadcast_node_update(self.nodes_no_position[node_id]))
                 asyncio.run(self.broadcast_stats_update())
                 if plugin_manager:
@@ -2630,7 +2630,7 @@ class ListenBasedMapper:
                     })
             return True
         except Exception as e:
-            print(f"[TCP] telemetry parse error: {e}")
+            print(f"[ERROR] telemetry parse: {e}")
         return False
 
     def parse_text_from_packet(self, packet):
@@ -2672,8 +2672,7 @@ class ListenBasedMapper:
                 self.messages[channel_index] = self.messages[channel_index][:50]
 
             dm_marker = " [DM]" if message['is_dm'] else ""
-            connection_label = "[USB]" if self.connection_type == 'serial' else "[TCP]"
-            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {connection_label}")
+            print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {self._packet_route_tag(packet)}")
             relay_node_raw = packet.get('relayNode')
             self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
@@ -3173,6 +3172,29 @@ class ListenBasedMapper:
             self._last_radio_packet_time = time.time()
         except Exception as e:
             print(f"[SERIAL] Packet routing error: {e}")
+
+    def _packet_route_tag(self, packet):
+        """Build route tag like '[USB→radio]', '[USB→relay×2]', '[USB→mqtt]'.
+
+        Two dimensions:
+        - Connection (USB/TCP): based on self.connection_type
+        - Route (radio/relay×N/mqtt): based on packet's via_mqtt and hop_start/hop_limit
+        """
+        conn = 'USB' if self.connection_type == 'serial' else 'TCP'
+
+        via_mqtt = packet.get('viaMqtt') or packet.get('via_mqtt') or False
+        if via_mqtt:
+            route = 'mqtt'
+        else:
+            hop_start = packet.get('hopStart') or packet.get('hop_start') or 0
+            hop_limit = packet.get('hopLimit') or packet.get('hop_limit') or 0
+            if hop_start and hop_limit is not None and hop_start > hop_limit:
+                hops = hop_start - hop_limit
+                route = f'relay×{hops}'
+            else:
+                route = 'radio'
+
+        return f'[{conn}→{route}]'
 
     def _handle_traceroute_packet(self, packet):
         """Handle incoming traceroute response packet from Python API."""
