@@ -1581,6 +1581,7 @@
             if (!trackerNode || !trackerNode.lat || !trackerNode.lon) return;
 
             allNodes.forEach(n => {
+                if (!markers[n.id]) return;  // skip filtered-out nodes
                 if (n.id === trackerId || n.hops !== 0 || n.via_mqtt) return;
                 if (!n.lat || !n.lon) return;
 
@@ -1605,10 +1606,12 @@
             Object.entries(neighborData).forEach(([fromId, neighbors]) => {
                 const fromNode = allKnown[fromId];
                 if (!fromNode || !fromNode.lat || !fromNode.lon) return;
+                if (!markers[fromId]) return;  // skip if 'from' node is filtered out
 
                 neighbors.forEach(nb => {
                     const toNode = allKnown[nb.id];
                     if (!toNode || !toNode.lat || !toNode.lon) return;
+                    if (!markers[nb.id]) return;  // skip if 'to' node is filtered out
                     // Avoid duplicate lines (A-B and B-A)
                     if (fromId > nb.id) return;
 
@@ -1650,6 +1653,7 @@
             if (!trackerNode || !trackerNode.lat || !trackerNode.lon) return;
 
             Object.entries(relayNodes).forEach(([nodeId, count]) => {
+                if (!markers[nodeId]) return;  // skip if relay node is filtered out
                 const node = allNodes.find(n => n.id === nodeId);
                 if (!node || !node.lat || !node.lon) return;
 
