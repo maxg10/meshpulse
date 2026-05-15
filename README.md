@@ -163,6 +163,19 @@ sudo systemctl status meshpulse
 
 
 ## Updating
+
+### First upgrade from Meshtastic Network Mapper → MeshPulse (run once)
+```bash
+cd ~/meshpulse
+git pull
+./migrate.sh        # copies data files, sets up /meshtastic/ → /meshpulse/ redirect
+./install.sh
+sudo systemctl restart meshpulse
+```
+
+> `migrate.sh` only needs to run once. It copies your existing data and sets up the backward-compat redirect. After this first upgrade, skip it.
+
+### Normal updates (all future updates)
 ```bash
 cd ~/meshpulse
 ./update.sh

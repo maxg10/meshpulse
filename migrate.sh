@@ -1,6 +1,8 @@
 #!/bin/bash
 # MeshPulse migration script: /meshtastic/ → /meshpulse/
 # Run once after upgrading from Meshtastic Network Mapper to MeshPulse
+# NOTE: Run this ONCE when upgrading from Meshtastic Network Mapper to MeshPulse.
+# After migration, future updates only need: git pull && ./install.sh
 
 set -e
 GREEN='\033[0;32m'

@@ -22,6 +22,19 @@ sudo journalctl -u meshpulse -f
 ```
 
 ## Updating
+
+### First upgrade from Meshtastic Network Mapper → MeshPulse (run once)
+```bash
+cd ~/meshpulse
+git pull
+./migrate.sh        # copies data files, sets up /meshtastic/ → /meshpulse/ redirect
+./install.sh
+sudo systemctl restart meshpulse
+```
+
+> `migrate.sh` only needs to run once. After this first upgrade, skip it.
+
+### Normal updates (all future updates)
 ```bash
 cd ~/meshpulse
 ./update.sh   # git pull + install + restart in one command
