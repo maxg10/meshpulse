@@ -18,7 +18,7 @@
 #ver 2.3.0
 #Max Gieparda (c)2026
 """
-Meshtastic Mapper - Listen Mode with TTL + WebSocket
+MeshPulse - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
 Real-time updates via WebSocket
 """
@@ -3447,7 +3447,7 @@ class ListenBasedMapper:
     def run(self):
         """Run meshtastic --listen and parse output"""
         print("=" * 60)
-        print(f"Meshtastic Mapper - LISTEN MODE v{MAPPER_VERSION}")
+        print(f"MeshPulse - LISTEN MODE v{MAPPER_VERSION}")
         print("Continuous monitoring with auto-restart")
         print("=" * 60)
         print(f"Node TTL: {self.max_age//3600} hours")
@@ -5265,7 +5265,7 @@ def run_websocket_server_thread():
 
 
 if __name__ == '__main__':
-    print("Starting Meshtastic Mapper (Listen Mode with WebSocket + TCP)...")
+    print("Starting MeshPulse (Listen Mode with WebSocket + TCP)...")
 
     # Create output directory
     os.makedirs('/var/www/html/meshtastic', exist_ok=True)
