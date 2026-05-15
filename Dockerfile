@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 RUN pip install --no-cache-dir meshtastic websockets
 
 # Create directories
-RUN mkdir -p /var/www/html/meshtastic /var/log/lighttpd /var/cache/lighttpd/uploads
+RUN mkdir -p /var/www/html/meshpulse /var/log/lighttpd /var/cache/lighttpd/uploads
 
 # Copy backend
 COPY backend/ /app/backend/
@@ -18,13 +18,13 @@ COPY backend/ /app/backend/
 COPY mapper/ /app/mapper/
 
 # Copy frontend to web root
-COPY frontend/ /var/www/html/meshtastic/
+COPY frontend/ /var/www/html/meshpulse/
 
 # Keep a copy of frontend files in image for volume-safe updates
 COPY frontend/ /app/frontend_dist/
 
 # Create plugins directory (persistent via volume)
-RUN mkdir -p /var/www/html/meshtastic/plugins
+RUN mkdir -p /var/www/html/meshpulse/plugins
 
 # Copy docker support files
 COPY docker/lighttpd.conf /etc/lighttpd/lighttpd.conf
