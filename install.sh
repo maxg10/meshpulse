@@ -1,11 +1,11 @@
 #!/bin/bash
 #
-# Meshtastic Network Mapper - Installer
-# https://github.com/maxg10/meshtastic-network-mapper
+# MeshPulse - Installer
+# https://github.com/maxg10/meshpulse
 #
 
 # Get version from backend (MAPPER_VERSION is the single source of truth)
-VERSION=$(grep -m1 "^MAPPER_VERSION" backend/meshtastic_mapper.py | grep -o "'[^']*'" | tr -d "'")
+VERSION=$(grep -m1 "^MAPPER_VERSION" backend/meshpulse.py | grep -o "'[^']*'" | tr -d "'")
 
 set -e
 
@@ -16,15 +16,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 echo "========================================"
-echo " Meshtastic Network Mapper - Installer"
+echo " MeshPulse - Installer"
 echo " Version: $VERSION"
 echo "========================================"
 echo ""
 
 # Check if running from correct directory
-if [ ! -f "backend/meshtastic_mapper.py" ]; then
+if [ ! -f "backend/meshpulse.py" ]; then
     echo -e "${RED}❌ Error: Run this script from the repository root directory${NC}"
-    echo "   cd ~/meshtastic-network-mapper && ./install.sh"
+    echo "   cd ~/meshpulse && ./install.sh"
     exit 1
 fi
 
@@ -125,21 +125,25 @@ fi
 echo -e "${GREEN}🚀 All dependencies satisfied! Installing...${NC}"
 echo ""
 
+# Backward compat: stop and disable old service name if exists
+sudo systemctl stop meshtastic-mapper 2>/dev/null || true
+sudo systemctl disable meshtastic-mapper 2>/dev/null || true
+
 # Check if service is already running
-if systemctl is-active --quiet meshtastic-mapper 2>/dev/null; then
+if systemctl is-active --quiet meshpulse 2>/dev/null; then
     echo "⏹️  Stopping existing service..."
-    sudo systemctl stop meshtastic-mapper
+    sudo systemctl stop meshpulse
 fi
 
 # Generate service file from template
 echo "📝 Generating systemd service file..."
 sed -e "s|{{USER}}|$CURRENT_USER|g" \
     -e "s|{{REPO_PATH}}|$REPO_PATH|g" \
-    systemd/meshtastic-mapper.service.template > systemd/meshtastic-mapper.service
+    systemd/meshpulse.service.template > systemd/meshpulse.service
 
 # Copy service file
 echo "📋 Installing systemd service..."
-sudo cp systemd/meshtastic-mapper.service /etc/systemd/system/
+sudo cp systemd/meshpulse.service /etc/systemd/system/
 
 # Create web directory
 echo "📁 Creating web directory..."
@@ -200,7 +204,7 @@ sudo systemctl daemon-reload
 
 # Enable service
 echo "✨ Enabling service..."
-sudo systemctl enable meshtastic-mapper
+sudo systemctl enable meshpulse
 
 echo ""
 echo "========================================"
@@ -208,9 +212,9 @@ echo -e "${GREEN}✅ Installation complete!${NC}"
 echo "========================================"
 echo ""
 echo "Next steps:"
-echo "  1. Start service:  sudo systemctl start meshtastic-mapper"
-echo "  2. Check status:   sudo systemctl status meshtastic-mapper"
-echo "  3. View logs:      sudo journalctl -u meshtastic-mapper -f"
+echo "  1. Start service:  sudo systemctl start meshpulse"
+echo "  2. Check status:   sudo systemctl status meshpulse"
+echo "  3. View logs:      sudo journalctl -u meshpulse -f"
 echo "  4. Open browser:   http://$(hostname).local/meshtastic/"
 echo ""
 echo ""

@@ -2,7 +2,7 @@
 
 ## Run manually
 ```bash
-python3 backend/meshtastic_mapper.py
+python3 backend/meshpulse.py
 ```
 
 ## Install as systemd service
@@ -16,14 +16,14 @@ Copies frontend to `/var/www/html/meshtastic/`, generates systemd service from t
 
 ## Service management
 ```bash
-sudo systemctl start meshtastic-mapper
-sudo systemctl status meshtastic-mapper
-sudo journalctl -u meshtastic-mapper -f
+sudo systemctl start meshpulse
+sudo systemctl status meshpulse
+sudo journalctl -u meshpulse -f
 ```
 
 ## Updating
 ```bash
-cd ~/meshtastic-network-mapper
+cd ~/meshpulse
 ./update.sh   # git pull + install + restart in one command
 ```
 
@@ -31,7 +31,7 @@ cd ~/meshtastic-network-mapper
 ```bash
 # Option A — tracker IP upfront:
 docker run -e TRACKER_HOST=192.168.1.103 -p 80:80 -p 8765:8765 \
-  -v mapper-data:/var/www/html/meshtastic maxg10/meshtastic-mapper
+  -v mapper-data:/var/www/html/meshtastic maxg10/meshpulse
 
 # Option B — configure via web UI:
 cp .env.example .env

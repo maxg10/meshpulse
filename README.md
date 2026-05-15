@@ -1,9 +1,9 @@
 cat README.md 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
-# Meshtastic Network Mapper
+# MeshPulse
 
-🌐 **Website:** [meshtastic.world](https://meshtastic.world) · 📡 **Coverage Server:** [coverage.meshtastic.world](https://coverage.meshtastic.world)
+🌐 **Website:** [meshpulse.app](https://meshpulse.app) · 📡 **Coverage Server:** [coverage.meshpulse.app](https://coverage.meshpulse.app)
 
 Real-time web-based visualization of Meshtastic mesh network nodes. Optimized for low-power devices like Raspberry Pi Model B+.
 
@@ -66,15 +66,15 @@ sudo usermod -aG dialout $USER
 ### Step 2: Clone and install
 ```bash
 cd ~
-git clone https://github.com/maxg10/meshtastic-network-mapper.git
-cd meshtastic-network-mapper
+git clone https://github.com/maxg10/meshpulse.git
+cd meshpulse
 ./install.sh
 ```
 
 ### Step 3: Start and verify
 ```bash
-sudo systemctl start meshtastic-mapper
-sudo systemctl status meshtastic-mapper
+sudo systemctl start meshpulse
+sudo systemctl status meshpulse
 ```
 
 ### Step 4: Open in browser
@@ -86,7 +86,7 @@ http://YOUR_PI_IP/meshtastic/
 
 ## Docker Installation (TCP only)
 
-The easiest way to run Meshtastic Mapper on any platform — Linux, Mac, Windows, Raspberry Pi. No dependencies to install except Docker.
+The easiest way to run MeshPulse on any platform — Linux, Mac, Windows, Raspberry Pi. No dependencies to install except Docker.
 
 > ⚠️ Docker version supports TCP/WiFi connections only. USB serial is not supported in containers.
 
@@ -96,8 +96,8 @@ The easiest way to run Meshtastic Mapper on any platform — Linux, Mac, Windows
 
 ### How to run — with docker-compose (recommended)
 ```bash
-git clone https://github.com/maxg10/meshtastic-network-mapper.git
-cd meshtastic-network-mapper
+git clone https://github.com/maxg10/meshpulse.git
+cd meshpulse
 cp .env.example .env
 # Edit .env — set your tracker IP:
 # TRACKER_HOST=192.168.1.103
@@ -134,8 +134,8 @@ sudo systemctl start lighttpd
 
 # 3. Clone repository
 cd ~
-git clone https://github.com/maxg10/meshtastic-network-mapper.git
-cd meshtastic-network-mapper
+git clone https://github.com/maxg10/meshpulse.git
+cd meshpulse
 
 # 4. Setup web directory
 sudo mkdir -p /var/www/html/meshtastic
@@ -144,7 +144,7 @@ sudo cp frontend/favicon.ico /var/www/html/meshtastic/
 sudo chown -R $USER:$USER /var/www/html/meshtastic
 
 # 5. Test manually (important!)
-python3 backend/meshtastic_mapper.py
+python3 backend/meshpulse.py
 # Press Ctrl+C after 2-3 minutes once you see nodes appearing
 
 # 6. Verify JSON was created
@@ -157,14 +157,14 @@ cat /var/www/html/meshtastic/nodes.json
 ./install.sh
 
 # 9. Start service
-sudo systemctl start meshtastic-mapper
-sudo systemctl status meshtastic-mapper
+sudo systemctl start meshpulse
+sudo systemctl status meshpulse
 ```
 
 
 ## Updating
 ```bash
-cd ~/meshtastic-network-mapper
+cd ~/meshpulse
 ./update.sh
 ```
 
@@ -362,7 +362,7 @@ The backend will restart automatically with the new connection settings. Your ch
 
 ## Configuration
 
-Edit `backend/meshtastic_mapper.py` if needed:
+Edit `backend/meshpulse.py` if needed:
 ```python
 self.port = '/dev/ttyUSB0'  # Change if tracker on different port (auto-detected by default)
 self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
@@ -373,7 +373,7 @@ self.max_age = 172800  # Node TTL in seconds (48 hours default)
 
 Nodes older than `max_age` seconds are automatically removed:
 ```python
-# In backend/meshtastic_mapper.py, find the ListenBasedMapper instantiation:
+# In backend/meshpulse.py, find the ListenBasedMapper instantiation:
 mapper = ListenBasedMapper(port, max_age=172800)  # 48 hours (default)
 # Change to:
 mapper = ListenBasedMapper(port, max_age=86400)   # 24 hours
@@ -393,7 +393,7 @@ meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
 
 ## Architecture
 
-### Backend (`backend/meshtastic_mapper.py`)
+### Backend (`backend/meshpulse.py`)
 
 - Uses `meshtastic --listen` mode to capture node information
 - Parses debug output to extract position, telemetry, and text message data
@@ -463,13 +463,13 @@ sudo netstat -tlnp | grep :80
 ### Service fails to start
 ```bash
 # Check logs
-sudo journalctl -u meshtastic-mapper -n 50
+sudo journalctl -u meshpulse -n 50
 
 # Test script manually
-python3 ~/meshtastic-network-mapper/backend/meshtastic_mapper.py
+python3 ~/meshpulse/backend/meshpulse.py
 
 # Verify paths in service
-sudo systemctl cat meshtastic-mapper
+sudo systemctl cat meshpulse
 ```
 
 ### Tracker not detected
@@ -496,7 +496,7 @@ curl http://localhost/meshtastic/nodes.json
 
 ### Heltec V3 timeout issues
 
-If you're using Heltec V3 and getting "Timed out waiting for connection completion" errors, add `--no-nodes` flag to the command in `backend/meshtastic_mapper.py`:
+If you're using Heltec V3 and getting "Timed out waiting for connection completion" errors, add `--no-nodes` flag to the command in `backend/meshpulse.py`:
 ```python
 cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 ```
@@ -525,13 +525,13 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 
 ## 🔌 Plugins
 
-Extend the mapper with plugins from the [Plugin Store](https://meshtastic.world/plugins).
+Extend the mapper with plugins from the [Plugin Store](https://meshpulse.app/plugins).
 
 Available plugins:
 - **[Elevation Map](https://github.com/maxg10/meshplugin-elevation-map)** — terrain/topographic tile overlay
 - **[MQTT Proxy](https://github.com/maxg10/meshplugin-mqtt-proxy)** — MQTT client proxy for trackers without WiFi
 
-Install plugins from Config → Plugins → Plugin Store, or download from [meshtastic.world/plugins](https://meshtastic.world/plugins).
+Install plugins from Config → Plugins → Plugin Store, or download from [meshpulse.app/plugins](https://meshpulse.app/plugins).
 
 ### Develop Your Own Plugin
 
@@ -560,7 +560,7 @@ This project is licensed under the GNU General Public License v3.0 — see the [
 
 📧 [mgieparda@yahoo.com](mailto:mgieparda@yahoo.com)
 🐙 [github.com/maxg10](https://github.com/maxg10)
-📦 [github.com/maxg10/meshtastic-network-mapper](https://github.com/maxg10/meshtastic-network-mapper)
+📦 [github.com/maxg10/meshpulse](https://github.com/maxg10/meshpulse)
 
 Built with ❤️ for the Meshtastic community in Poland 🇵🇱
 

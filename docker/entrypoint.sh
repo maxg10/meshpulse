@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 Meshtastic Network Mapper v2.3.0 starting..."
+echo "🚀 MeshPulse v2.3.0 starting..."
 
 DATA_DIR="/var/www/html/meshtastic"
 
@@ -39,4 +39,4 @@ lighttpd -f /etc/lighttpd/lighttpd.conf
 
 # Start mapper
 echo "📡 Starting mapper backend..."
-exec python3 -u /app/backend/meshtastic_mapper.py
+exec python3 -u /app/backend/meshpulse.py

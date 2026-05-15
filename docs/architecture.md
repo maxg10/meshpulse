@@ -1,6 +1,6 @@
 # Architecture
 
-## Backend (`backend/meshtastic_mapper.py`)
+## Backend (`backend/meshpulse.py`)
 
 Single Python file (~1225 lines), class `ListenBasedMapper`.
 

@@ -4,7 +4,7 @@
 
 ## Project Overview
 
-Meshtastic Network Mapper — real-time web visualization for Meshtastic mesh network nodes.
+MeshPulse — real-time web visualization for Meshtastic mesh network nodes.
 Connects via USB serial or TCP, displays nodes on Leaflet.js map with WebSocket updates.
 Optimized for Raspberry Pi Model B+ (512MB RAM).
 
@@ -14,7 +14,7 @@ Optimized for Raspberry Pi Model B+ (512MB RAM).
 
 | What | Where |
 |------|-------|
-| Backend | `backend/meshtastic_mapper.py` (~1225 lines, class `ListenBasedMapper`) |
+| Backend | `backend/meshpulse.py` (~1225 lines, class `ListenBasedMapper`) |
 | Frontend | `frontend/index.html`, `styles.css`, `config.html`, `stats.html`, `messages.html` |
 | Web root | `/var/www/html/meshtastic/` |
 | WebSocket | port `8765` |
@@ -23,17 +23,17 @@ Optimized for Raspberry Pi Model B+ (512MB RAM).
 
 ## Quick Start
 ```bash
-python3 backend/meshtastic_mapper.py   # run directly
+python3 backend/meshpulse.py   # run directly
 ./install.sh                           # install as systemd service
-sudo systemctl restart meshtastic-mapper
-sudo journalctl -u meshtastic-mapper -f
+sudo systemctl restart meshpulse
+sudo journalctl -u meshpulse -f
 ```
 
 ## File Structure
 ```
-backend/meshtastic_mapper.py
+backend/meshpulse.py
 frontend/{index,config,stats,messages}.html + styles.css
-systemd/meshtastic-mapper.service.template
+systemd/meshpulse.service.template
 install.sh  README.md  Dockerfile  docker/
 docs/
   architecture.md   ← backend/frontend/websocket/LOS/StatsDB details

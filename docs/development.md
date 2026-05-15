@@ -16,15 +16,15 @@
 
 **Add new WebSocket message type:** Add handler in `websocket_handler()` + `elif data.type === '...'` in frontend `ws.onmessage`.
 
-**Debugging parsers:** Run directly, watch `[RECV]` lines, add print statements, check `journalctl -u meshtastic-mapper -f`.
+**Debugging parsers:** Run directly, watch `[RECV]` lines, add print statements, check `journalctl -u meshpulse -f`.
 
 ## Testing
 
 No automated tests. Manual:
 ```bash
-python3 backend/meshtastic_mapper.py   # direct run
-sudo systemctl restart meshtastic-mapper
-sudo journalctl -u meshtastic-mapper -f
+python3 backend/meshpulse.py   # direct run
+sudo systemctl restart meshpulse
+sudo journalctl -u meshpulse -f
 # browser console for frontend
 ```
 

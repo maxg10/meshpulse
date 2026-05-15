@@ -1,5 +1,5 @@
 [Unit]
-Description=Meshtastic Network Mapper (Listen Mode)
+Description=MeshPulse (Listen Mode)
 After=network.target
 
 [Service]
@@ -7,7 +7,7 @@ Type=simple
 User={{USER}}
 Group={{USER}}
 WorkingDirectory={{REPO_PATH}}
-ExecStart=/usr/bin/python3 -u {{REPO_PATH}}/backend/meshtastic_mapper.py
+ExecStart=/usr/bin/python3 -u {{REPO_PATH}}/backend/meshpulse.py
 Restart=always
 RestartSec=15
 StandardOutput=journal

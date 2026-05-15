@@ -1,4 +1,4 @@
-# Meshtastic Network Mapper — Plugin API
+# MeshPulse — Plugin API
 # Copyright (C) 2025-2026 Mariusz "Max" Gieparda
 # Licensed under GPL-3.0 — see LICENSE file
 
