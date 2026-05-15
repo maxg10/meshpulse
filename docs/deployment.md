@@ -31,7 +31,7 @@ cd ~/meshpulse
 ```bash
 # Option A — tracker IP upfront:
 docker run -e TRACKER_HOST=192.168.1.103 -p 80:80 -p 8765:8765 \
-  -v mapper-data:/var/www/html/meshtastic maxg10/meshpulse
+  -v mapper-data:/var/www/html/meshpulse maxg10/meshpulse
 
 # Option B — configure via web UI:
 cp .env.example .env

@@ -365,7 +365,7 @@ The backend will restart automatically with the new connection settings. Your ch
 Edit `backend/meshpulse.py` if needed:
 ```python
 self.port = '/dev/ttyUSB0'  # Change if tracker on different port (auto-detected by default)
-self.json_path = '/var/www/html/meshtastic/nodes.json'  # Output path
+self.json_path = '/var/www/html/meshpulse/nodes.json'  # Output path
 self.max_age = 172800  # Node TTL in seconds (48 hours default)
 ```
 
