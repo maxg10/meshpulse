@@ -1,7 +1,7 @@
 {
     "version": 1,
     "updated": "2026-04-19T20:00:00Z",
-    "store_url": "https://meshtastic.world/plugins",
+    "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
             "id": "maxg10/elevation-map",
@@ -10,7 +10,7 @@
             "description": "Terrain/elevation overlay for the map — toggle topographic tiles (OpenTopoMap, Stamen Terrain, ArcGIS Shaded Relief) on/off. Frontend-only plugin.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshtastic.world",
+                "url": "https://meshpulse.app",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
@@ -34,7 +34,7 @@
             "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshtastic.world",
+                "url": "https://meshpulse.app",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",

@@ -1,8 +1,8 @@
 services:
-  meshtastic-mapper:
-    image: mgieparda/meshtastic-mapper:latest
+  meshpulse:
+    image: mgieparda/meshpulse:latest
     build: .
-    container_name: meshtastic-mapper
+    container_name: meshpulse
     restart: unless-stopped
     ports:
       - "80:80"

@@ -1,5 +1,5 @@
 <!--
-  Meshtastic Network Mapper
+  MeshPulse
   Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
 
   This program is free software: you can redistribute it and/or modify
@@ -574,7 +574,7 @@ async function checkForUpdates() {
     if (!CURRENT_VERSION) return;
     sessionStorage.setItem('update_checked', '1');
     try {
-        const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {
+        const resp = await fetch('https://api.github.com/repos/maxg10/meshpulse/releases/latest', {
             headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
         if (!resp.ok) return;

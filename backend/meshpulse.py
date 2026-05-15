@@ -1,4 +1,4 @@
-# Meshtastic Network Mapper
+# MeshPulse
 # Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
 #
 # This program is free software: you can redistribute it and/or modify
@@ -699,7 +699,7 @@ def load_config():
     config.setdefault('coverage_antenna_gain', 2.0)
     config.setdefault('coverage_antenna_height', 10.0)
     config.setdefault('coverage_max_range_km', 50)
-    config.setdefault('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
+    config.setdefault('plugin_store_url', 'https://meshpulse.app/plugins/plugins.json')
     return config
 
 
@@ -719,7 +719,7 @@ def _check_plugin_updates():
     try:
         cfg = load_config()
         store_url = cfg.get('plugin_store_url',
-            'https://meshtastic.world/plugins/plugins.json')
+            'https://meshpulse.app/plugins/plugins.json')
         with urllib.request.urlopen(store_url, timeout=10) as r:
             store_data = json.loads(r.read().decode())
         store_plugins = {p['id']: p['version']
@@ -1691,7 +1691,7 @@ class ListenBasedMapper:
                 'uptime_hours': uptime_hours,
             }).encode('utf-8')
             req = urllib.request.Request(
-                'https://meshtastic.world/api/ping',
+                'https://meshpulse.app/api/ping',
                 data=payload,
                 method='POST',
                 headers={'Content-Type': 'application/json', 'User-Agent': f'MeshtasticMapper/{MAPPER_VERSION}'}
@@ -4864,7 +4864,7 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'fetch_store_plugins':
                     req_url = data.get('url', '').strip()
                     cfg = load_config()
-                    store_url = req_url or cfg.get('plugin_store_url', 'https://meshtastic.world/plugins/plugins.json')
+                    store_url = req_url or cfg.get('plugin_store_url', 'https://meshpulse.app/plugins/plugins.json')
                     # Persist URL change if different
                     if req_url and req_url != cfg.get('plugin_store_url', ''):
                         try:
@@ -5046,7 +5046,7 @@ async def websocket_handler(websocket):
                         cov_url = data.get('url', '').strip()
                         cov_key = data.get('api_key', '').strip()
                         if not cov_url:
-                            cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshtastic.world'
+                            cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshpulse.app'
                         if not cov_key:
                             cov_key = (mapper.config.get('coverage_api_key', '') if mapper else '')
 
@@ -5082,7 +5082,7 @@ async def websocket_handler(websocket):
                     try:
                         import urllib.request
                         import urllib.error
-                        cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshtastic.world'
+                        cov_url = (mapper.config.get('coverage_server_url', '') if mapper else '') or 'https://coverage.meshpulse.app'
                         cov_key = (mapper.config.get('coverage_api_key', '') if mapper else '')
                         payload = json.dumps({
                             'lat': data.get('lat'),

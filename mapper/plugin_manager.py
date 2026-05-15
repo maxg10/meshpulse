@@ -1,4 +1,4 @@
-# Meshtastic Network Mapper — Plugin Manager
+# MeshPulse — Plugin Manager
 # Copyright (C) 2025-2026 Mariusz "Max" Gieparda
 # Licensed under GPL-3.0 — see LICENSE file
 
@@ -48,7 +48,7 @@ class PluginManager:
         self.ws_channels = {}       # {channel_name: plugin_id}
         self.api_routes = {}        # {(method, path): {'plugin_id': ..., 'handler': ...}}
 
-        # Reference to connected_clients set — set from meshtastic_mapper after init
+        # Reference to connected_clients set — set from meshpulse after init
         self._connected_clients = None
 
         # Active radio interface wrapper (set by mapper after connect)

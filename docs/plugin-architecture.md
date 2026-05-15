@@ -1,10 +1,10 @@
-# Meshtastic Network Mapper — Plugin Architecture
+# MeshPulse — Plugin Architecture
 
 **Status:** Foundation implemented in v2.2.0 (Phase 1).
 
 ## Overview
 
-The plugin system turns the Meshtastic Network Mapper into an extensible platform.
+The plugin system turns MeshPulse into an extensible platform.
 Plugins are ZIP archives (`.meshplugin`) that can add backend Python logic and/or
 frontend UI components.
 

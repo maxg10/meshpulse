@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-# Meshtastic Network Mapper - Updater
-# https://github.com/maxg10/meshtastic-network-mapper
+# MeshPulse - Updater
+# https://github.com/maxg10/meshpulse
 #
 
 set -e
@@ -11,14 +11,14 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo "========================================"
-echo " Meshtastic Network Mapper - Updater"
+echo " MeshPulse - Updater"
 echo "========================================"
 echo ""
 
 # Check if running from correct directory
-if [ ! -f "backend/meshtastic_mapper.py" ]; then
+if [ ! -f "backend/meshpulse.py" ]; then
     echo "❌ Error: Run this script from the repository root directory"
-    echo "   cd ~/meshtastic-network-mapper && ./update.sh"
+    echo "   cd ~/meshpulse && ./update.sh"
     exit 1
 fi
 
@@ -31,7 +31,7 @@ echo "🔧 Running installer..."
 
 echo ""
 echo "🔄 Restarting service..."
-sudo systemctl restart meshtastic-mapper
+sudo systemctl restart meshpulse
 
 echo ""
 echo "========================================"
@@ -41,4 +41,4 @@ echo ""
 echo "Version installed:"
 grep "MAPPER_VERSION" /var/www/html/meshtastic/index.html | grep -o "'[0-9.]*'" | head -1
 echo ""
-sudo systemctl status meshtastic-mapper --no-pager -l | head -5
+sudo systemctl status meshpulse --no-pager -l | head -5

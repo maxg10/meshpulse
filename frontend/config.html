@@ -1,5 +1,5 @@
 <!--
-  Meshtastic Network Mapper
+  MeshPulse
   Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
 
   This program is free software: you can redistribute it and/or modify
@@ -1136,8 +1136,8 @@
         <div class="card-title">📡 Coverage Server Settings</div>
         <div class="field">
             <label>Server URL</label>
-            <div class="desc">Coverage simulation server (e.g. https://coverage.meshtastic.world)</div>
-            <input type="text" id="coverage.server_url" placeholder="https://coverage.meshtastic.world"
+            <div class="desc">Coverage simulation server (e.g. https://coverage.meshpulse.app)</div>
+            <input type="text" id="coverage.server_url" placeholder="https://coverage.meshpulse.app"
                 onchange="markChanged(this)">
         </div>
         <div class="field">
@@ -1185,7 +1185,7 @@
             <span>🛒 Plugin Store</span>
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
                 <input type="text" id="store-url-input"
-                    value="meshtastic.world/plugins"
+                    value="meshpulse.app/plugins"
                     style="width:200px;padding:4px 8px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:11px"
                     placeholder="Store URL">
                 <button onclick="loadPluginStore(true)"
@@ -1537,7 +1537,7 @@ function testCoverageConnection() {
     const urlEl = document.getElementById('coverage.server_url');
     const keyEl = document.getElementById('coverage.api_key');
     const resultEl = document.getElementById('coverage-test-result');
-    const url = (urlEl?.value || '').trim() || 'https://coverage.meshtastic.world';
+    const url = (urlEl?.value || '').trim() || 'https://coverage.meshpulse.app';
     const apiKey = (keyEl?.value || '').trim();
 
     resultEl.textContent = '⏳ Testing...';
@@ -2482,7 +2482,7 @@ var _origRenderPluginsList = null;
 function loadPluginStore(force) {
     if (!force && _storeLoaded) return;
     var urlEl = document.getElementById('store-url-input');
-    var url = (urlEl ? urlEl.value.trim() : '') || 'meshtastic.world/plugins';
+    var url = (urlEl ? urlEl.value.trim() : '') || 'meshpulse.app/plugins';
     if (!url.match(/^https?:\/\//)) url = 'https://' + url;
     if (!url.match(/\.json$/)) url = url.replace(/\/?$/, '/plugins.json');
     var container = document.getElementById('store-plugins-list');
@@ -2659,7 +2659,7 @@ async function checkForUpdates() {
     if (!CURRENT_VERSION) return;
     sessionStorage.setItem('update_checked', '1');
     try {
-        const resp = await fetch('https://api.github.com/repos/maxg10/meshtastic-network-mapper/releases/latest', {
+        const resp = await fetch('https://api.github.com/repos/maxg10/meshpulse/releases/latest', {
             headers: { 'Accept': 'application/vnd.github.v3+json' }
         });
         if (!resp.ok) return;
