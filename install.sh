@@ -125,6 +125,10 @@ fi
 echo -e "${GREEN}🚀 All dependencies satisfied! Installing...${NC}"
 echo ""
 
+# Backward compat: stop and disable old service name if exists
+sudo systemctl stop meshtastic-mapper 2>/dev/null || true
+sudo systemctl disable meshtastic-mapper 2>/dev/null || true
+
 # Check if service is already running
 if systemctl is-active --quiet meshpulse 2>/dev/null; then
     echo "⏹️  Stopping existing service..."
