@@ -147,27 +147,27 @@ sudo cp systemd/meshpulse.service /etc/systemd/system/
 
 # Create web directory
 echo "📁 Creating web directory..."
-sudo mkdir -p /var/www/html/meshtastic
+sudo mkdir -p /var/www/html/meshpulse
 
 # Copy frontend files
 echo "🌐 Copying frontend files..."
-sudo cp frontend/index.html /var/www/html/meshtastic/
-sudo cp frontend/styles.css /var/www/html/meshtastic/
-sudo cp frontend/favicon.ico /var/www/html/meshtastic/
-sudo cp frontend/favicon_stats.ico /var/www/html/meshtastic/
-sudo cp frontend/stats.html /var/www/html/meshtastic/
-sudo cp frontend/config.html /var/www/html/meshtastic/
-sudo cp frontend/messages.html /var/www/html/meshtastic/
-sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic
+sudo cp frontend/index.html /var/www/html/meshpulse/
+sudo cp frontend/styles.css /var/www/html/meshpulse/
+sudo cp frontend/favicon.ico /var/www/html/meshpulse/
+sudo cp frontend/favicon_stats.ico /var/www/html/meshpulse/
+sudo cp frontend/stats.html /var/www/html/meshpulse/
+sudo cp frontend/config.html /var/www/html/meshpulse/
+sudo cp frontend/messages.html /var/www/html/meshpulse/
+sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse
 
 # Copy plugin frontend assets (lighttpd doesn't follow symlinks)
 if [ -d "$PLUGIN_DIR" ]; then
     # Remove old symlink if exists
-    if [ -L "/var/www/html/meshtastic/plugins" ]; then
-        sudo rm /var/www/html/meshtastic/plugins
+    if [ -L "/var/www/html/meshpulse/plugins" ]; then
+        sudo rm /var/www/html/meshpulse/plugins
     fi
     # Copy plugin files to web root
-    sudo mkdir -p /var/www/html/meshtastic/plugins
+    sudo mkdir -p /var/www/html/meshpulse/plugins
     # Copy each installed plugin
     for author_dir in "$PLUGIN_DIR"/*/; do
         [ -d "$author_dir" ] || continue
@@ -176,20 +176,35 @@ if [ -d "$PLUGIN_DIR" ]; then
         for plugin_dir in "$author_dir"*/; do
             [ -d "$plugin_dir" ] || continue
             plugin=$(basename "$plugin_dir")
-            dest="/var/www/html/meshtastic/plugins/$author/$plugin"
+            dest="/var/www/html/meshpulse/plugins/$author/$plugin"
             sudo mkdir -p "$dest"
             sudo cp -r "$plugin_dir"* "$dest/" 2>/dev/null || true
         done
     done
-    sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/plugins
+    sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse/plugins
     echo "🔌 Plugin assets copied to web root"
 fi
 
 # Create empty nodes.json if it doesn't exist
-if [ ! -f "/var/www/html/meshtastic/nodes.json" ]; then
+if [ ! -f "/var/www/html/meshpulse/nodes.json" ]; then
     echo "📄 Creating empty nodes.json..."
-    echo '{"ts":0,"updated":"","cnt":0,"cnt_no_pos":0,"max_distance_km":null,"farthest_node":null,"tracker":{},"nodes":[],"nodes_no_pos":[],"messages":[]}' | sudo tee /var/www/html/meshtastic/nodes.json > /dev/null
-    sudo chown $CURRENT_USER:$CURRENT_USER /var/www/html/meshtastic/nodes.json
+    echo '{"ts":0,"updated":"","cnt":0,"cnt_no_pos":0,"max_distance_km":null,"farthest_node":null,"tracker":{},"nodes":[],"nodes_no_pos":[],"messages":[]}' | sudo tee /var/www/html/meshpulse/nodes.json > /dev/null
+    sudo chown $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse/nodes.json
+fi
+
+# Configure lighttpd redirect: /meshtastic/ → /meshpulse/ (backward compat)
+if command -v lighttpd &> /dev/null; then
+    echo "🔀 Configuring backward compat redirect /meshtastic/ → /meshpulse/..."
+    sudo mkdir -p /etc/lighttpd/conf-available
+    cat << 'LIGHTTPD_EOF' | sudo tee /etc/lighttpd/conf-available/meshpulse.conf > /dev/null
+# MeshPulse - redirect legacy /meshtastic/ to /meshpulse/
+$HTTP["url"] =~ "^/meshtastic(/.*)?$" {
+    url.redirect = ( "^/meshtastic(/.*)?$" => "/meshpulse$1" )
+}
+LIGHTTPD_EOF
+    sudo ln -sf /etc/lighttpd/conf-available/meshpulse.conf /etc/lighttpd/conf-enabled/meshpulse.conf
+    sudo systemctl reload lighttpd 2>/dev/null || sudo service lighttpd reload 2>/dev/null || true
+    echo "✅ Redirect configured"
 fi
 
 # Create config.json from example if it doesn't exist
@@ -215,6 +230,6 @@ echo "Next steps:"
 echo "  1. Start service:  sudo systemctl start meshpulse"
 echo "  2. Check status:   sudo systemctl status meshpulse"
 echo "  3. View logs:      sudo journalctl -u meshpulse -f"
-echo "  4. Open browser:   http://$(hostname).local/meshtastic/"
+echo "  4. Open browser:   http://$(hostname).local/meshpulse/"
 echo ""
 echo ""

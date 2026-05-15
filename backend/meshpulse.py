@@ -5294,7 +5294,7 @@ if __name__ == '__main__':
             print("WARNING: No serial port found")
             print("Checked:", possible_ports)
             print("Waiting for TCP connection configuration via web interface...")
-            print(f"Open http://localhost/meshtastic/ and configure TCP connection")
+            print(f"Open http://localhost/meshpulse/ and configure TCP connection")
 
     if connection_type == 'serial' and not port and not host:
         print("Connection: Waiting for configuration...\n")

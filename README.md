@@ -79,7 +79,7 @@ sudo systemctl status meshpulse
 
 ### Step 4: Open in browser
 ```
-http://YOUR_PI_IP/meshtastic/
+http://YOUR_PI_IP/meshpulse/
 ```
 
 ---
@@ -104,7 +104,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open: http://localhost/meshtastic/
+Open: http://localhost/meshpulse/
 
 ### Updating
 ```bash
@@ -138,20 +138,20 @@ git clone https://github.com/maxg10/meshpulse.git
 cd meshpulse
 
 # 4. Setup web directory
-sudo mkdir -p /var/www/html/meshtastic
-sudo cp frontend/index.html /var/www/html/meshtastic/
-sudo cp frontend/favicon.ico /var/www/html/meshtastic/
-sudo chown -R $USER:$USER /var/www/html/meshtastic
+sudo mkdir -p /var/www/html/meshpulse
+sudo cp frontend/index.html /var/www/html/meshpulse/
+sudo cp frontend/favicon.ico /var/www/html/meshpulse/
+sudo chown -R $USER:$USER /var/www/html/meshpulse
 
 # 5. Test manually (important!)
 python3 backend/meshpulse.py
 # Press Ctrl+C after 2-3 minutes once you see nodes appearing
 
 # 6. Verify JSON was created
-cat /var/www/html/meshtastic/nodes.json
+cat /var/www/html/meshpulse/nodes.json
 
 # 7. Open in browser to test
-# http://YOUR_PI_IP/meshtastic/
+# http://YOUR_PI_IP/meshpulse/
 
 # 8. Install systemd service using install.sh
 ./install.sh
@@ -336,7 +336,7 @@ That's it — pulls latest code, installs frontend files, restarts service.
 ### Backup Before Update (Optional)
 ```bash
 # Backup current nodes.json
-cp /var/www/html/meshtastic/nodes.json ~/nodes_backup_$(date +%Y%m%d).json
+cp /var/www/html/meshpulse/nodes.json ~/nodes_backup_$(date +%Y%m%d).json
 ```
 
 
@@ -488,10 +488,10 @@ meshtastic --port /dev/ttyUSB0 --info
 ### Map shows 0 nodes
 ```bash
 # Check JSON file
-cat /var/www/html/meshtastic/nodes.json
+cat /var/www/html/meshpulse/nodes.json
 
 # Verify web server
-curl http://localhost/meshtastic/nodes.json
+curl http://localhost/meshpulse/nodes.json
 ```
 
 ### Heltec V3 timeout issues

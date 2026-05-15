@@ -10,8 +10,8 @@ python3 backend/meshpulse.py
 ./install.sh
 ```
 
-Copies frontend to `/var/www/html/meshtastic/`, generates systemd service from template.
-- Web: `http://<host>/meshtastic/`
+Copies frontend to `/var/www/html/meshpulse/`, generates systemd service from template.
+- Web: `http://<host>/meshpulse/`
 - WebSocket: `ws://<host>:8765`
 
 ## Service management
