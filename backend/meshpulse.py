@@ -109,7 +109,7 @@ except ImportError:
 connected_clients = set()
 
 # Config path (shared with frontend)
-CONFIG_PATH = '/var/www/html/meshtastic/config.json'
+CONFIG_PATH = '/var/www/html/meshpulse/config.json'
 
 # Runtime restart support
 mapper = None
@@ -291,7 +291,7 @@ class SerialMeshtasticInterface:
 class StatsDB:
     """SQLite database for network statistics - keeps 3 days of data."""
 
-    DB_PATH = '/var/www/html/meshtastic/stats.db'
+    DB_PATH = '/var/www/html/meshpulse/stats.db'
     RETENTION_DAYS = 3
 
     def __init__(self):
@@ -765,7 +765,7 @@ class ListenBasedMapper:
         self._traceroute_loop = None       # event loop do call_soon_threadsafe
         self._traceroute_expected_from = None  # node_id którego traceroute oczekujemy
         self.config = {}  # Populated with load_config() after construction
-        self.json_path = '/var/www/html/meshtastic/nodes.json'
+        self.json_path = '/var/www/html/meshpulse/nodes.json'
         self.meshtastic_cmd = shutil.which('meshtastic') or os.path.expanduser('~/.local/bin/meshtastic')
         self.max_age = max_age
 
@@ -5153,7 +5153,7 @@ async def websocket_handler(websocket):
                                         if os.path.exists(cfg):
                                             zf.write(cfg, f'plugins/{author}/{name}/config.json')
                             if mode == 'full':
-                                nodes_path = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                nodes_path = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
                                 if os.path.exists(nodes_path):
                                     zf.write(nodes_path, 'nodes.json')
                                 if os.path.exists(StatsDB.DB_PATH):
@@ -5197,7 +5197,7 @@ async def websocket_handler(websocket):
                                 if name == 'config.json':
                                     dest = CONFIG_PATH
                                 elif name == 'nodes.json':
-                                    dest = mapper.json_path if mapper else '/var/www/html/meshtastic/nodes.json'
+                                    dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
                                 elif name == 'stats.db':
                                     dest = StatsDB.DB_PATH
                                 elif name.startswith('plugins/') and not name.endswith('/'):
@@ -5268,7 +5268,7 @@ if __name__ == '__main__':
     print("Starting MeshPulse (Listen Mode with WebSocket + TCP)...")
 
     # Create output directory
-    os.makedirs('/var/www/html/meshtastic', exist_ok=True)
+    os.makedirs('/var/www/html/meshpulse', exist_ok=True)
 
     possible_ports = [
         '/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2',
@@ -5378,7 +5378,7 @@ if __name__ == '__main__':
                                 'max_distance_km': None, 'farthest_node': None,
                                 'tracker': {}, 'nodes': [], 'nodes_no_pos': [], 'messages': {}
                             }
-                            with open('/var/www/html/meshtastic/nodes.json', 'w') as f:
+                            with open('/var/www/html/meshpulse/nodes.json', 'w') as f:
                                 json.dump(empty_data, f, indent=2)
                             print("[RESTART] Cleared nodes.json (fresh scan)")
                         except Exception as e:
