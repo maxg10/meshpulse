@@ -431,7 +431,7 @@ meshtastic --port /dev/ttyUSB0 --setlat 52.XXXXX --setlon 16.XXXXX
   "cnt_no_pos": 2,
   "max_distance_km": 7.0,
   "farthest_node": "!e36738ab",
-  "tracker": {"id": "!7b6c8272", "model": "TBEAM", "firmware": "2.5.0"},
+  "tracker": {"id": "!7b6c8272", "model": "TBEAM", "firmware": "2.5.1"},
   "nodes": [
     {
       "id": "!7b6c8272",
