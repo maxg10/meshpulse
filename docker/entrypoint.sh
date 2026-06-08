@@ -5,6 +5,8 @@ echo "🚀 MeshPulse v2.5.1 starting..."
 
 # Legacy path kept for backward compat with existing Docker volumes
 DATA_DIR="/var/www/html/meshtastic"
+# Ensure data dir exists (fresh container without a pre-existing volume)
+mkdir -p "$DATA_DIR"
 
 # Initialize nodes.json if not present
 if [ ! -f "$DATA_DIR/nodes.json" ]; then
