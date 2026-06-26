@@ -435,6 +435,7 @@
     <div class="card-title">
         🔁 Relay Activity (24h)
         <span class="info-icon" data-tip="Hourly relay activity based on firmware numTxRelay counter from localStats snapshots (~30 min interval). Shows when your node is busiest as a relay.">ⓘ</span>
+        <button class="export-btn" onclick="exportChartCSV('relay-activity-chart','meshpulse-relay-activity','Hour','Relayed packets')">📥 Export CSV</button>
     </div>
     <div id="relay-activity-empty" style="color:#9ca3af;font-size:13px;
          text-align:center;padding:30px 0;display:none">
@@ -482,6 +483,7 @@
         <div class="card-title">
             📈 Hourly Activity (24h)
             <span class="info-icon" data-tip="Packets received per hour. Peaks = busy periods. Flat/zero = quiet time or connection issue.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('hourly-chart','meshpulse-hourly-activity','Hour','Packets')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-hourly"></div>
         <canvas id="hourly-chart" height="120"></canvas>
@@ -490,6 +492,7 @@
         <div class="card-title">
             📅 7-Day Daily Trend
             <span class="info-icon" data-tip="Daily packet totals for last 7 days. Growing trend = network expanding. Drops = possible issues.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('daily-chart','meshpulse-daily-trend','Day','Packets')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-daily"></div>
         <canvas id="daily-chart" height="120"></canvas>
@@ -502,6 +505,7 @@
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('type-chart','meshpulse-packet-types','Type','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-types"></div>
         <canvas id="type-chart" height="120"></canvas>
@@ -510,6 +514,7 @@
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
             <span class="info-icon" data-tip="How many hops each packet took to reach your node. 0 = direct connection. Higher hops = longer path through mesh. Many hops=5+ may indicate poor network coverage in some areas.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('hop-chart','meshpulse-hop-count','Hops','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-hops"></div>
         <canvas id="hop-chart" height="120"></canvas>
@@ -522,6 +527,7 @@
         <div class="card-title">
             📶 SNR Distribution (24h)
             <span class="info-icon" data-tip="Signal-to-Noise Ratio distribution of all received packets. Values above 0dB = good signal. Below -10dB = weak/edge of range. Most packets should be in the -5 to +10 dB range for healthy mesh.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('snr-chart','meshpulse-snr-distribution','SNR bucket','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-snr"></div>
         <canvas id="snr-chart" height="130"></canvas>
@@ -530,6 +536,7 @@
         <div class="card-title">
             📡 RSSI Distribution (24h)
             <span class="info-icon" data-tip="Received Signal Strength Indicator. Closer to 0 = stronger signal. Values below -110dBm indicate very weak signal at edge of range. Typical good range: -80 to -100dBm.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('rssi-chart','meshpulse-rssi-distribution','RSSI bucket','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-rssi"></div>
         <canvas id="rssi-chart" height="130"></canvas>
@@ -1069,6 +1076,33 @@ function downloadCSV(filename, headers, rows) {
     a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
+}
+
+function _findChart(canvasId) {
+    if (typeof Chart !== 'undefined' && Chart.getChart) {
+        const c = Chart.getChart(canvasId);
+        if (c) return c;
+    }
+    if (typeof charts !== 'undefined' && charts[canvasId]) return charts[canvasId];
+    const rhMap = { 'rh-chutil-chart':'chutil', 'rh-airtx-chart':'airtx', 'rh-relay-chart':'relay', 'rh-bad-chart':'bad' };
+    if (typeof _rhCharts !== 'undefined' && rhMap[canvasId] && _rhCharts[rhMap[canvasId]]) return _rhCharts[rhMap[canvasId]];
+    return null;
+}
+
+function exportChartCSV(canvasId, baseName, labelHeader, valueHeader) {
+    const chart = _findChart(canvasId);
+    if (!chart || !chart.data) { alert('No chart data to export yet.'); return; }
+    const labels = chart.data.labels || [];
+    const datasets = chart.data.datasets || [];
+    if (!labels.length) { alert('No data to export yet.'); return; }
+    let valueHeaders;
+    if (datasets.length === 1) valueHeaders = [datasets[0].label || valueHeader || 'Value'];
+    else valueHeaders = datasets.map((d, i) => d.label || ('Value ' + (i + 1)));
+    const headers = [labelHeader || 'Label', ...valueHeaders];
+    const rows = labels.map((lab, idx) =>
+        [lab, ...datasets.map(d => (d.data && d.data[idx] != null) ? d.data[idx] : '')]);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`${baseName}-${dateStr}.csv`, headers, rows);
 }
 
 // ── Export CSV ───────────────────────────────────────────────────
