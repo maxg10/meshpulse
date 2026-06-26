@@ -565,6 +565,7 @@
     <div class="card-title">
         ⚠️ Recent Anomalies (24h)
         <span class="info-icon" data-tip="HIGH_FREQUENCY_POSITION: GPS sent faster than every 30s. SPAM_MESSAGES: multiple messages within 5s. These waste airtime and may cause congestion.">ⓘ</span>
+        <button class="export-btn" onclick="exportAnomaliesCSV()">📥 Export CSV</button>
     </div>
     <div class="data-win" id="dw-anomalies"></div>
     <div class="anomaly-scroll" id="anomalies-list">
@@ -1327,7 +1328,9 @@ function getAnomalySuggestion(type) {
 }
 
 // ── Anomalies ────────────────────────────────────────────────────
+let lastAnomalies = [];
 function renderAnomalies(anomalies) {
+    lastAnomalies = anomalies || [];
     const el = document.getElementById('anomalies-list');
     if (!anomalies.length) {
         el.innerHTML = '<div style="color:#6b7280;font-size:12px">✅ No anomalies detected in the last 24h.</div>';
@@ -1363,6 +1366,33 @@ function renderAnomalies(anomalies) {
             ${ignoreBtn}
         </div>`;
     }).join('');
+}
+
+function exportAnomaliesCSV() {
+    // Group by node + type, mirroring renderAnomalies()
+    const groups = {};
+    (lastAnomalies || []).forEach(a => {
+        const key = (a.node_id || '') + '|' + a.anomaly_type;
+        if (!groups[key]) groups[key] = { ...a, count: 1, latest_ts: a.ts };
+        else { groups[key].count++; if (a.ts > groups[key].latest_ts) groups[key].latest_ts = a.ts; }
+    });
+    const grouped = Object.values(groups).sort((a, b) => b.latest_ts - a.latest_ts);
+    const headers = ['Time (UTC)','Type','Severity','Node','ID','Count','Details','Suggested Fix'];
+    const rows = grouped.map(g => {
+        const t = g.latest_ts ? new Date(g.latest_ts * 1000).toISOString().replace('T',' ').slice(0,19) : '';
+        return [
+            t,
+            g.anomaly_type || '',
+            g.severity || 'warning',
+            g.node_name || g.node_id || '',
+            g.node_id || '',
+            g.count || 1,
+            g.details || '',
+            getAnomalySuggestion(g.anomaly_type) || ''
+        ];
+    });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`meshpulse-anomalies-${dateStr}.csv`, headers, rows);
 }
 
 function ignoreNodeFromStats(nodeId, nodeName) {
