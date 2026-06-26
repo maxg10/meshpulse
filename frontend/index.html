@@ -1257,14 +1257,17 @@
                     const a = hops[i], b = hops[i + 1];
                     if (a.lat && a.lon && b.lat && b.lon) {
                         const color = snrToColor(b.snr != null ? b.snr : 0);
-                        const opts = {color, weight: 3, opacity: 0.8};
-                        if (dashed) opts.dashArray = '6,4';
-                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], opts).addTo(map));
+                        const casingOpts = { pane: 'meshLineTrace', color: '#0b1220', weight: 8, opacity: 0.6, lineCap: 'round', interactive: false };
+                        const topOpts = { pane: 'meshLineTrace', color, weight: 4, opacity: 0.95, lineCap: 'round' };
+                        if (dashed) topOpts.dashArray = '6,4';
+                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], casingOpts).addTo(map));
+                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], topOpts).addTo(map));
                     } else {
                         console.log('[TRACEROUTE] Skipping line (no coords):', (a.name || a.id), '→', (b.name || b.id));
                     }
                 }
             }
+            ensureLinePanes();
             drawHopLines(route, false);
             drawHopLines(routeBack, true);
 
@@ -1575,6 +1578,10 @@
             if (!map.getPane('meshLineTop')) {
                 map.createPane('meshLineTop');
                 map.getPane('meshLineTop').style.zIndex = 420;
+            }
+            if (!map.getPane('meshLineTrace')) {
+                map.createPane('meshLineTrace');
+                map.getPane('meshLineTrace').style.zIndex = 430;
             }
         }
 
