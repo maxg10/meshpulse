@@ -348,6 +348,7 @@
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #1f2937">
         <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
             📊 Radio Stats History (from localStats · updates every ~30 min)
+            <button class="export-btn" onclick="exportRadioHistoryCSV()" style="float:right">📥 Export CSV</button>
         </div>
         <div id="radio-history-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start">
 
@@ -1629,6 +1630,26 @@ function updateRhWidgets(radioHistory, radioStats) {
 
     const note = document.getElementById('rh-empty-note');
     if (note) note.style.display = _rhData.length < 2 ? 'block' : 'none';
+}
+
+function exportRadioHistoryCSV() {
+    const data = (typeof _rhData !== 'undefined' && _rhData) ? _rhData : [];
+    if (!data.length) { alert('No radio history data yet — localStats arrives every ~30 min.'); return; }
+    const headers = ['Time (UTC)', 'Channel Util', 'Air TX', 'TX Relay (delta)', 'Bad Packets (delta)'];
+    const rows = data.map((r, i) => {
+        const t = r.ts ? new Date(r.ts * 1000).toISOString().replace('T', ' ').slice(0, 19) : '';
+        const relayDelta = i === 0 ? 0 : Math.max(0, (r.num_tx_relay || 0) - (data[i - 1].num_tx_relay || 0));
+        const badDelta   = i === 0 ? 0 : Math.max(0, (r.num_packets_rx_bad || 0) - (data[i - 1].num_packets_rx_bad || 0));
+        return [
+            t,
+            r.channel_utilization != null ? r.channel_utilization : '',
+            r.air_util_tx != null ? r.air_util_tx : '',
+            relayDelta,
+            badDelta
+        ];
+    });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`meshpulse-radio-history-${dateStr}.csv`, headers, rows);
 }
 
 function renderRhChart(id) {
