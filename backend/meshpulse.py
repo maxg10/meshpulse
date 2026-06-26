@@ -2326,6 +2326,23 @@ class ListenBasedMapper:
         elif portnum in ('NEIGHBORINFO_APP',):
             self._parse_neighbor_info(packet)
 
+    # Fields learned from telemetry/position that must survive a NodeInfo rebuild
+    NODE_STICKY_FIELDS = (
+        'hw_model', 'short_name', 'is_licensed',
+        'channel_util', 'air_util_tx', 'sats_in_view', 'env',
+        'battery_level', 'voltage', 'uptime_seconds', 'temperature', 'rssi',
+    )
+
+    def _carry_sticky_fields(self, target, prev):
+        """Carry forward sticky fields from a node's previous entry into a freshly
+        rebuilt entry, so a NodeInfo packet (which rebuilds the whole dict) does not
+        wipe values learned from telemetry/position packets."""
+        if not prev or not target:
+            return
+        for f in self.NODE_STICKY_FIELDS:
+            if f not in target and prev.get(f) is not None:
+                target[f] = prev[f]
+
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
         try:
@@ -2343,6 +2360,13 @@ class ListenBasedMapper:
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
             hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+
+            # Identity fields from NodeInfo user submessage
+            hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
+            short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
+            is_licensed = bool(user.get('isLicensed', False))
+            # Snapshot previous entry to preserve telemetry/position-injected fields
+            prev = self.nodes.get(node_id) or self.nodes_no_position.get(node_id)
 
             pos = decoded.get('position', {})
             lat_i = pos.get('latitudeI')
@@ -2365,8 +2389,12 @@ class ListenBasedMapper:
                     'ts': int(time.time()),
                     'seen_at': int(time.time()),
                     'via_mqtt': via_mqtt,
+                    'hw_model': hw_model,
+                    'short_name': short_name,
+                    'is_licensed': is_licensed,
                     'source': 'live'
                 }
+                self._carry_sticky_fields(self.nodes[node_id], prev)
                 # Remove from no-position dict if node now has GPS
                 if node_id in self.nodes_no_position:
                     del self.nodes_no_position[node_id]
@@ -2395,8 +2423,12 @@ class ListenBasedMapper:
                     'via_mqtt': via_mqtt,
                     'ts': int(time.time()),
                     'seen_at': int(time.time()),
+                    'hw_model': hw_model,
+                    'short_name': short_name,
+                    'is_licensed': is_licensed,
                     'source': 'live'
                 }
+                self._carry_sticky_fields(self.nodes_no_position[node_id], prev)
                 marker = "✚" if is_new else "↻"
                 print(f"{marker} {node_id} {name[:20]} (no GPS) {self._packet_route_tag(packet)}")
                 self._update_message_names(node_id, name)
