@@ -814,6 +814,39 @@
             return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
         }
 
+        function nodeExtraInfo(n) {
+            let s = '';
+            if (n.hw_model) s += `HW: ${escHtml(n.hw_model)}${n.short_name ? ` (${escHtml(n.short_name)})` : ''}<br>`;
+            else if (n.short_name) s += `Short: ${escHtml(n.short_name)}<br>`;
+            if (n.is_licensed) s += `📜 Licensed<br>`;
+            if (n.channel_util != null || n.air_util_tx != null) {
+                const cu = n.channel_util != null ? `Ch util: ${escHtml(String(n.channel_util))}%` : '';
+                const au = n.air_util_tx != null ? `Air TX: ${escHtml(String(n.air_util_tx))}%` : '';
+                s += `${[cu, au].filter(Boolean).join(' · ')}<br>`;
+            }
+            if (n.sats_in_view != null) s += `🛰️ Sats: ${escHtml(String(n.sats_in_view))}<br>`;
+            if (n.env && typeof n.env === 'object') {
+                const labels = {
+                    relativeHumidity: ['Humidity', '%'],
+                    barometricPressure: ['Pressure', ' hPa'],
+                    gasResistance: ['Gas', ''],
+                    iaq: ['IAQ', ''],
+                    lux: ['Lux', ' lx'],
+                    voltage: ['Env V', 'V'],
+                    current: ['Current', ' mA'],
+                    soilMoisture: ['Soil moist', '%'],
+                    soilTemperature: ['Soil temp', '°C']
+                };
+                for (const [k, v] of Object.entries(n.env)) {
+                    if (k === 'temperature' || v == null) continue;  // temperature already shown above
+                    const lbl = labels[k] ? labels[k][0] : k;
+                    const unit = labels[k] ? labels[k][1] : '';
+                    s += `${escHtml(lbl)}: ${escHtml(String(v))}${unit}<br>`;
+                }
+            }
+            return s;
+        }
+
         function escHtml(s) {
             if (!s) return '';
             return String(s)
@@ -1877,7 +1910,7 @@
                         YOUR TRACKER<br>
                         Role: ${escHtml(n.role || 'CLIENT')}<br>
                         Pos: ${escHtml(String(n.lat))}, ${escHtml(String(n.lon))}<br>
-                        Alt: ${escHtml(String(n.alt))}m
+                        ${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m
                     </div>`;
                 } else {
                     let distanceInfo = '';
@@ -1898,7 +1931,7 @@
                         Role: ${escHtml(n.role || 'CLIENT')}<br>
                         SNR: ${escHtml(String(n.snr))} dB<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
-                        ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}Alt: ${escHtml(String(n.alt))}m<br>
+                        ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
                         ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
