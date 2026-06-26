@@ -1567,10 +1567,22 @@
             });
         }
 
+        function ensureLinePanes() {
+            if (!map.getPane('meshLineCasing')) {
+                map.createPane('meshLineCasing');
+                map.getPane('meshLineCasing').style.zIndex = 410;
+            }
+            if (!map.getPane('meshLineTop')) {
+                map.createPane('meshLineTop');
+                map.getPane('meshLineTop').style.zIndex = 420;
+            }
+        }
+
         function updateDirectLines() {
             // Remove existing lines
             directLines.forEach(line => map.removeLayer(line));
             directLines = [];
+            ensureLinePanes();
 
             if (!document.getElementById('show-direct-lines').checked) return;
 
@@ -1585,11 +1597,15 @@
                 if (n.id === trackerId || n.hops !== 0 || n.via_mqtt) return;
                 if (!n.lat || !n.lon) return;
 
+                const casing = L.polyline(
+                    [[trackerNode.lat, trackerNode.lon], [n.lat, n.lon]],
+                    { pane: 'meshLineCasing', color: '#0b1220', weight: 6, opacity: 0.55, lineCap: 'round', interactive: false }
+                ).addTo(map);
                 const line = L.polyline(
                     [[trackerNode.lat, trackerNode.lon], [n.lat, n.lon]],
-                    { color: snrToColor(n.snr), weight: 2, opacity: 0.6 }
+                    { pane: 'meshLineTop', color: snrToColor(n.snr), weight: 3, opacity: 0.95, lineCap: 'round' }
                 ).addTo(map);
-                directLines.push(line);
+                directLines.push(casing, line);
             });
         }
 
@@ -1597,6 +1613,7 @@
             // Remove existing lines
             neighborLines.forEach(l => map.removeLayer(l));
             neighborLines = [];
+            ensureLinePanes();
 
             if (!document.getElementById('show-neighbor-links').checked) return;
 
@@ -1618,14 +1635,13 @@
                     const snr = nb.snr;
                     const color = snr >= 5 ? '#22c55e' : snr >= -5 ? '#eab308' : '#ef4444';
 
+                    const casing = L.polyline(
+                        [[fromNode.lat, fromNode.lon], [toNode.lat, toNode.lon]],
+                        { pane: 'meshLineCasing', color: '#0b1220', weight: 6.5, opacity: 0.55, lineCap: 'round', interactive: false }
+                    ).addTo(map);
                     const line = L.polyline(
                         [[fromNode.lat, fromNode.lon], [toNode.lat, toNode.lon]],
-                        {
-                            color: color,
-                            weight: 2.5,
-                            opacity: 0.85,
-                            dashArray: '6, 5'
-                        }
+                        { pane: 'meshLineTop', color: color, weight: 3, opacity: 0.95, dashArray: '6, 5', lineCap: 'round' }
                     ).addTo(map);
 
                     line.bindPopup(
@@ -1635,7 +1651,7 @@
                         </div>`
                     );
 
-                    neighborLines.push(line);
+                    neighborLines.push(casing, line);
                 });
             });
         }
