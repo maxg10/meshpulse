@@ -193,6 +193,7 @@
         style="font-size:11px;padding:4px 12px;background:#991b1b;color:#fff;border:none;border-radius:4px;cursor:pointer;font-weight:600">
         ⚠️ Full Reset (Stats + Nodes)
     </button>
+    <button class="export-btn" onclick="exportAllNodesCSV()">📥 Export All Nodes</button>
 </div>
 <div id="stats-alert-bar" style="margin:0 0 8px 0"></div>
 
@@ -540,7 +541,7 @@
     <div class="card-title">
         🔊 Most Active Nodes (24h)
         <span class="info-icon" data-tip="Nodes sending the most packets. Normal stationary nodes: ~1 packet per 15–30 min. High counts may indicate aggressive broadcast settings.">ⓘ</span>
-        <button class="export-btn" onclick="exportCSV()">📥 Export CSV</button>
+        <button class="export-btn" onclick="exportActiveNodesCSV()">📥 Export CSV</button>
     </div>
     <div class="data-win" id="dw-senders"></div>
     <table class="tbl" id="top-senders-table">
@@ -1054,8 +1055,23 @@ function renderTopSenders() {
     });
 }
 
+// ── CSV export helper (shared) ───────────────────────────────────
+function downloadCSV(filename, headers, rows) {
+    const esc = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const lines = [headers.map(esc).join(',')];
+    for (const r of rows) lines.push(r.map(esc).join(','));
+    // UTF-8 BOM so Excel renders emoji/accented node names correctly
+    const csv = '\ufeff' + lines.join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
 // ── Export CSV ───────────────────────────────────────────────────
-async function exportCSV() {
+async function exportAllNodesCSV() {
     let nodesWithGps = [], nodesNoGps = [];
     try {
         const resp = await fetch('/meshtastic/nodes.json?' + Date.now());
@@ -1097,20 +1113,37 @@ async function exportCSV() {
             n.via_mqtt ? 'yes' : 'no',
             lastSeen,
             distKm
-        ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(',');
+        ];
     });
 
     const dateStr = new Date().toISOString().slice(0, 10);
-    const csv = [headers.join(','), ...rows].join('\n');
-    const blob = new Blob([csv], {type: 'text/csv'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `meshtastic-nodes-${dateStr}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadCSV(`meshpulse-all-nodes-${dateStr}.csv`, headers, rows);
+}
+
+function exportActiveNodesCSV() {
+    const sorted = [...topSendersData].sort((a, b) => {
+        let va = a[topSendersSortCol], vb = b[topSendersSortCol];
+        if (topSendersSortCol === 'from_name') { va = (va||'').toLowerCase(); vb = (vb||'').toLowerCase(); }
+        else { va = va ?? -Infinity; vb = vb ?? -Infinity; }
+        if (va < vb) return topSendersSortDir;
+        if (va > vb) return -topSendersSortDir;
+        return 0;
+    });
+    const headers = ['Node','ID','Pkts','Avg SNR','Avg RSSI','Type','Via','Last Seen (UTC)'];
+    const rows = sorted.map(s => {
+        const viaName = s.last_relay && !s.last_relay.startsWith('relay_')
+            ? (topSendersNodesMap[s.last_relay] || s.last_relay) : '';
+        const lastSeen = s.last_seen ? new Date(s.last_seen * 1000).toISOString().replace('T',' ').slice(0,19) : '';
+        return [
+            s.from_name !== s.from_id ? s.from_name : '',
+            s.from_id || '', s.cnt ?? '',
+            s.avg_snr != null ? s.avg_snr.toFixed(1) : '',
+            s.avg_rssi != null ? Math.round(s.avg_rssi) : '',
+            (s.portnum||'').replace('_APP',''), viaName, lastSeen
+        ];
+    });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`meshpulse-active-nodes-${dateStr}.csv`, headers, rows);
 }
 
 function formatTimeAgo(ts) {
