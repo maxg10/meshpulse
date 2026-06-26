@@ -1257,8 +1257,8 @@
                     const a = hops[i], b = hops[i + 1];
                     if (a.lat && a.lon && b.lat && b.lon) {
                         const color = snrToColor(b.snr != null ? b.snr : 0);
-                        const casingOpts = { pane: 'meshLineTrace', color: '#0b1220', weight: 8, opacity: 0.6, lineCap: 'round', interactive: false };
-                        const topOpts = { pane: 'meshLineTrace', color, weight: 4, opacity: 0.95, lineCap: 'round' };
+                        const casingOpts = { pane: 'meshLineTrace', color: '#0b1220', weight: 8, opacity: 0.6, lineCap: 'butt', interactive: false };
+                        const topOpts = { pane: 'meshLineTrace', color, weight: 4, opacity: 0.95, lineCap: 'butt' };
                         if (dashed) topOpts.dashArray = '6,4';
                         tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], casingOpts).addTo(map));
                         tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], topOpts).addTo(map));
