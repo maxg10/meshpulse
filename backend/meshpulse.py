@@ -2467,6 +2467,7 @@ class ListenBasedMapper:
             hop_limit = packet.get('hopLimit')
             hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
             relay_node_raw = packet.get('relayNode')
+            sats = pos.get('satsInView')
 
             if node_id in self.nodes:
                 self.nodes[node_id].update({
@@ -2480,6 +2481,8 @@ class ListenBasedMapper:
                     'seen_at': int(time.time()),
                     'source': 'live'
                 })
+                if sats is not None:
+                    self.nodes[node_id]['sats_in_view'] = sats
                 print(f"↻ {node_id} position update @ {lat:.4f},{lon:.4f} hops={hops} {self._packet_route_tag(packet)}")
             else:
                 self.nodes[node_id] = {
@@ -2606,6 +2609,10 @@ class ListenBasedMapper:
 
             env = telemetry.get('environmentMetrics', {})
             temperature = env.get('temperature')
+            channel_util = device_metrics.get('channelUtilization')
+            air_util_tx = device_metrics.get('airUtilTx')
+            env_data = {k: (round(v, 2) if isinstance(v, (int, float)) else v)
+                        for k, v in env.items() if v is not None}
 
             telemetry_update = {}
             if battery_level is not None:
@@ -2616,6 +2623,12 @@ class ListenBasedMapper:
                 telemetry_update['uptime_seconds'] = uptime_seconds
             if temperature is not None:
                 telemetry_update['temperature'] = round(temperature, 1)
+            if channel_util is not None:
+                telemetry_update['channel_util'] = round(channel_util, 1)
+            if air_util_tx is not None:
+                telemetry_update['air_util_tx'] = round(air_util_tx, 2)
+            if env_data:
+                telemetry_update['env'] = env_data
 
             if node_id in self.nodes:
                 self.nodes[node_id]['ts'] = int(time.time())
@@ -2631,10 +2644,11 @@ class ListenBasedMapper:
                         'node_id': node_id,
                         'battery': battery_level,
                         'voltage': voltage,
-                        'channel_util': None,
-                        'air_util_tx': None,
+                        'channel_util': channel_util,
+                        'air_util_tx': air_util_tx,
                         'snr': None,
                         'temperature': temperature,
+                        'env': env_data,
                         'uptime': uptime_seconds,
                         'timestamp': int(time.time())
                     })
@@ -2653,10 +2667,11 @@ class ListenBasedMapper:
                         'node_id': node_id,
                         'battery': battery_level,
                         'voltage': voltage,
-                        'channel_util': None,
-                        'air_util_tx': None,
+                        'channel_util': channel_util,
+                        'air_util_tx': air_util_tx,
                         'snr': None,
                         'temperature': temperature,
+                        'env': env_data,
                         'uptime': uptime_seconds,
                         'timestamp': int(time.time())
                     })
