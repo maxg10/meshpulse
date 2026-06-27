@@ -154,6 +154,7 @@ echo "🌐 Copying frontend files..."
 sudo cp frontend/index.html /var/www/html/meshpulse/
 sudo cp frontend/styles.css /var/www/html/meshpulse/
 sudo cp frontend/favicon.ico /var/www/html/meshpulse/
+sudo chmod 644 /var/www/html/meshpulse/favicon.ico
 sudo cp frontend/favicon_stats.ico /var/www/html/meshpulse/
 sudo cp frontend/stats.html /var/www/html/meshpulse/
 sudo cp frontend/config.html /var/www/html/meshpulse/
