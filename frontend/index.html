@@ -92,6 +92,10 @@
                 <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
             </label><br>
             <label class="filter-label">
+                <input type="checkbox" id="filter-licensed" onchange="updateDisplay()"> Show only licensed
+                <span title="Show only nodes flagged as licensed (HAM) in their NodeInfo." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
                 <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
                 Show direct lines
                 <span title="Lines from YOUR tracker to nodes it hears directly (hops=0)." style="cursor:help;color:#9ca3af"> ⓘ</span>
@@ -1777,6 +1781,10 @@
             if (!showMqtt) {
                 filteredNodes = filteredNodes.filter(n => !n.via_mqtt);
             }
+            const onlyLicensed = document.getElementById('filter-licensed').checked;
+            if (onlyLicensed) {
+                filteredNodes = filteredNodes.filter(n => n.is_licensed);
+            }
             let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
             if (filterDirect) {
                 filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
@@ -2081,7 +2089,7 @@
 
         function restoreFilterStates() {
             var filters = [
-                'show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+                'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
                 'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
             ];
             filters.forEach(function(id) {
@@ -2097,7 +2105,7 @@
         }
 
         (function() {
-            ['show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+            ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
              'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
             ].forEach(function(id) {
                 var el = document.getElementById(id);
