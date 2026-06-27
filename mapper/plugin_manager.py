@@ -98,6 +98,17 @@ class PluginManager:
             return os.path.join(self.plugins_dir, parts[0], parts[1])
         return os.path.join(self.plugins_dir, plugin_id)
 
+    def _get_web_root(self):
+        """Return the web root plugins path, or None if not found."""
+        candidates = [
+            '/var/www/html/meshpulse',
+            '/var/www/html/meshtastic',
+        ]
+        for c in candidates:
+            if os.path.isdir(c):
+                return c
+        return None
+
     def _read_manifest(self, plugin_dir):
         """Read and validate plugin.json from a plugin directory.
 
@@ -193,6 +204,17 @@ class PluginManager:
 
                 os.makedirs(plugin_dir, exist_ok=True)
                 zf.extractall(plugin_dir)
+
+                # Copy frontend assets to web root for lighttpd
+                frontend_src = os.path.join(plugin_dir, 'frontend')
+                if os.path.isdir(frontend_src):
+                    web_root = self._get_web_root()
+                    if web_root:
+                        dest = os.path.join(web_root, 'plugins', plugin_id)
+                        os.makedirs(dest, exist_ok=True)
+                        shutil.copytree(frontend_src, os.path.join(dest, 'frontend'),
+                                        dirs_exist_ok=True)
+                        print(f'[PLUGINS] Frontend assets copied to web root: {dest}')
 
                 # Install Python dependencies if requirements.txt exists
                 backend_config = manifest.get('backend')

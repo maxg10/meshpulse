@@ -4,16 +4,16 @@ set -e
 
 mkdir -p dist
 
-# Elevation Map
-echo "📦 Building elevation-map..."
-cd plugins/maxg10/elevation-map
-zip -r ../../../dist/elevation-map-1.0.1.meshplugin plugin.json frontend/
+# BBS
+echo "📦 Building bbs..."
+cd plugins/maxg10/bbs
+zip -r ../../../dist/bbs-1.0.4.meshplugin plugin.json frontend/ backend/
 cd ../../..
 
-# MQTT Proxy
-echo "📦 Building mqtt-proxy..."
-cd plugins/maxg10/mqtt-proxy
-zip -r ../../../dist/mqtt-proxy-1.0.0.meshplugin plugin.json requirements.txt backend/
+# Weather Overlay
+echo "📦 Building weather-overlay..."
+cd plugins/maxg10/weather-overlay
+zip -r ../../../dist/weather-overlay-1.0.0.meshplugin plugin.json frontend/
 cd ../../..
 
 echo ""
