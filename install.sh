@@ -186,6 +186,19 @@ if [ -d "$PLUGIN_DIR" ]; then
     echo "🔌 Plugin assets copied to web root"
 fi
 
+# Sync plugin frontend assets to web root so lighttpd can serve them
+if [ -d "$PLUGIN_DIR" ]; then
+    echo "[INSTALL] Syncing plugin assets to web root..."
+    find "$PLUGIN_DIR" -name "frontend" -type d | while read plugin_frontend; do
+        plugin_rel=$(dirname "$plugin_frontend" | sed "s|$PLUGIN_DIR/||")
+        dest="/var/www/html/meshpulse/plugins/$plugin_rel/frontend"
+        sudo mkdir -p "$dest"
+        sudo cp -r "$plugin_frontend/." "$dest/"
+        sudo chmod -R a+rX "$dest"
+    done
+    echo "[INSTALL] Plugin assets synced"
+fi
+
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshpulse/nodes.json" ]; then
     echo "📄 Creating empty nodes.json..."

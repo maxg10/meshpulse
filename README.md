@@ -185,6 +185,14 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
+## What's New in v2.5.3 — NodeDB Backfill & Mobile Fix
+
+**📟 NodeDB backfill on connect** — Hardware model, position and device metrics are read from the tracker's local NodeDB right after connecting, so node popups show hardware info immediately instead of waiting hours for over-the-air NodeInfo.
+
+**📱 Mobile fix** — The traceroute panel no longer overflows off-screen on narrow phones; it's now centred and fully visible.
+
+---
+
 ## What's New in v2.5.2 — CSV Exports, Sharper Map Lines & Richer Node Info
 
 **📥 Stats CSV exports** — Export any table or chart on the Stats page (Most Active Nodes, Recent Anomalies, all 7 charts, combined Radio Stats History) plus an "Export All Nodes" button, all emoji-safe.

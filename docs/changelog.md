@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.5.3
+- Feature: NodeDB backfill on connect — hardware model, position, and device
+  metrics are read from the tracker's local NodeDB immediately after connecting,
+  so node popups show hw_model from the first second (no waiting hours for
+  over-the-air NodeInfo broadcasts). Adds ~80 nodes with hardware info on startup
+  on a typical installation.
+- Fix: Traceroute panel on mobile overflowed off-screen right edge; now centred
+  and fully visible on narrow viewports.
+
 ## v2.5.2
 - Feature: CSV export across the whole Stats page — every table and chart panel
   (Most Active Nodes, Recent Anomalies with a Suggested Fix column, all 7 charts,
