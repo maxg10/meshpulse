@@ -161,31 +161,6 @@ sudo cp frontend/config.html /var/www/html/meshpulse/
 sudo cp frontend/messages.html /var/www/html/meshpulse/
 sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse
 
-# Copy plugin frontend assets (lighttpd doesn't follow symlinks)
-if [ -d "$PLUGIN_DIR" ]; then
-    # Remove old symlink if exists
-    if [ -L "/var/www/html/meshpulse/plugins" ]; then
-        sudo rm /var/www/html/meshpulse/plugins
-    fi
-    # Copy plugin files to web root
-    sudo mkdir -p /var/www/html/meshpulse/plugins
-    # Copy each installed plugin
-    for author_dir in "$PLUGIN_DIR"/*/; do
-        [ -d "$author_dir" ] || continue
-        author=$(basename "$author_dir")
-        [ "$author" = "enabled.json" ] && continue
-        for plugin_dir in "$author_dir"*/; do
-            [ -d "$plugin_dir" ] || continue
-            plugin=$(basename "$plugin_dir")
-            dest="/var/www/html/meshpulse/plugins/$author/$plugin"
-            sudo mkdir -p "$dest"
-            sudo cp -r "$plugin_dir"* "$dest/" 2>/dev/null || true
-        done
-    done
-    sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse/plugins
-    echo "🔌 Plugin assets copied to web root"
-fi
-
 # Sync plugin frontend assets to web root so lighttpd can serve them
 if [ -d "$PLUGIN_DIR" ]; then
     echo "[INSTALL] Syncing plugin assets to web root..."
