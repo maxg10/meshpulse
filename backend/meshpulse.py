@@ -2333,6 +2333,124 @@ class ListenBasedMapper:
         'battery_level', 'voltage', 'uptime_seconds', 'temperature', 'rssi',
     )
 
+    def _load_nodedb_from_device(self, iface):
+        """Read NodeDB from the connected device and backfill node entries with
+        hw_model, position, and device metrics. Only fills fields not already
+        present from live radio packets. Called once after connect/reconnect."""
+        try:
+            db = iface.nodes
+            if not db:
+                print('[NODEDB] No nodes in device NodeDB')
+                return
+            added = updated = 0
+            now = int(time.time())
+            for raw in db.values():
+                user = raw.get('user', {})
+                node_id = user.get('id')
+                if not node_id or node_id == self.local_node_id:
+                    continue  # skip self
+
+                name = sanitize_str(user.get('longName') or node_id, max_len=60)
+                hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
+                short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
+                is_licensed = bool(user.get('isLicensed', False))
+                role_raw = user.get('role', 'CLIENT')
+                role = role_raw if isinstance(role_raw, str) else 'CLIENT'
+
+                pos = raw.get('position', {})
+                lat = pos.get('latitude')
+                lon = pos.get('longitude')
+                alt = pos.get('altitude', 0)
+                has_pos = lat is not None and lon is not None
+
+                dm = raw.get('deviceMetrics', {})
+                battery = dm.get('batteryLevel')
+                voltage = dm.get('voltage')
+                ch_util = dm.get('channelUtilization')
+                air_tx = dm.get('airUtilTx')
+                uptime = dm.get('uptimeSeconds')
+
+                if has_pos and node_id not in self.nodes:
+                    # New node with GPS — add to nodes dict
+                    entry = {
+                        'id': node_id,
+                        'name': name,
+                        'lat': round(lat, 6),
+                        'lon': round(lon, 6),
+                        'alt': alt or 0,
+                        'snr': None,
+                        'role': role,
+                        'hops': None,
+                        'ts': now,
+                        'seen_at': now,
+                        'via_mqtt': False,
+                        'hw_model': hw_model,
+                        'short_name': short_name,
+                        'is_licensed': is_licensed,
+                        'source': 'nodedb'
+                    }
+                    if battery is not None: entry['battery_level'] = round(battery, 1)
+                    if voltage is not None: entry['voltage'] = round(voltage, 2)
+                    if ch_util is not None: entry['channel_util'] = round(ch_util, 1)
+                    if air_tx is not None: entry['air_util_tx'] = round(air_tx, 2)
+                    if uptime is not None: entry['uptime_seconds'] = uptime
+                    self.nodes[node_id] = entry
+                    added += 1
+
+                elif has_pos and node_id in self.nodes:
+                    # Existing GPS node — backfill missing sticky fields only
+                    existing = self.nodes[node_id]
+                    changed = False
+                    for field, val in [
+                        ('hw_model', hw_model), ('short_name', short_name),
+                        ('is_licensed', is_licensed),
+                        ('battery_level', round(battery, 1) if battery is not None else None),
+                        ('voltage', round(voltage, 2) if voltage is not None else None),
+                        ('channel_util', round(ch_util, 1) if ch_util is not None else None),
+                        ('air_util_tx', round(air_tx, 2) if air_tx is not None else None),
+                        ('uptime_seconds', uptime),
+                    ]:
+                        if val is not None and existing.get(field) is None:
+                            existing[field] = val
+                            changed = True
+                    if changed:
+                        updated += 1
+
+                elif not has_pos and node_id not in self.nodes \
+                        and node_id not in self.nodes_no_position:
+                    # No GPS, not yet seen — add to no-position dict
+                    entry = {
+                        'id': node_id,
+                        'name': name,
+                        'snr': None,
+                        'role': role,
+                        'hops': None,
+                        'via_mqtt': False,
+                        'ts': now,
+                        'seen_at': now,
+                        'hw_model': hw_model,
+                        'short_name': short_name,
+                        'is_licensed': is_licensed,
+                        'source': 'nodedb'
+                    }
+                    if battery is not None: entry['battery_level'] = round(battery, 1)
+                    self.nodes_no_position[node_id] = entry
+                    added += 1
+
+                elif not has_pos and node_id in self.nodes_no_position:
+                    # Existing no-GPS node — backfill hw fields only
+                    existing = self.nodes_no_position[node_id]
+                    for field, val in [
+                        ('hw_model', hw_model), ('short_name', short_name),
+                        ('is_licensed', is_licensed),
+                    ]:
+                        if val is not None and existing.get(field) is None:
+                            existing[field] = val
+
+            print(f'[NODEDB] Backfilled from device: {added} new, {updated} updated')
+        except Exception as e:
+            print(f'[NODEDB] Error reading NodeDB: {e}')
+
     def _carry_sticky_fields(self, target, prev):
         """Carry forward sticky fields from a node's previous entry into a freshly
         rebuilt entry, so a NodeInfo packet (which rebuilds the whole dict) does not
@@ -3088,6 +3206,7 @@ class ListenBasedMapper:
                                 print(f"[INFO] Tracker has no position in NodeDB")
                         except Exception as e:
                             print(f"[INFO] Could not read tracker position from NodeDB: {e}")
+                        self._load_nodedb_from_device(iface)
                     asyncio.run(self.broadcast_connection_status('connected', 'serial'))
                     self._last_radio_packet_time = time.time()
 
@@ -3379,6 +3498,8 @@ class ListenBasedMapper:
                         print(f"[INFO] Tracker has no position in NodeDB")
                 except Exception as e:
                     print(f"[INFO] Could not read tracker position from NodeDB: {e}")
+
+                self._load_nodedb_from_device(tcp_iface)
 
                 # Backfill names in stats DB from loaded nodes
                 all_known = {**self.nodes, **self.nodes_no_position}
