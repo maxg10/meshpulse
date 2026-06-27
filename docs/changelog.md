@@ -1,5 +1,22 @@
 # Changelog
 
+## v2.5.2
+- Feature: CSV export across the whole Stats page — every table and chart panel
+  (Most Active Nodes, Recent Anomalies with a Suggested Fix column, all 7 charts,
+  plus a combined Radio Stats History export) and an "Export All Nodes" button.
+  Generic downloadCSV() helper with UTF-8 BOM for emoji-safe node names.
+- Feature: Node hardware & richer telemetry — popups now show hardware model,
+  short name, licensed (HAM) flag, per-node channel utilization / air-util-TX,
+  GPS sats-in-view, and full environment metrics (humidity, pressure, etc.).
+- Feature: "Show only licensed" filter in Mesh Info (persisted in localStorage).
+- Improvement: Map line contrast — direct and neighbor links now drawn with a
+  dark casing/halo via dedicated Leaflet panes; traceroute sits on its own top
+  pane so it stays visible over the direct-line bundle; butt line caps so lines
+  end cleanly at node markers.
+- Fix: Node telemetry fields (battery, voltage, temperature, etc.) no longer
+  flicker/disappear when a NodeInfo or position packet rebuilds the node entry
+  (sticky-field preservation).
+
 ## v2.4.9-stable
 - Traceroute reliability overhaul: replaced blocking `sendTraceRoute()` with non-blocking
   `sendData()` + `asyncio.Event` + automatic retry (2 attempts, 45 s each). No more hangs.

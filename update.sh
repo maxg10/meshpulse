@@ -39,6 +39,6 @@ echo -e "${GREEN}✅ Update complete!${NC}"
 echo "========================================"
 echo ""
 echo "Version installed:"
-grep "MAPPER_VERSION" /var/www/html/meshtastic/index.html | grep -o "'[0-9.]*'" | head -1
+grep "MAPPER_VERSION" backend/meshpulse.py | grep -o "'[0-9.]*'" | head -1
 echo ""
 sudo systemctl status meshpulse --no-pager -l | head -5

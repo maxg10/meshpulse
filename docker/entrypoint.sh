@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "🚀 MeshPulse v2.5.1 starting..."
+echo "🚀 MeshPulse v2.5.2 starting..."
 
 # Legacy path kept for backward compat with existing Docker volumes
 DATA_DIR="/var/www/html/meshtastic"

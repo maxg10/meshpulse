@@ -185,6 +185,16 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
+## What's New in v2.5.2 — CSV Exports, Sharper Map Lines & Richer Node Info
+
+**📥 Stats CSV exports** — Export any table or chart on the Stats page (Most Active Nodes, Recent Anomalies, all 7 charts, combined Radio Stats History) plus an "Export All Nodes" button, all emoji-safe.
+
+**🗺️ Sharper map lines** — Direct/neighbor links now have a dark casing/halo and traceroutes render on their own top pane, so paths stay readable on any basemap.
+
+**📟 Richer node info** — Popups show hardware model, licensed (HAM) flag, channel utilization, air-util-TX, GPS sats-in-view and environment metrics; new "Show only licensed" filter. Telemetry fields no longer flicker on NodeInfo rebuilds.
+
+---
+
 ## What's New in v2.3.0 — Plugin Store, MQTT Proxy & Backup/Restore
 
 **🏪 Plugin Store** — Browse and install plugins directly from your mapper. Visit [meshtastic.world/plugins](https://meshtastic.world/plugins) or open Config → Plugins.
