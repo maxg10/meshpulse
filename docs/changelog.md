@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.5.4
+- Feature: Weather Overlay plugin — environment sensor data (temperature, humidity,
+  pressure) as map labels and heatmap overlay. Labels visible at zoom >= 10,
+  heatmap with absolute temperature scale (0°C=blue, 40°C=red). Metric choice
+  persists across refreshes. Available in Plugin Store.
+- Fix: Plugin installation via UI now copies frontend assets to web root
+  immediately (no need to re-run install.sh after installing a plugin).
+- Fix: Plugin web root directory created with correct ownership (no more
+  Permission denied on fresh installs).
+- Fix: install.sh now syncs all installed plugin frontend assets to web root
+  on every run.
+- Fix: Duplicate plugin asset copy block removed from install.sh.
+
 ## v2.5.3
 - Feature: NodeDB backfill on connect — hardware model, position, and device
   metrics are read from the tracker's local NodeDB immediately after connecting,

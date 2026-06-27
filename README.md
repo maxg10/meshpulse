@@ -185,6 +185,14 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
+## What's New in v2.5.4 — Weather Overlay Plugin & Plugin Install Fixes
+
+**🌡️ Weather Overlay plugin** — Visualize environment sensor data (temperature, humidity, pressure) as map labels and a heatmap with an absolute temperature scale. Available in the Plugin Store.
+
+**🔌 Smoother plugin installs** — Installing a plugin from the UI now copies its frontend assets to the web root immediately (with correct ownership), so it works without re-running install.sh.
+
+---
+
 ## What's New in v2.5.3 — NodeDB Backfill & Mobile Fix
 
 **📟 NodeDB backfill on connect** — Hardware model, position and device metrics are read from the tracker's local NodeDB right after connecting, so node popups show hardware info immediately instead of waiting hours for over-the-air NodeInfo.
