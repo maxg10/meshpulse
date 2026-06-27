@@ -318,6 +318,15 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
     #no-gps-content { display: block; }
     #no-gps-panel h4 { padding-top: 4px; }
 
+    #traceroute-panel {
+        left: 50%;
+        transform: translateX(-50%);
+        width: calc(100vw - 24px);
+        max-width: 420px;
+        top: 80px;
+        max-height: 60vh;
+    }
+
     /* Mobile FABs */
     #mobile-meshinfo-fab { display: flex !important; bottom: 90px; }
     #mobile-nogps-fab    { display: flex !important; bottom: 150px; }
