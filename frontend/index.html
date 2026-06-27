@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.5.1">
+    <link rel="stylesheet" href="styles.css?v=2.5.2">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
@@ -90,6 +90,10 @@
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="filter-licensed" onchange="updateDisplay()"> Show only licensed
+                <span title="Show only nodes flagged as licensed (HAM) in their NodeInfo." style="cursor:help;color:#9ca3af"> ⓘ</span>
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="show-direct-lines" onchange="updateDirectLines()">
@@ -235,6 +239,7 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
+        let expandedNoGpsId = null;
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
@@ -814,6 +819,39 @@
             return `<span style="color:${color}" title="Battery: ${pct}%">${icon} ${pct}%</span>`;
         }
 
+        function nodeExtraInfo(n) {
+            let s = '';
+            if (n.hw_model) s += `HW: ${escHtml(n.hw_model)}${n.short_name ? ` (${escHtml(n.short_name)})` : ''}<br>`;
+            else if (n.short_name) s += `Short: ${escHtml(n.short_name)}<br>`;
+            if (n.is_licensed) s += `📜 Licensed<br>`;
+            if (n.channel_util != null || n.air_util_tx != null) {
+                const cu = n.channel_util != null ? `Ch util: ${escHtml(String(n.channel_util))}%` : '';
+                const au = n.air_util_tx != null ? `Air TX: ${escHtml(String(n.air_util_tx))}%` : '';
+                s += `${[cu, au].filter(Boolean).join(' · ')}<br>`;
+            }
+            if (n.sats_in_view != null) s += `🛰️ Sats: ${escHtml(String(n.sats_in_view))}<br>`;
+            if (n.env && typeof n.env === 'object') {
+                const labels = {
+                    relativeHumidity: ['Humidity', '%'],
+                    barometricPressure: ['Pressure', ' hPa'],
+                    gasResistance: ['Gas', ''],
+                    iaq: ['IAQ', ''],
+                    lux: ['Lux', ' lx'],
+                    voltage: ['Env V', 'V'],
+                    current: ['Current', ' mA'],
+                    soilMoisture: ['Soil moist', '%'],
+                    soilTemperature: ['Soil temp', '°C']
+                };
+                for (const [k, v] of Object.entries(n.env)) {
+                    if (k === 'temperature' || v == null) continue;  // temperature already shown above
+                    const lbl = labels[k] ? labels[k][0] : k;
+                    const unit = labels[k] ? labels[k][1] : '';
+                    s += `${escHtml(lbl)}: ${escHtml(String(v))}${unit}<br>`;
+                }
+            }
+            return s;
+        }
+
         function escHtml(s) {
             if (!s) return '';
             return String(s)
@@ -1150,6 +1188,12 @@
             window.location.href = '/meshtastic/messages.html';
         }
 
+        function toggleNoGpsDetails(id, ev) {
+            if (ev) ev.stopPropagation();
+            expandedNoGpsId = (expandedNoGpsId === id) ? null : id;
+            updateDisplay();
+        }
+
         function requestPosition(nodeId) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 alert('WebSocket not connected');
@@ -1257,14 +1301,17 @@
                     const a = hops[i], b = hops[i + 1];
                     if (a.lat && a.lon && b.lat && b.lon) {
                         const color = snrToColor(b.snr != null ? b.snr : 0);
-                        const opts = {color, weight: 3, opacity: 0.8};
-                        if (dashed) opts.dashArray = '6,4';
-                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], opts).addTo(map));
+                        const casingOpts = { pane: 'meshLineTrace', color: '#0b1220', weight: 8, opacity: 0.6, lineCap: 'butt', interactive: false };
+                        const topOpts = { pane: 'meshLineTrace', color, weight: 4, opacity: 0.95, lineCap: 'butt' };
+                        if (dashed) topOpts.dashArray = '6,4';
+                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], casingOpts).addTo(map));
+                        tracerouteLines.push(L.polyline([[a.lat, a.lon], [b.lat, b.lon]], topOpts).addTo(map));
                     } else {
                         console.log('[TRACEROUTE] Skipping line (no coords):', (a.name || a.id), '→', (b.name || b.id));
                     }
                 }
             }
+            ensureLinePanes();
             drawHopLines(route, false);
             drawHopLines(routeBack, true);
 
@@ -1567,10 +1614,26 @@
             });
         }
 
+        function ensureLinePanes() {
+            if (!map.getPane('meshLineCasing')) {
+                map.createPane('meshLineCasing');
+                map.getPane('meshLineCasing').style.zIndex = 410;
+            }
+            if (!map.getPane('meshLineTop')) {
+                map.createPane('meshLineTop');
+                map.getPane('meshLineTop').style.zIndex = 420;
+            }
+            if (!map.getPane('meshLineTrace')) {
+                map.createPane('meshLineTrace');
+                map.getPane('meshLineTrace').style.zIndex = 430;
+            }
+        }
+
         function updateDirectLines() {
             // Remove existing lines
             directLines.forEach(line => map.removeLayer(line));
             directLines = [];
+            ensureLinePanes();
 
             if (!document.getElementById('show-direct-lines').checked) return;
 
@@ -1585,11 +1648,15 @@
                 if (n.id === trackerId || n.hops !== 0 || n.via_mqtt) return;
                 if (!n.lat || !n.lon) return;
 
+                const casing = L.polyline(
+                    [[trackerNode.lat, trackerNode.lon], [n.lat, n.lon]],
+                    { pane: 'meshLineCasing', color: '#0b1220', weight: 6, opacity: 0.55, lineCap: 'round', interactive: false }
+                ).addTo(map);
                 const line = L.polyline(
                     [[trackerNode.lat, trackerNode.lon], [n.lat, n.lon]],
-                    { color: snrToColor(n.snr), weight: 2, opacity: 0.6 }
+                    { pane: 'meshLineTop', color: snrToColor(n.snr), weight: 3, opacity: 0.95, lineCap: 'round' }
                 ).addTo(map);
-                directLines.push(line);
+                directLines.push(casing, line);
             });
         }
 
@@ -1597,6 +1664,7 @@
             // Remove existing lines
             neighborLines.forEach(l => map.removeLayer(l));
             neighborLines = [];
+            ensureLinePanes();
 
             if (!document.getElementById('show-neighbor-links').checked) return;
 
@@ -1618,14 +1686,13 @@
                     const snr = nb.snr;
                     const color = snr >= 5 ? '#22c55e' : snr >= -5 ? '#eab308' : '#ef4444';
 
+                    const casing = L.polyline(
+                        [[fromNode.lat, fromNode.lon], [toNode.lat, toNode.lon]],
+                        { pane: 'meshLineCasing', color: '#0b1220', weight: 6.5, opacity: 0.55, lineCap: 'round', interactive: false }
+                    ).addTo(map);
                     const line = L.polyline(
                         [[fromNode.lat, fromNode.lon], [toNode.lat, toNode.lon]],
-                        {
-                            color: color,
-                            weight: 2.5,
-                            opacity: 0.85,
-                            dashArray: '6, 5'
-                        }
+                        { pane: 'meshLineTop', color: color, weight: 3, opacity: 0.95, dashArray: '6, 5', lineCap: 'round' }
                     ).addTo(map);
 
                     line.bindPopup(
@@ -1635,7 +1702,7 @@
                         </div>`
                     );
 
-                    neighborLines.push(line);
+                    neighborLines.push(casing, line);
                 });
             });
         }
@@ -1720,6 +1787,10 @@
             const showMqtt = document.getElementById('show-mqtt-nodes').checked;
             if (!showMqtt) {
                 filteredNodes = filteredNodes.filter(n => !n.via_mqtt);
+            }
+            const onlyLicensed = document.getElementById('filter-licensed').checked;
+            if (onlyLicensed) {
+                filteredNodes = filteredNodes.filter(n => n.is_licensed);
             }
             let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
             if (filterDirect) {
@@ -1821,7 +1892,7 @@
                     else if (age > 3600) dotColor = '#eab308';
                     const isHighlighted = n.id === highlightedNoGpsId;
                     return `
-                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
+                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}" style="cursor:pointer" onclick="toggleNoGpsDetails('${n.id}', event)">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
@@ -1830,6 +1901,7 @@
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
                             <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
                         </div>
+                        ${n.id === expandedNoGpsId ? `<div class="meta" style="margin-top:4px;border-top:1px solid rgba(128,128,128,0.3);padding-top:4px">${nodeExtraInfo(n)}</div>` : ''}
                     </div>`;
                 }).join('');
             } else {
@@ -1854,7 +1926,7 @@
                         YOUR TRACKER<br>
                         Role: ${escHtml(n.role || 'CLIENT')}<br>
                         Pos: ${escHtml(String(n.lat))}, ${escHtml(String(n.lon))}<br>
-                        Alt: ${escHtml(String(n.alt))}m
+                        ${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m
                     </div>`;
                 } else {
                     let distanceInfo = '';
@@ -1875,7 +1947,7 @@
                         Role: ${escHtml(n.role || 'CLIENT')}<br>
                         SNR: ${escHtml(String(n.snr))} dB<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
-                        ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}Alt: ${escHtml(String(n.alt))}m<br>
+                        ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
                         ${distanceInfo}<small>${n.source === 'memory' ? `<span title="Last packet received before service restart" style="color:#9ca3af;">📋 Seen: ${timeAgo(n.ts)} (from memory)</span>` : `Seen: ${timeAgo(n.ts)}`}</small>${tracerouteBtn}
                     </div>`;
@@ -2025,7 +2097,7 @@
 
         function restoreFilterStates() {
             var filters = [
-                'show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+                'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
                 'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
             ];
             filters.forEach(function(id) {
@@ -2041,7 +2113,7 @@
         }
 
         (function() {
-            ['show-mqtt-nodes', 'filter-direct', 'show-direct-lines',
+            ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
              'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
             ].forEach(function(id) {
                 var el = document.getElementById(id);

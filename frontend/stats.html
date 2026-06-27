@@ -21,7 +21,7 @@
     <meta charset="utf-8">
     <title>MeshPulse — Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
-    <link rel="stylesheet" href="styles.css?v=2.5.1">
+    <link rel="stylesheet" href="styles.css?v=2.5.2">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         * { box-sizing: border-box; }
@@ -348,6 +348,7 @@
     <div style="margin-top:12px;padding-top:12px;border-top:1px solid #1f2937">
         <div style="font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
             📊 Radio Stats History (from localStats · updates every ~30 min)
+            <button class="export-btn" onclick="exportRadioHistoryCSV()" style="float:right">📥 Export CSV</button>
         </div>
         <div id="radio-history-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;align-items:start">
 
@@ -435,6 +436,7 @@
     <div class="card-title">
         🔁 Relay Activity (24h)
         <span class="info-icon" data-tip="Hourly relay activity based on firmware numTxRelay counter from localStats snapshots (~30 min interval). Shows when your node is busiest as a relay.">ⓘ</span>
+        <button class="export-btn" onclick="exportChartCSV('relay-activity-chart','meshpulse-relay-activity','Hour','Relayed packets')">📥 Export CSV</button>
     </div>
     <div id="relay-activity-empty" style="color:#9ca3af;font-size:13px;
          text-align:center;padding:30px 0;display:none">
@@ -482,6 +484,7 @@
         <div class="card-title">
             📈 Hourly Activity (24h)
             <span class="info-icon" data-tip="Packets received per hour. Peaks = busy periods. Flat/zero = quiet time or connection issue.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('hourly-chart','meshpulse-hourly-activity','Hour','Packets')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-hourly"></div>
         <canvas id="hourly-chart" height="120"></canvas>
@@ -490,6 +493,7 @@
         <div class="card-title">
             📅 7-Day Daily Trend
             <span class="info-icon" data-tip="Daily packet totals for last 7 days. Growing trend = network expanding. Drops = possible issues.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('daily-chart','meshpulse-daily-trend','Day','Packets')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-daily"></div>
         <canvas id="daily-chart" height="120"></canvas>
@@ -502,6 +506,7 @@
         <div class="card-title">
             📋 Packet Types (24h)
             <span class="info-icon" data-tip="POSITION: GPS updates. TELEMETRY: battery/metrics. TEXT_MESSAGE: chat. NODEINFO: device info broadcasts.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('type-chart','meshpulse-packet-types','Type','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-types"></div>
         <canvas id="type-chart" height="120"></canvas>
@@ -510,6 +515,7 @@
         <div class="card-title">
             🔀 Hop Count Distribution (24h)
             <span class="info-icon" data-tip="How many hops each packet took to reach your node. 0 = direct connection. Higher hops = longer path through mesh. Many hops=5+ may indicate poor network coverage in some areas.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('hop-chart','meshpulse-hop-count','Hops','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-hops"></div>
         <canvas id="hop-chart" height="120"></canvas>
@@ -522,6 +528,7 @@
         <div class="card-title">
             📶 SNR Distribution (24h)
             <span class="info-icon" data-tip="Signal-to-Noise Ratio distribution of all received packets. Values above 0dB = good signal. Below -10dB = weak/edge of range. Most packets should be in the -5 to +10 dB range for healthy mesh.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('snr-chart','meshpulse-snr-distribution','SNR bucket','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-snr"></div>
         <canvas id="snr-chart" height="130"></canvas>
@@ -530,6 +537,7 @@
         <div class="card-title">
             📡 RSSI Distribution (24h)
             <span class="info-icon" data-tip="Received Signal Strength Indicator. Closer to 0 = stronger signal. Values below -110dBm indicate very weak signal at edge of range. Typical good range: -80 to -100dBm.">ⓘ</span>
+            <button class="export-btn" onclick="exportChartCSV('rssi-chart','meshpulse-rssi-distribution','RSSI bucket','Count')">📥 Export CSV</button>
         </div>
         <div class="data-win" id="dw-rssi"></div>
         <canvas id="rssi-chart" height="130"></canvas>
@@ -565,6 +573,7 @@
     <div class="card-title">
         ⚠️ Recent Anomalies (24h)
         <span class="info-icon" data-tip="HIGH_FREQUENCY_POSITION: GPS sent faster than every 30s. SPAM_MESSAGES: multiple messages within 5s. These waste airtime and may cause congestion.">ⓘ</span>
+        <button class="export-btn" onclick="exportAnomaliesCSV()">📥 Export CSV</button>
     </div>
     <div class="data-win" id="dw-anomalies"></div>
     <div class="anomaly-scroll" id="anomalies-list">
@@ -1070,6 +1079,33 @@ function downloadCSV(filename, headers, rows) {
     URL.revokeObjectURL(url);
 }
 
+function _findChart(canvasId) {
+    if (typeof Chart !== 'undefined' && Chart.getChart) {
+        const c = Chart.getChart(canvasId);
+        if (c) return c;
+    }
+    if (typeof charts !== 'undefined' && charts[canvasId]) return charts[canvasId];
+    const rhMap = { 'rh-chutil-chart':'chutil', 'rh-airtx-chart':'airtx', 'rh-relay-chart':'relay', 'rh-bad-chart':'bad' };
+    if (typeof _rhCharts !== 'undefined' && rhMap[canvasId] && _rhCharts[rhMap[canvasId]]) return _rhCharts[rhMap[canvasId]];
+    return null;
+}
+
+function exportChartCSV(canvasId, baseName, labelHeader, valueHeader) {
+    const chart = _findChart(canvasId);
+    if (!chart || !chart.data) { alert('No chart data to export yet.'); return; }
+    const labels = chart.data.labels || [];
+    const datasets = chart.data.datasets || [];
+    if (!labels.length) { alert('No data to export yet.'); return; }
+    let valueHeaders;
+    if (datasets.length === 1) valueHeaders = [datasets[0].label || valueHeader || 'Value'];
+    else valueHeaders = datasets.map((d, i) => d.label || ('Value ' + (i + 1)));
+    const headers = [labelHeader || 'Label', ...valueHeaders];
+    const rows = labels.map((lab, idx) =>
+        [lab, ...datasets.map(d => (d.data && d.data[idx] != null) ? d.data[idx] : '')]);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`${baseName}-${dateStr}.csv`, headers, rows);
+}
+
 // ── Export CSV ───────────────────────────────────────────────────
 async function exportAllNodesCSV() {
     let nodesWithGps = [], nodesNoGps = [];
@@ -1327,7 +1363,9 @@ function getAnomalySuggestion(type) {
 }
 
 // ── Anomalies ────────────────────────────────────────────────────
+let lastAnomalies = [];
 function renderAnomalies(anomalies) {
+    lastAnomalies = anomalies || [];
     const el = document.getElementById('anomalies-list');
     if (!anomalies.length) {
         el.innerHTML = '<div style="color:#6b7280;font-size:12px">✅ No anomalies detected in the last 24h.</div>';
@@ -1363,6 +1401,33 @@ function renderAnomalies(anomalies) {
             ${ignoreBtn}
         </div>`;
     }).join('');
+}
+
+function exportAnomaliesCSV() {
+    // Group by node + type, mirroring renderAnomalies()
+    const groups = {};
+    (lastAnomalies || []).forEach(a => {
+        const key = (a.node_id || '') + '|' + a.anomaly_type;
+        if (!groups[key]) groups[key] = { ...a, count: 1, latest_ts: a.ts };
+        else { groups[key].count++; if (a.ts > groups[key].latest_ts) groups[key].latest_ts = a.ts; }
+    });
+    const grouped = Object.values(groups).sort((a, b) => b.latest_ts - a.latest_ts);
+    const headers = ['Time (UTC)','Type','Severity','Node','ID','Count','Details','Suggested Fix'];
+    const rows = grouped.map(g => {
+        const t = g.latest_ts ? new Date(g.latest_ts * 1000).toISOString().replace('T',' ').slice(0,19) : '';
+        return [
+            t,
+            g.anomaly_type || '',
+            g.severity || 'warning',
+            g.node_name || g.node_id || '',
+            g.node_id || '',
+            g.count || 1,
+            g.details || '',
+            getAnomalySuggestion(g.anomaly_type) || ''
+        ];
+    });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`meshpulse-anomalies-${dateStr}.csv`, headers, rows);
 }
 
 function ignoreNodeFromStats(nodeId, nodeName) {
@@ -1565,6 +1630,26 @@ function updateRhWidgets(radioHistory, radioStats) {
 
     const note = document.getElementById('rh-empty-note');
     if (note) note.style.display = _rhData.length < 2 ? 'block' : 'none';
+}
+
+function exportRadioHistoryCSV() {
+    const data = (typeof _rhData !== 'undefined' && _rhData) ? _rhData : [];
+    if (!data.length) { alert('No radio history data yet — localStats arrives every ~30 min.'); return; }
+    const headers = ['Time (UTC)', 'Channel Util', 'Air TX', 'TX Relay (delta)', 'Bad Packets (delta)'];
+    const rows = data.map((r, i) => {
+        const t = r.ts ? new Date(r.ts * 1000).toISOString().replace('T', ' ').slice(0, 19) : '';
+        const relayDelta = i === 0 ? 0 : Math.max(0, (r.num_tx_relay || 0) - (data[i - 1].num_tx_relay || 0));
+        const badDelta   = i === 0 ? 0 : Math.max(0, (r.num_packets_rx_bad || 0) - (data[i - 1].num_packets_rx_bad || 0));
+        return [
+            t,
+            r.channel_utilization != null ? r.channel_utilization : '',
+            r.air_util_tx != null ? r.air_util_tx : '',
+            relayDelta,
+            badDelta
+        ];
+    });
+    const dateStr = new Date().toISOString().slice(0, 10);
+    downloadCSV(`meshpulse-radio-history-${dateStr}.csv`, headers, rows);
 }
 
 function renderRhChart(id) {
