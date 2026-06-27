@@ -239,6 +239,7 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
+        let expandedNoGpsId = null;
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
@@ -1187,6 +1188,12 @@
             window.location.href = '/meshtastic/messages.html';
         }
 
+        function toggleNoGpsDetails(id, ev) {
+            if (ev) ev.stopPropagation();
+            expandedNoGpsId = (expandedNoGpsId === id) ? null : id;
+            updateDisplay();
+        }
+
         function requestPosition(nodeId) {
             if (!ws || ws.readyState !== WebSocket.OPEN) {
                 alert('WebSocket not connected');
@@ -1885,7 +1892,7 @@
                     else if (age > 3600) dotColor = '#eab308';
                     const isHighlighted = n.id === highlightedNoGpsId;
                     return `
-                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}">
+                    <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}" style="cursor:pointer" onclick="toggleNoGpsDetails('${n.id}', event)">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
                         <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
@@ -1894,6 +1901,7 @@
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
                             <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
                         </div>
+                        ${n.id === expandedNoGpsId ? `<div class="meta" style="margin-top:4px;border-top:1px solid rgba(128,128,128,0.3);padding-top:4px">${nodeExtraInfo(n)}</div>` : ''}
                     </div>`;
                 }).join('');
             } else {
