@@ -102,6 +102,30 @@ class MeshPlugin:
         if self._manager:
             self._manager.send_mqtt_to_device(topic, data)
 
+    # ── Node Injection ──────────────────────────────────────────
+
+    def inject_node(self, node_data):
+        """Inject an external node into the main node store.
+
+        Lets a plugin add nodes from non-Meshtastic sources (e.g. Meshcore)
+        to the mapper's node store. The node becomes a first-class citizen:
+        TTL cleanup, JSON persistence and WebSocket broadcast apply.
+        Declare the 'node_inject' permission in the plugin manifest
+        (informational only, not enforced).
+
+        Args:
+            node_data (dict): Required: 'id' and 'net'. Optional: name,
+                lat, lon, alt, role, snr, rssi + extra fields (passed
+                through as-is).
+
+        Returns:
+            bool: True on success, False if rejected by core.
+        """
+        if not self._mapper:
+            self.log("inject_node error: no mapper reference")
+            return False
+        return self._mapper.inject_external_node(node_data)
+
     # ── WebSocket ───────────────────────────────────────────────
 
     async def broadcast_ws(self, data, channel=None):

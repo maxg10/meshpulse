@@ -2461,6 +2461,100 @@ class ListenBasedMapper:
             if f not in target and prev.get(f) is not None:
                 target[f] = prev[f]
 
+    def inject_external_node(self, node_data):
+        """Insert or update a node from an external source (plugin).
+        Used by plugins (e.g. Meshcore) to add non-Meshtastic nodes to the
+        main node store. Node becomes a first-class citizen: TTL cleanup,
+        JSON persistence and WebSocket broadcast all apply automatically.
+        Required fields: id, net. Optional: name, lat, lon, alt, role,
+        snr, rssi and any extra fields (passed through as-is)."""
+        try:
+            if not isinstance(node_data, dict):
+                print('[INJECT] rejected: node_data is not a dict')
+                return False
+            node_id = sanitize_str(node_data.get('id'), max_len=40) if node_data.get('id') else ''
+            if not node_id:
+                print('[INJECT] rejected: missing or empty id')
+                return False
+            net = sanitize_str(node_data.get('net'), max_len=8).upper() if node_data.get('net') else ''
+            if not net:
+                print(f'[INJECT] rejected: missing or empty net for {node_id}')
+                return False
+
+            name = sanitize_str(node_data.get('name'), max_len=50) if node_data.get('name') else node_id
+            role = sanitize_str(node_data.get('role', 'CLIENT'), max_len=30) or 'CLIENT'
+
+            lat = node_data.get('lat')
+            lon = node_data.get('lon')
+            has_pos = False
+            if lat is not None and lon is not None:
+                if (isinstance(lat, (int, float)) and not isinstance(lat, bool)
+                        and isinstance(lon, (int, float)) and not isinstance(lon, bool)
+                        and -90 <= lat <= 90 and -180 <= lon <= 180
+                        and not (lat == 0 and lon == 0)):
+                    lat = round(float(lat), 6)
+                    lon = round(float(lon), 6)
+                    has_pos = True
+                else:
+                    print(f'[INJECT] invalid coords for {node_id}, treating as no-position')
+
+            now = int(time.time())
+            entry = {
+                'id': node_id,
+                'name': name,
+                'net': net,
+                'role': role,
+                'snr': node_data.get('snr'),
+                'hops': None,
+                'via_mqtt': False,
+                'ts': now,
+                'seen_at': now,
+                'source': 'plugin'
+            }
+            if has_pos:
+                alt = node_data.get('alt')
+                entry['lat'] = lat
+                entry['lon'] = lon
+                entry['alt'] = alt if isinstance(alt, (int, float)) and not isinstance(alt, bool) else 0
+            # Pass through extra fields (pubkey etc.) not already handled
+            for k, v in node_data.items():
+                if k in entry or k in ('lat', 'lon', 'alt') or v is None:
+                    continue
+                entry[k] = v
+
+            prev = self.nodes.get(node_id) or self.nodes_no_position.get(node_id)
+            is_new = prev is None
+            self._carry_sticky_fields(entry, prev)
+            # lat/lon/alt are not in NODE_STICKY_FIELDS — carry a previously
+            # known position forward so a position-less update does not wipe it
+            if not has_pos and prev and prev.get('lat') is not None and prev.get('lon') is not None:
+                entry['lat'] = prev['lat']
+                entry['lon'] = prev['lon']
+                entry['alt'] = prev.get('alt', 0)
+                has_pos = True
+
+            if has_pos:
+                self.nodes[node_id] = entry
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+            else:
+                self.nodes_no_position[node_id] = entry
+
+            marker = '✚' if is_new else '↻'
+            coords = f" @ {entry['lat']:.4f},{entry['lon']:.4f}" if has_pos else ''
+            print(f"[INJECT] {marker} {node_id} ({net}) {name[:20]}{coords}")
+
+            if has_pos:
+                try:
+                    asyncio.get_running_loop()
+                    asyncio.create_task(self.broadcast_node_update(entry))
+                except RuntimeError:
+                    asyncio.run(self.broadcast_node_update(entry))
+            return True
+        except Exception as e:
+            print(f'[INJECT] rejected: error injecting node: {e}')
+        return False
+
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
         try:
