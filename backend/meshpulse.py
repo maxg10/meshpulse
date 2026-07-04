@@ -2555,6 +2555,20 @@ class ListenBasedMapper:
             print(f'[INJECT] rejected: error injecting node: {e}')
         return False
 
+    async def _temp_inject_smoke_test(self):
+        """TEMP: smoke test for inject_external_node(). REMOVE AFTER TESTING."""
+        await asyncio.sleep(15)
+        ok = self.inject_external_node({
+            'id': 'mc!deadbeef',
+            'net': 'MC',
+            'name': 'Fake Meshcore Test',
+            'lat': 44.9600,
+            'lon': 8.2550,
+            'role': 'REPEATER',
+            'pubkey': 'deadbeef' * 8,
+        })
+        print(f"[TEMP-SMOKE] inject_external_node returned: {ok}")
+
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
         try:
@@ -5518,6 +5532,11 @@ async def start_websocket_server():
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
     async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
         asyncio.create_task(flush_packet_events())
+        async def _temp_smoke_when_mapper_ready():  # TEMP SMOKE TEST — REMOVE
+            while mapper is None:
+                await asyncio.sleep(1)
+            await mapper._temp_inject_smoke_test()
+        asyncio.create_task(_temp_smoke_when_mapper_ready())  # TEMP SMOKE TEST — REMOVE
         await asyncio.Future()  # Run forever
 
 
