@@ -27,6 +27,19 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
     <link rel="stylesheet" href="styles.css?v=2.5.4">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <style>
+    /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
+       Leaflet positions the icon element with an inline translate3d transform, so
+       the rotation lives on a ::before pseudo-element, not the marker div itself
+       (also keeps relay badges appended to the marker element untilted). */
+    .marker.net-mc{background:transparent;border:none;border-radius:0}
+    .marker.net-mc::before{content:'';position:absolute;inset:-2px;box-sizing:border-box;
+        border:2px solid #333;border-radius:2px;transform:rotate(45deg);transform-origin:center}
+    .marker.net-mc.green::before{background:#22c55e}
+    .marker.net-mc.yellow::before{background:#eab308}
+    .marker.net-mc.red::before{background:#ef4444}
+    .marker.net-mc.relay::before{border-style:dashed}
+    </style>
 </head>
 <body>
 <nav id="topnav">
@@ -115,6 +128,12 @@
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="showNetMT" checked onchange="updateDisplay()"> Meshtastic
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="showNetMC" checked onchange="updateDisplay()"> Meshcore
             </label><br>
           </div>
 
@@ -1348,7 +1367,8 @@
             else if (age > 3600) color = 'yellow';
             const shape = (node.role === 'ROUTER' || node.role === 'ROUTER_LATE') ? 'router' : '';
             const relay = (node.hops != null && node.hops > 0) ? 'relay' : '';
-            return `marker ${color} ${shape} ${relay}`;
+            const net = (node.net || 'MT') === 'MC' ? 'net-mc' : '';
+            return `marker ${color} ${shape} ${relay} ${net}`;
         }
         
         function getOffset(node, allNodesArray) {
@@ -1793,6 +1813,13 @@
                 filteredNodes = filteredNodes.filter(n => n.is_licensed);
             }
             let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
+            const showNetMT = document.getElementById('showNetMT').checked;
+            const showNetMC = document.getElementById('showNetMC').checked;
+            if (!showNetMT || !showNetMC) {
+                const netVisible = n => ((n.net || 'MT') === 'MC') ? showNetMC : showNetMT;
+                filteredNodes = filteredNodes.filter(netVisible);
+                filteredNoGps = filteredNoGps.filter(netVisible);
+            }
             if (filterDirect) {
                 filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
                 filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
@@ -1944,8 +1971,8 @@
                     pop = `<div class="node-popup">
                         <b>${escHtml(n.name)}</b><br>
                         ID: ${escHtml(n.id)}<br>
-                        Role: ${escHtml(n.role || 'CLIENT')}<br>
-                        SNR: ${escHtml(String(n.snr))} dB<br>
+                        ${(n.net || 'MT') === 'MC' ? 'Net: Meshcore<br>' : ''}Role: ${escHtml(n.role || 'CLIENT')}<br>
+                        SNR: ${n.snr != null ? escHtml(String(n.snr)) + ' dB' : '–'}<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
@@ -2098,7 +2125,8 @@
         function restoreFilterStates() {
             var filters = [
                 'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
-                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
+                'showNetMT', 'showNetMC'
             ];
             filters.forEach(function(id) {
                 var saved = localStorage.getItem('mesh-filter-' + id);
@@ -2114,7 +2142,8 @@
 
         (function() {
             ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
-             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
+             'showNetMT', 'showNetMC'
             ].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', function() {
