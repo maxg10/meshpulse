@@ -593,6 +593,15 @@ Pull requests welcome! Areas for improvement:
 This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
 
 
+## Software Bill of Materials (SBOM)
+
+Every GitHub release includes SBOM files in CycloneDX and SPDX JSON formats, generated automatically with [Syft](https://github.com/anchore/syft). You can scan them for known vulnerabilities with tools like [grype](https://github.com/anchore/grype):
+
+```bash
+grype sbom:meshpulse-vX.Y.Z-sbom.cdx.json
+```
+
+
 ## Author
 
 **Mariusz "Max" Gieparda**
