@@ -6,17 +6,25 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   sbom:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
 
       - name: Install Syft
-        run: curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+        id: syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
+      - name: Add Syft to PATH
+        env:
+          SYFT_CMD: ${{ steps.syft.outputs.cmd }}
+        run: ln -sf "$SYFT_CMD" /usr/local/bin/syft
 
       - name: Generate SBOM (CycloneDX JSON)
         run: syft dir:. --source-name meshpulse --source-version "${GITHUB_REF_NAME}" -o cyclonedx-json > meshpulse-${GITHUB_REF_NAME}-sbom.cdx.json
@@ -32,7 +40,7 @@ jobs:
 
       - name: Upload SBOMs as workflow artifact (manual runs)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: sbom
           path: meshpulse-*-sbom.*.json

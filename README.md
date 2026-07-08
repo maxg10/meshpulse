@@ -1,4 +1,3 @@
-cat README.md 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/maxg10/meshpulse/badge)](https://scorecard.dev/viewer/?uri=github.com/maxg10/meshpulse)
 
