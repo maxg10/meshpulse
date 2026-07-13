@@ -121,6 +121,30 @@ send_restart = False            # Legacy flag - kept for compatibility, no longe
 send_restart_no_nodes = False   # Legacy flag - kept for compatibility, no longer used with Python API
 
 
+def parse_tcp_target(raw):
+    """Parse 'host', 'host:port', or '[ipv6]:port' into (host, port).
+    Port defaults to 4403 (Meshtastic standard).
+    Returns (host, None) when the port part is present but invalid."""
+    raw = (raw or '').strip()
+    default_port = 4403
+    if raw.startswith('['):            # [ipv6]:port or [ipv6]
+        host, _, rest = raw[1:].partition(']')
+        port = rest[1:] if rest.startswith(':') else ''
+    elif raw.count(':') == 1:          # host:port
+        host, _, port = raw.partition(':')
+    else:                              # bare host OR bare ipv6 (multiple colons)
+        host, port = raw, ''
+    if port:
+        try:
+            p = int(port)
+            if not (1 <= p <= 65535):
+                raise ValueError
+        except ValueError:
+            return host, None          # None signals invalid port to caller
+        return host, p
+    return host, default_port
+
+
 class TCPMeshtasticInterface:
     """Wraps meshtastic.tcp_interface.TCPInterface for use as a TCP listener/sender."""
 
@@ -3530,14 +3554,26 @@ class ListenBasedMapper:
         clean_interval = 3600
         restart_count = 0
 
+        tcp_host, tcp_port = parse_tcp_target(self.host)
+        if tcp_port is None:
+            print(f"[TCP] Invalid port in '{self.host}', must be 1-65535")
+            try:
+                asyncio.run(self.broadcast_connection_status(
+                    'failed', f"Invalid port in '{self.host}', must be 1-65535"))
+            except Exception:
+                pass
+            # Bad target won't fix itself — wait for a connection change from the web UI
+            restart_event.wait()
+            return
+
         while True:
             tcp_iface = None
             try:
-                print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
-                tcp_iface = TCPMeshtasticInterface(self.host)
+                print(f"[TCP] Connecting to {tcp_host}:{tcp_port} (attempt #{restart_count})...")
+                tcp_iface = TCPMeshtasticInterface(tcp_host, tcp_port)
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
-                print(f"[TCP] Connected to {self.host}")
+                print(f"[TCP] Connected to {tcp_host}:{tcp_port}")
                 if plugin_manager:
                     plugin_manager.set_interface(tcp_iface)
                 self._last_radio_packet_time = time.time()
@@ -3930,8 +3966,11 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             loop = asyncio.get_event_loop()
 
             def _do_tcp_send():
+                tcp_host, tcp_port = parse_tcp_target(mapper.host)
+                if tcp_port is None:
+                    return False, f"Invalid port in '{mapper.host}', must be 1-65535"
                 iface = meshtastic.tcp_interface.TCPInterface(
-                    hostname=mapper.host, noProto=False
+                    hostname=tcp_host, portNumber=tcp_port, noProto=False
                 )
                 try:
                     iface.sendText(
@@ -4269,6 +4308,15 @@ async def handle_connection_change(data, websocket):
             'message': 'No host specified'
         }, ensure_ascii=False))
         return
+    if connection_type == 'tcp':
+        _, tcp_port = parse_tcp_target(host)
+        if tcp_port is None:
+            print(f"[TCP] Invalid port in '{host}', must be 1-65535")
+            await websocket.send(json.dumps({
+                'type': 'connection_status', 'status': 'failed',
+                'message': f"Invalid port in '{host}', must be 1-65535"
+            }, ensure_ascii=False))
+            return
 
     print(f"[WS] Connection change: {connection_type} {host or ''}")
 

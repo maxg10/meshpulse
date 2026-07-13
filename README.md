@@ -104,6 +104,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
+`TRACKER_HOST` accepts `host` or `host:port` (default port 4403, e.g. `host.docker.internal:4405` for meshtasticd virtual nodes).
+
 Open: http://localhost/meshpulse/
 
 ### Updating
