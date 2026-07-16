@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.0
+- Feature: Plugin node-injection API — `inject_node()` in the plugin API (core
+  `inject_external_node()`) lets plugins add nodes from non-Meshtastic sources
+  to the main node store. Injected nodes get TTL cleanup, nodes.json persistence,
+  WebSocket broadcast and map rendering automatically. New `node_inject`
+  permission string.
+- Feature: Multi-network support — nodes carry a `net` field (absent/'MT' =
+  Meshtastic, 'MC' = Meshcore). Non-Meshtastic nodes render as diamond markers;
+  Meshtastic/Meshcore layer toggles in Mesh Info (persisted in localStorage).
+- Feature: TCP connection accepts `host:port` (default 4403) — supports
+  meshtasticd virtual nodes listening on custom ports.
+- Feature: Supply-chain security — SBOM generation on release (CycloneDX + SPDX
+  via Syft), OpenSSF Scorecard workflow, SECURITY.md, Dependabot updates.
+- Fix: Node popup showed "SNR: null dB" for nodes without SNR; now shows a dash.
+
 ## v2.5.4
 - Feature: Weather Overlay plugin — environment sensor data (temperature, humidity,
   pressure) as map labels and heatmap overlay. Labels visible at zoom >= 10,

@@ -8,7 +8,8 @@ Single Python file (~1225 lines), class `ListenBasedMapper`.
 - **Four parsers**: `parse_node_info()`, `parse_position_update()`, `parse_telemetry_update()`, `parse_text_message()`
 - **Dual data stores**: `self.nodes` (with GPS) and `self.nodes_no_position` (without GPS) — dicts keyed by node ID e.g. `!7b6c8272`
 - **Messages storage**: `self.messages` list, up to 50 entries, newest first, persisted to `nodes.json`
-- **Source tracking**: `source` field — `'memory'` on load, `'live'` on real packet
+- **Source tracking**: `source` field — `'memory'` on load, `'live'` on real packet, `'plugin'` for nodes injected via `inject_external_node()`
+- **Network tag**: `net` field — optional string; absent or `'MT'` = Meshtastic, `'MC'` = Meshcore. Set by core for nodes injected by plugins
 - **JSON output**: Writes `nodes.json` every 60s. Stale nodes cleaned every hour based on `max_age` (default 48h)
 - **WebSocket server**: Async on port 8765, separate thread via `threading.Thread` + `asyncio`
 
@@ -52,7 +53,7 @@ fields: `channelUtilization`, `airUtilTx`, `numPacketsTx`, `numPacketsRx`, `numP
 Vanilla JS, Leaflet.js v1.9.4. No build tools.
 
 - **Data fetching**: WebSocket primary → JSON polling fallback (15s), exponential backoff (max 5 attempts)
-- **Node markers**: Color by age (green <1h, yellow 1-6h, red >6h), shape by role (square=router, circle=client), dashed=relayed
+- **Node markers**: Color by age (green <1h, yellow 1-6h, red >6h), shape by role (square=router, circle=client), dashed=relayed; diamond=non-Meshtastic (`net != 'MT'`), toggleable per network in Mesh Info
 - **UI panels**: Mesh Stats, No-GPS, Radio, Messages, Legend, LOS, Traceroute — all collapsible
 
 ## Data Flow
