@@ -39,6 +39,9 @@
     .marker.net-mc.yellow::before{background:#eab308}
     .marker.net-mc.red::before{background:#ef4444}
     .marker.net-mc.relay::before{border-style:dashed}
+    /* Local Meshcore companion (mc_self): diamond in the same own-node blue as .marker.tracker-home */
+    .marker.net-mc.tracker-home{background:transparent;border:none;border-radius:0}
+    .marker.net-mc.tracker-home::before{background:#3b82f6;border-color:#1d4ed8}
     </style>
 </head>
 <body>
@@ -1361,6 +1364,9 @@
             if (isOwnTracker(node.id)) {
                 return 'marker tracker-home';
             }
+            if (node.mc_self) {
+                return 'marker net-mc tracker-home';
+            }
             const age = Math.floor(Date.now()/1000) - node.ts;
             let color = 'green';
             if (age > 21600) color = 'red';
@@ -1525,6 +1531,10 @@
 
             // Clear timeout if we get a status update (handled in onmessage)
             window._tcpConnectTimeout = t;
+        }
+
+        function fmtSnr(snr) {
+            return snr != null ? escHtml(String(snr)) + ' dB' : '–';
         }
 
         function snrToColor(snr) {
@@ -1740,7 +1750,7 @@
                     line.bindPopup(
                         `<div class="node-popup">
                             <b>${escHtml(fromNode.name)} ↔ ${escHtml(toNode.name)}</b><br>
-                            SNR: ${snr} dB
+                            SNR: ${fmtSnr(snr)}
                         </div>`
                     );
 
@@ -1944,7 +1954,7 @@
                     <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}" style="cursor:pointer" onclick="toggleNoGpsDetails('${n.id}', event)">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
-                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
+                        <div class="meta">SNR: ${fmtSnr(n.snr)} | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
@@ -1993,8 +2003,8 @@
                     pop = `<div class="node-popup">
                         <b>${escHtml(n.name)}</b><br>
                         ID: ${escHtml(n.id)}<br>
-                        ${(n.net || 'MT') === 'MC' ? 'Net: Meshcore<br>' : ''}Role: ${escHtml(n.role || 'CLIENT')}<br>
-                        SNR: ${n.snr != null ? escHtml(String(n.snr)) + ' dB' : '–'}<br>
+                        ${(n.net || 'MT') === 'MC' ? 'Net: Meshcore<br>' : ''}${((n.net || 'MT') === 'MC' && n.mc_type) ? `Type: ${escHtml(n.mc_type)}` : `Role: ${escHtml(n.role || 'CLIENT')}`}<br>
+                        SNR: ${fmtSnr(n.snr)}<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
