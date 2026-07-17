@@ -5631,16 +5631,15 @@ if __name__ == '__main__':
             port = restart_config.get('port')
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
-        # Initialize plugin system (once, before mapper loop)
+        # Initialize plugin system (once, before mapper loop) — plugins are
+        # enabled later, after the first mapper instance exists
         if PLUGINS_AVAILABLE:
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
-            plugin_manager.load_enabled_plugins()
-            t = threading.Thread(target=_check_plugin_updates, daemon=True)
-            t.start()
 
         # Mapper loop with runtime restart support
         _watchdog_started = False
+        _plugins_loaded = False
         while True:
             mapper = ListenBasedMapper(
                 connection_type=connection_type,
@@ -5653,6 +5652,15 @@ if __name__ == '__main__':
             # instance — plugins resolve their mapper through it lazily
             if plugin_manager:
                 plugin_manager.mapper = mapper
+                # Enable plugins exactly once per process, now that a live
+                # mapper exists — on_enable() can inject nodes immediately.
+                # Guarded: connection restarts re-enter this loop and must
+                # not re-enable plugins (would restart their workers).
+                if not _plugins_loaded:
+                    _plugins_loaded = True
+                    plugin_manager.load_enabled_plugins()
+                    t = threading.Thread(target=_check_plugin_updates, daemon=True)
+                    t.start()
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()
