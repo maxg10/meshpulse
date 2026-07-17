@@ -3,6 +3,32 @@
     "updated": "2026-04-19T20:00:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
+	    {
+            "id": "maxg10/meshcore",
+            "name": "Meshcore",
+            "version": "1.0.0",
+            "description": "Show Meshcore network nodes on the MeshPulse map alongside Meshtastic. Connects to a Meshcore companion node over USB serial or TCP and injects its known nodes as diamond markers, with Meshtastic/Meshcore layer toggles. Read-only in v1 — no messages, telemetry or node configuration.",
+            "author": {
+                "name": "Mariusz \"Max\" Gieparda",
+                "url": "https://meshpulse.app",
+                "github": "maxg10"
+            },
+            "license": "GPL-3.0",
+            "min_mapper_version": "2.6.0",
+            "tested_up_to": "2.6.0",
+            "type": "backend",
+            "category": "connectivity",
+            "icon": "💎",
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/meshcore-v1.0.0/meshcore-1.0.0.meshplugin",
+            "download_size": 4393,
+            "dependencies_note": "Requires meshcore library (auto-installed) + a Meshcore companion node",
+            "documentation": "https://github.com/maxg10/meshplugins/blob/main/meshcore/README.md",
+            "homepage": "https://github.com/maxg10/meshplugins/tree/main/meshcore",
+            "repository": "https://github.com/maxg10/meshplugins",
+            "changelog": "v1.0.0: Initial release — read-only node ingestion from Meshcore companion (serial/TCP), periodic contact sync, live advert subscription",
+            "screenshots": [],
+            "tags": ["meshcore", "multi-network", "map", "connectivity"]
+        },
         {
             "id": "maxg10/elevation-map",
             "name": "Elevation Map",
