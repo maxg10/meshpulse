@@ -25,8 +25,24 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.5.4">
+    <link rel="stylesheet" href="styles.css?v=2.6.0">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
+    <style>
+    /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
+       Leaflet positions the icon element with an inline translate3d transform, so
+       the rotation lives on a ::before pseudo-element, not the marker div itself
+       (also keeps relay badges appended to the marker element untilted). */
+    .marker.net-mc{background:transparent;border:none;border-radius:0}
+    .marker.net-mc::before{content:'';position:absolute;inset:-2px;box-sizing:border-box;
+        border:2px solid #333;border-radius:2px;transform:rotate(45deg);transform-origin:center}
+    .marker.net-mc.green::before{background:#22c55e}
+    .marker.net-mc.yellow::before{background:#eab308}
+    .marker.net-mc.red::before{background:#ef4444}
+    .marker.net-mc.relay::before{border-style:dashed}
+    /* Local Meshcore companion (mc_self): diamond in the same own-node blue as .marker.tracker-home */
+    .marker.net-mc.tracker-home{background:transparent;border:none;border-radius:0}
+    .marker.net-mc.tracker-home::before{background:#3b82f6;border-color:#1d4ed8}
+    </style>
 </head>
 <body>
 <nav id="topnav">
@@ -71,7 +87,7 @@
         <span id="connection-status" style="color:#eab308;" title="Unknown">●</span></small><br>
         <div id="serial-info"><small><span id="serial-port">-</span> <span style="color:#888;">(Auto)</span></small></div>
         <div id="tcp-info" style="display:none;">
-            <input type="text" id="tcp-host" placeholder="192.168.1.100" size="14">
+            <input type="text" id="tcp-host" placeholder="192.168.1.100:4403" size="18" style="width:20ch">
             <button onclick="connectTCP()">Connect</button>
         </div>
         <label class="filter-label" style="margin-top:4px;">
@@ -115,6 +131,12 @@
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="show-los-panel" onchange="updateDisplay()"> Show LOS on click
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="showNetMT" checked onchange="updateDisplay()"> Meshtastic
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="showNetMC" checked onchange="updateDisplay()"> Meshcore
             </label><br>
           </div>
 
@@ -1342,13 +1364,17 @@
             if (isOwnTracker(node.id)) {
                 return 'marker tracker-home';
             }
+            if (node.mc_self) {
+                return 'marker net-mc tracker-home';
+            }
             const age = Math.floor(Date.now()/1000) - node.ts;
             let color = 'green';
             if (age > 21600) color = 'red';
             else if (age > 3600) color = 'yellow';
             const shape = (node.role === 'ROUTER' || node.role === 'ROUTER_LATE') ? 'router' : '';
             const relay = (node.hops != null && node.hops > 0) ? 'relay' : '';
-            return `marker ${color} ${shape} ${relay}`;
+            const net = (node.net || 'MT') === 'MC' ? 'net-mc' : '';
+            return `marker ${color} ${shape} ${relay} ${net}`;
         }
         
         function getOffset(node, allNodesArray) {
@@ -1439,9 +1465,31 @@
                 msgEl.textContent = 'Enter an IP address';
                 return;
             }
-            // Accept IPv4 or hostname
-            if (!/^[\w.-]+$/.test(host)) {
+            // Accept 'host', 'host:port', '[ipv6]:port' — mirrors backend parse_tcp_target()
+            // (validation only; the raw string is sent to the backend, which does the parsing)
+            let hostPart = host, portPart = '';
+            if (host.startsWith('[')) {                    // [ipv6]:port or [ipv6]
+                const end = host.indexOf(']');
+                if (end === -1) {
+                    msgEl.textContent = 'Invalid address';
+                    return;
+                }
+                hostPart = host.slice(1, end);
+                const rest = host.slice(end + 1);
+                if (rest.startsWith(':')) portPart = rest.slice(1);
+                else if (rest) {
+                    msgEl.textContent = 'Invalid address';
+                    return;
+                }
+            } else if ((host.match(/:/g) || []).length === 1) {  // host:port
+                [hostPart, portPart] = host.split(':');
+            }                                              // else: bare host or bare ipv6
+            if (!/^[\w.:-]+$/.test(hostPart)) {
                 msgEl.textContent = 'Invalid address';
+                return;
+            }
+            if (portPart !== '' && (!/^\d+$/.test(portPart) || +portPart < 1 || +portPart > 65535)) {
+                msgEl.textContent = 'Invalid port (1-65535)';
                 return;
             }
 
@@ -1483,6 +1531,10 @@
 
             // Clear timeout if we get a status update (handled in onmessage)
             window._tcpConnectTimeout = t;
+        }
+
+        function fmtSnr(snr) {
+            return snr != null ? escHtml(String(snr)) + ' dB' : '–';
         }
 
         function snrToColor(snr) {
@@ -1698,7 +1750,7 @@
                     line.bindPopup(
                         `<div class="node-popup">
                             <b>${escHtml(fromNode.name)} ↔ ${escHtml(toNode.name)}</b><br>
-                            SNR: ${snr} dB
+                            SNR: ${fmtSnr(snr)}
                         </div>`
                     );
 
@@ -1793,6 +1845,13 @@
                 filteredNodes = filteredNodes.filter(n => n.is_licensed);
             }
             let filteredNoGps = showMqtt ? allNodesNoGps : allNodesNoGps.filter(n => !n.via_mqtt);
+            const showNetMT = document.getElementById('showNetMT').checked;
+            const showNetMC = document.getElementById('showNetMC').checked;
+            if (!showNetMT || !showNetMC) {
+                const netVisible = n => ((n.net || 'MT') === 'MC') ? showNetMC : showNetMT;
+                filteredNodes = filteredNodes.filter(netVisible);
+                filteredNoGps = filteredNoGps.filter(netVisible);
+            }
             if (filterDirect) {
                 filteredNodes = filteredNodes.filter(n => (n.hops === 0 && !n.via_mqtt) || isOwnTracker(n.id));
                 filteredNoGps = filteredNoGps.filter(n => n.hops === 0);
@@ -1895,7 +1954,7 @@
                     <div class="no-gps-item${isHighlighted ? ' search-result-highlight' : ''}" style="cursor:pointer" onclick="toggleNoGpsDetails('${n.id}', event)">
                         <div class="name"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dotColor};margin-right:5px;"></span>${escHtml(n.name)}</div>
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
-                        <div class="meta">SNR: ${n.snr} dB | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
+                        <div class="meta">SNR: ${fmtSnr(n.snr)} | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
                             <button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
@@ -1944,8 +2003,8 @@
                     pop = `<div class="node-popup">
                         <b>${escHtml(n.name)}</b><br>
                         ID: ${escHtml(n.id)}<br>
-                        Role: ${escHtml(n.role || 'CLIENT')}<br>
-                        SNR: ${escHtml(String(n.snr))} dB<br>
+                        ${(n.net || 'MT') === 'MC' ? 'Net: Meshcore<br>' : ''}${((n.net || 'MT') === 'MC' && n.mc_type) ? `Type: ${escHtml(n.mc_type)}` : `Role: ${escHtml(n.role || 'CLIENT')}`}<br>
+                        SNR: ${fmtSnr(n.snr)}<br>
                         RSSI: ${n.rssi != null ? escHtml(String(n.rssi)) + (n.hops === 0 ? ' dBm' : ' dBm (last hop)') : '-'}<br>
                         ${n.battery_level != null ? `Battery: ${batteryIcon(n.battery_level)}<br>` : ''}${n.voltage != null ? `Voltage: ${escHtml(String(n.voltage))}V<br>` : ''}${n.temperature != null ? `Temp: ${escHtml(String(n.temperature))}°C<br>` : ''}${n.uptime_seconds != null ? `Uptime: ${formatUptime(n.uptime_seconds)}<br>` : ''}${nodeExtraInfo(n)}Alt: ${escHtml(String(n.alt))}m<br>
                         Hops: ${n.hops != null ? escHtml(String(n.hops)) : '?'} ${n.via_mqtt ? '<span title="Received via MQTT bridge">🌐 MQTT</span>' : (n.hops != null ? '<span title="Received via radio">📡</span>' : '')}<br>
@@ -2098,7 +2157,8 @@
         function restoreFilterStates() {
             var filters = [
                 'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
-                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+                'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
+                'showNetMT', 'showNetMC'
             ];
             filters.forEach(function(id) {
                 var saved = localStorage.getItem('mesh-filter-' + id);
@@ -2114,7 +2174,8 @@
 
         (function() {
             ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
-             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel'
+             'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
+             'showNetMT', 'showNetMC'
             ].forEach(function(id) {
                 var el = document.getElementById(id);
                 if (el) el.addEventListener('change', function() {

@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.5.4'
+MAPPER_VERSION = '2.6.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -119,6 +119,30 @@ restart_config = {}
 traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
 send_restart = False            # Legacy flag - kept for compatibility, no longer used with Python API
 send_restart_no_nodes = False   # Legacy flag - kept for compatibility, no longer used with Python API
+
+
+def parse_tcp_target(raw):
+    """Parse 'host', 'host:port', or '[ipv6]:port' into (host, port).
+    Port defaults to 4403 (Meshtastic standard).
+    Returns (host, None) when the port part is present but invalid."""
+    raw = (raw or '').strip()
+    default_port = 4403
+    if raw.startswith('['):            # [ipv6]:port or [ipv6]
+        host, _, rest = raw[1:].partition(']')
+        port = rest[1:] if rest.startswith(':') else ''
+    elif raw.count(':') == 1:          # host:port
+        host, _, port = raw.partition(':')
+    else:                              # bare host OR bare ipv6 (multiple colons)
+        host, port = raw, ''
+    if port:
+        try:
+            p = int(port)
+            if not (1 <= p <= 65535):
+                raise ValueError
+        except ValueError:
+            return host, None          # None signals invalid port to caller
+        return host, p
+    return host, default_port
 
 
 class TCPMeshtasticInterface:
@@ -2461,6 +2485,100 @@ class ListenBasedMapper:
             if f not in target and prev.get(f) is not None:
                 target[f] = prev[f]
 
+    def inject_external_node(self, node_data):
+        """Insert or update a node from an external source (plugin).
+        Used by plugins (e.g. Meshcore) to add non-Meshtastic nodes to the
+        main node store. Node becomes a first-class citizen: TTL cleanup,
+        JSON persistence and WebSocket broadcast all apply automatically.
+        Required fields: id, net. Optional: name, lat, lon, alt, role,
+        snr, rssi and any extra fields (passed through as-is)."""
+        try:
+            if not isinstance(node_data, dict):
+                print('[INJECT] rejected: node_data is not a dict')
+                return False
+            node_id = sanitize_str(node_data.get('id'), max_len=40) if node_data.get('id') else ''
+            if not node_id:
+                print('[INJECT] rejected: missing or empty id')
+                return False
+            net = sanitize_str(node_data.get('net'), max_len=8).upper() if node_data.get('net') else ''
+            if not net:
+                print(f'[INJECT] rejected: missing or empty net for {node_id}')
+                return False
+
+            name = sanitize_str(node_data.get('name'), max_len=50) if node_data.get('name') else node_id
+            role = sanitize_str(node_data.get('role', 'CLIENT'), max_len=30) or 'CLIENT'
+
+            lat = node_data.get('lat')
+            lon = node_data.get('lon')
+            has_pos = False
+            if lat is not None and lon is not None:
+                if (isinstance(lat, (int, float)) and not isinstance(lat, bool)
+                        and isinstance(lon, (int, float)) and not isinstance(lon, bool)
+                        and -90 <= lat <= 90 and -180 <= lon <= 180
+                        and not (lat == 0 and lon == 0)):
+                    lat = round(float(lat), 6)
+                    lon = round(float(lon), 6)
+                    has_pos = True
+                else:
+                    print(f'[INJECT] invalid coords for {node_id}, treating as no-position')
+
+            now = int(time.time())
+            entry = {
+                'id': node_id,
+                'name': name,
+                'net': net,
+                'role': role,
+                'snr': node_data.get('snr'),
+                'hops': None,
+                'via_mqtt': False,
+                'ts': now,
+                'seen_at': now,
+                'source': 'plugin'
+            }
+            if has_pos:
+                alt = node_data.get('alt')
+                entry['lat'] = lat
+                entry['lon'] = lon
+                entry['alt'] = alt if isinstance(alt, (int, float)) and not isinstance(alt, bool) else 0
+            # Pass through extra fields (pubkey etc.) not already handled
+            for k, v in node_data.items():
+                if k in entry or k in ('lat', 'lon', 'alt') or v is None:
+                    continue
+                entry[k] = v
+
+            prev = self.nodes.get(node_id) or self.nodes_no_position.get(node_id)
+            is_new = prev is None
+            self._carry_sticky_fields(entry, prev)
+            # lat/lon/alt are not in NODE_STICKY_FIELDS — carry a previously
+            # known position forward so a position-less update does not wipe it
+            if not has_pos and prev and prev.get('lat') is not None and prev.get('lon') is not None:
+                entry['lat'] = prev['lat']
+                entry['lon'] = prev['lon']
+                entry['alt'] = prev.get('alt', 0)
+                has_pos = True
+
+            if has_pos:
+                self.nodes[node_id] = entry
+                if node_id in self.nodes_no_position:
+                    del self.nodes_no_position[node_id]
+            else:
+                self.nodes_no_position[node_id] = entry
+
+            marker = '✚' if is_new else '↻'
+            coords = f" @ {entry['lat']:.4f},{entry['lon']:.4f}" if has_pos else ''
+            print(f"[INJECT] {marker} {node_id} ({net}) {name[:20]}{coords}")
+
+            if has_pos:
+                try:
+                    asyncio.get_running_loop()
+                    asyncio.create_task(self.broadcast_node_update(entry))
+                except RuntimeError:
+                    asyncio.run(self.broadcast_node_update(entry))
+            return True
+        except Exception as e:
+            print(f'[INJECT] rejected: error injecting node: {e}')
+        return False
+
     def parse_node_info_from_packet(self, packet):
         """Parse a NODEINFO_APP packet received via the Python API."""
         try:
@@ -3436,14 +3554,26 @@ class ListenBasedMapper:
         clean_interval = 3600
         restart_count = 0
 
+        tcp_host, tcp_port = parse_tcp_target(self.host)
+        if tcp_port is None:
+            print(f"[TCP] Invalid port in '{self.host}', must be 1-65535")
+            try:
+                asyncio.run(self.broadcast_connection_status(
+                    'failed', f"Invalid port in '{self.host}', must be 1-65535"))
+            except Exception:
+                pass
+            # Bad target won't fix itself — wait for a connection change from the web UI
+            restart_event.wait()
+            return
+
         while True:
             tcp_iface = None
             try:
-                print(f"[TCP] Connecting to {self.host} (attempt #{restart_count})...")
-                tcp_iface = TCPMeshtasticInterface(self.host)
+                print(f"[TCP] Connecting to {tcp_host}:{tcp_port} (attempt #{restart_count})...")
+                tcp_iface = TCPMeshtasticInterface(tcp_host, tcp_port)
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
-                print(f"[TCP] Connected to {self.host}")
+                print(f"[TCP] Connected to {tcp_host}:{tcp_port}")
                 if plugin_manager:
                     plugin_manager.set_interface(tcp_iface)
                 self._last_radio_packet_time = time.time()
@@ -3836,8 +3966,11 @@ async def run_send_message(text, channel_index, dest_id, websocket):
             loop = asyncio.get_event_loop()
 
             def _do_tcp_send():
+                tcp_host, tcp_port = parse_tcp_target(mapper.host)
+                if tcp_port is None:
+                    return False, f"Invalid port in '{mapper.host}', must be 1-65535"
                 iface = meshtastic.tcp_interface.TCPInterface(
-                    hostname=mapper.host, noProto=False
+                    hostname=tcp_host, portNumber=tcp_port, noProto=False
                 )
                 try:
                     iface.sendText(
@@ -4175,6 +4308,15 @@ async def handle_connection_change(data, websocket):
             'message': 'No host specified'
         }, ensure_ascii=False))
         return
+    if connection_type == 'tcp':
+        _, tcp_port = parse_tcp_target(host)
+        if tcp_port is None:
+            print(f"[TCP] Invalid port in '{host}', must be 1-65535")
+            await websocket.send(json.dumps({
+                'type': 'connection_status', 'status': 'failed',
+                'message': f"Invalid port in '{host}', must be 1-65535"
+            }, ensure_ascii=False))
+            return
 
     print(f"[WS] Connection change: {connection_type} {host or ''}")
 
@@ -5489,16 +5631,15 @@ if __name__ == '__main__':
             port = restart_config.get('port')
             print(f"[CONFIG] Received from web UI: {connection_type} {host or port or ''}")
 
-        # Initialize plugin system (once, before mapper loop)
+        # Initialize plugin system (once, before mapper loop) — plugins are
+        # enabled later, after the first mapper instance exists
         if PLUGINS_AVAILABLE:
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
-            plugin_manager.load_enabled_plugins()
-            t = threading.Thread(target=_check_plugin_updates, daemon=True)
-            t.start()
 
         # Mapper loop with runtime restart support
         _watchdog_started = False
+        _plugins_loaded = False
         while True:
             mapper = ListenBasedMapper(
                 connection_type=connection_type,
@@ -5507,11 +5648,19 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
-            # Update plugin_manager's mapper reference for each new mapper instance
+            # Update plugin_manager's mapper reference for each new mapper
+            # instance — plugins resolve their mapper through it lazily
             if plugin_manager:
                 plugin_manager.mapper = mapper
-                for plugin in plugin_manager.plugins.values():
-                    plugin._mapper = mapper
+                # Enable plugins exactly once per process, now that a live
+                # mapper exists — on_enable() can inject nodes immediately.
+                # Guarded: connection restarts re-enter this loop and must
+                # not re-enable plugins (would restart their workers).
+                if not _plugins_loaded:
+                    _plugins_loaded = True
+                    plugin_manager.load_enabled_plugins()
+                    t = threading.Thread(target=_check_plugin_updates, daemon=True)
+                    t.start()
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()

@@ -104,6 +104,8 @@ cp .env.example .env
 docker compose up -d
 ```
 
+`TRACKER_HOST` accepts `host` or `host:port` (default port 4403, e.g. `host.docker.internal:4405` for meshtasticd virtual nodes).
+
 Open: http://localhost/meshpulse/
 
 ### Updating
@@ -184,6 +186,18 @@ cd ~/meshpulse
 That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
+
+## What's New in v2.6.0 — Multi-Network Support & Plugin Node Injection
+
+**🌐 Multi-network map** — Nodes now carry a network tag (`net`): Meshtastic and Meshcore nodes live side by side on the same map. Non-Meshtastic nodes render as diamond markers, and per-network checkboxes in Mesh Info let you toggle whole networks on/off (persisted across refreshes).
+
+**🔌 Plugin node-injection API** — Plugins can inject nodes from non-Meshtastic sources via `inject_node()` (new `node_inject` permission). Injected nodes are first-class citizens: TTL cleanup, persistence, WebSocket updates and map rendering all apply. This powers the new Meshcore plugin.
+
+**📡 TCP host:port** — The TCP connection target now accepts `host:port` (default 4403), so meshtasticd virtual nodes on custom ports work out of the box.
+
+**🔒 Supply-chain security** — SBOM generation on every release (CycloneDX + SPDX via Syft), OpenSSF Scorecard workflow, SECURITY.md and Dependabot updates.
+
+---
 
 ## What's New in v2.5.4 — Weather Overlay Plugin & Plugin Install Fixes
 

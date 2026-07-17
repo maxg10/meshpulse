@@ -91,6 +91,7 @@ Informational — tells users what the plugin accesses:
 - `filesystem` — reads/writes files
 - `database` — uses SQLite database
 - `raw_map_access` — direct Leaflet map access
+- `node_inject` — injects nodes from non-Meshtastic sources into the node store
 
 ### Config Types
 - `boolean` — checkbox
@@ -175,6 +176,7 @@ class MyPlugin(MeshPlugin):
 | `self.save_config()` | Save config to disk |
 | `await self.send_mesh_message(text, to_id, channel)` | Send to mesh |
 | `self.send_mqtt_to_device(topic, data)` | Send MQTT downlink |
+| `self.inject_node(node_data)` | Inject a node from a non-Meshtastic source ([details](#node-injection)) |
 | `self.get_tracker_config(section)` | Read tracker firmware config |
 | `self.get_nodes()` | Get all nodes with GPS |
 | `self.get_nodes_no_position()` | Get nodes without GPS |
@@ -375,6 +377,53 @@ The `.meshplugin` file is just a ZIP archive containing your plugin files.
 Share the `.meshplugin` file directly. Users install via Config → Plugins → Install Plugin (upload).
 
 ## API Reference
+
+### Node Injection
+
+`self.inject_node(node_data)` → `bool`
+
+Insert or update a node from a **non-Meshtastic source** — another mesh protocol,
+a bridge, an external data feed — into MeshPulse's main node store. Injected nodes
+are first-class citizens: TTL cleanup, `nodes.json` persistence, WebSocket broadcast
+and map rendering all apply automatically.
+
+Declare the `node_inject` permission in `plugin.json` to use it.
+
+**Required fields:**
+- `id` (string, max 40 chars) — unique node ID
+- `net` (string, max 8 chars, uppercased) — the network tag, e.g. `'MC'` for
+  Meshcore. `'MT'` means Meshtastic and is the default for nodes with no `net` field.
+
+**Optional fields:** `name`, `lat`, `lon`, `alt`, `role`, `snr`, `rssi`.
+Any additional keys are passed through as-is and reach the frontend — useful for
+protocol-specific fields.
+
+**Position rules:** `lat`/`lon` must be valid floats in range; `(0, 0)` is treated
+as "no position". Nodes without a position land in the no-GPS list. A later update
+*without* a position does not wipe a previously known one.
+
+**Return value:** `True` on success, `False` if the core rejects the data
+(logged as `[INJECT] rejected: <reason>`).
+
+**ID convention:** prefix IDs so they cannot collide with Meshtastic's `!xxxxxxxx` —
+e.g. Meshcore uses `mc!` + first 8 hex chars of the node's public key.
+
+**Frontend behaviour:** any node with `net != 'MT'` renders as a diamond marker,
+and users can toggle whole networks on/off with the per-network checkboxes in
+Mesh Info.
+
+```python
+self.inject_node({
+    'id': 'mc!539f7e9e',
+    'net': 'MC',
+    'name': 'Triora - Sistel',
+    'lat': 43.99161,
+    'lon': 7.76807,
+    'role': 'REPEATER',          # feeds the R/C counters
+    'pubkey': '539f7e...fb30',   # extra field, passed through
+    'mc_type': 'Repeater',       # extra field, shown in the popup
+})
+```
 
 Full API reference: [Plugin Architecture Docs](plugin-architecture.md)
 

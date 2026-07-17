@@ -1,5 +1,6 @@
 {
   "connection_type": "serial",
   "port": null,
-  "host": null
+  "host": null,
+  "_host_note": "For TCP mode, 'host' accepts 'host' or 'host:port', e.g. \"192.168.1.100:4405\" — the port defaults to 4403 (Meshtastic standard) when omitted"
 }

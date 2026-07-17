@@ -16,10 +16,14 @@ plugins/
   {author}/
     {name}/
       plugin.json       ← manifest (required)
-      main.py           ← backend entry point (optional)
+      requirements.txt  ← Python dependencies (optional)
+      backend/
+        main.py         ← backend entry point (optional)
+      frontend/
+        js/plugin.js    ← frontend entry point (optional)
+        css/plugin.css  ← styles (optional)
       data.db           ← plugin's SQLite database (auto-created)
       config.json       ← user config overrides (auto-created on save)
-      static/           ← frontend assets (JS, CSS, HTML snippets)
 
 mapper/
   __init__.py
@@ -38,9 +42,9 @@ mapper/
   "author": { "name": "Max Gieparda", "github": "maxg10" },
   "license": "GPL-3.0",
   "compatibility": { "min_mapper_version": "2.2.0" },
-  "permissions": ["send_message", "read_nodes", "websocket"],
+  "permissions": ["mesh_receive", "mesh_send"],
   "backend": {
-    "entry_point": "main.py",
+    "entry_point": "backend/main.py",
     "requirements": "requirements.txt"
   },
   "frontend": {
@@ -80,6 +84,7 @@ Plugins can call these methods via `self.method_name()` in backend code:
 | `log(message)` | Print with `[PLUGIN:id]` prefix |
 | `send_mesh_message(text, to_id, channel)` | Send text to mesh (async) |
 | `send_mqtt_to_device(topic, data)` | Send MQTT downlink to tracker |
+| `inject_node(node_data)` | Insert/update a node from a non-Meshtastic source (requires `node_inject` permission) |
 | `get_tracker_config(section)` | Read tracker firmware config (mqtt, lora, device, etc.) |
 | `broadcast_ws(data, channel)` | Broadcast to WebSocket clients (async) |
 | `register_ws_channel(channel_name)` | Register a plugin WS channel |
