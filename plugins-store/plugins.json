@@ -1,9 +1,9 @@
 {
     "version": 1,
-    "updated": "2026-04-19T20:00:00Z",
-    "store_url": "https://meshpulse.app/plugins",
+    "updated": "2026-07-17T09:00:00Z",
+    "store_url": "https://meshtastic.world/plugins",
     "plugins": [
-	    {
+        {
             "id": "maxg10/meshcore",
             "name": "Meshcore",
             "version": "1.0.0",
@@ -27,7 +27,12 @@
             "repository": "https://github.com/maxg10/meshplugins",
             "changelog": "v1.0.0: Initial release — read-only node ingestion from Meshcore companion (serial/TCP), periodic contact sync, live advert subscription",
             "screenshots": [],
-            "tags": ["meshcore", "multi-network", "map", "connectivity"]
+            "tags": [
+                "meshcore",
+                "multi-network",
+                "map",
+                "connectivity"
+            ]
         },
         {
             "id": "maxg10/elevation-map",
@@ -36,7 +41,7 @@
             "description": "Terrain/elevation overlay for the map — toggle topographic tiles (OpenTopoMap, Stamen Terrain, ArcGIS Shaded Relief) on/off. Frontend-only plugin.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
+                "url": "https://meshtastic.world",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
@@ -51,7 +56,12 @@
             "repository": "https://github.com/maxg10/meshplugin-elevation-map",
             "changelog": "v1.0.1: Live provider switch via config, opacity control",
             "screenshots": [],
-            "tags": ["map", "elevation", "terrain", "tiles"]
+            "tags": [
+                "map",
+                "elevation",
+                "terrain",
+                "tiles"
+            ]
         },
         {
             "id": "maxg10/mqtt-proxy",
@@ -60,7 +70,7 @@
             "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
+                "url": "https://meshtastic.world",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
@@ -76,7 +86,76 @@
             "repository": "https://github.com/maxg10/meshplugin-mqtt-proxy",
             "changelog": "v1.0.0: Initial release — uplink, downlink, implicit ACK, retained message filtering",
             "screenshots": [],
-            "tags": ["mqtt", "proxy", "connectivity", "bridge"]
+            "tags": [
+                "mqtt",
+                "proxy",
+                "connectivity",
+                "bridge"
+            ]
+        },
+        {
+            "id": "maxg10/bbs",
+            "name": "Meshtastic BBS",
+            "version": "1.0.6",
+            "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and classic terminal UI.",
+            "author": {
+                "name": "Mariusz \"Max\" Gieparda",
+                "url": "https://meshtastic.world",
+                "github": "maxg10"
+            },
+            "license": "GPL-3.0",
+            "min_mapper_version": "2.2.0",
+            "tested_up_to": "2.4.3",
+            "type": "backend",
+            "category": "communication",
+            "icon": "📋",
+            "download_url": "https://github.com/maxg10/meshplugin-bbs/releases/download/v1.0.6/bbs-1.0.6.meshplugin",
+            "download_size": 0,
+            "homepage": "https://github.com/maxg10/meshplugin-bbs",
+            "repository": "https://github.com/maxg10/meshplugin-bbs",
+            "changelog": "v1.0.6: fix: _c_about returns default when about_message is empty, support \\n in config",
+            "screenshots": [],
+            "tags": [
+                "bbs",
+                "mail",
+                "bulletin",
+                "communication",
+                "fido",
+                "store-forward"
+            ],
+            "documentation": "https://github.com/maxg10/meshplugin-bbs/blob/master/docs/COMMANDS.md"
+        },
+        {
+            "id": "maxg10/weather-overlay",
+            "name": "Weather Overlay",
+            "version": "1.0.0",
+            "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
+            "author": {
+                "name": "Mariusz \"Max\" Gieparda",
+                "url": "https://meshpulse.app",
+                "github": "maxg10"
+            },
+            "license": "GPL-3.0",
+            "min_mapper_version": "2.5.3",
+            "tested_up_to": "2.5.3",
+            "type": "frontend",
+            "category": "map",
+            "icon": "🌡️",
+            "download_url": "https://github.com/maxg10/meshplugin-weather-overlay/releases/download/v1.0.0/weather-overlay-1.0.0.meshplugin",
+            "download_size": 0,
+            "homepage": "https://github.com/maxg10/meshplugin-weather-overlay",
+            "repository": "https://github.com/maxg10/meshplugin-weather-overlay",
+            "changelog": "v1.0.0: Initial release — temperature/humidity/pressure labels, heatmap with absolute temperature scale",
+            "screenshots": [],
+            "tags": [
+                "weather",
+                "temperature",
+                "humidity",
+                "pressure",
+                "heatmap",
+                "environment",
+                "sensors"
+            ]
         }
     ]
 }
