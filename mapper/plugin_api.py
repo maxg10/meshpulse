@@ -32,15 +32,31 @@ class MeshPlugin:
         plugin_id (str): Unique ID e.g. "maxg10/bbs"
         plugin_dir (str): Absolute path to plugin directory
         config (dict): Merged defaults + user config overrides
-        _mapper: Reference to ListenBasedMapper instance (internal)
+        _mapper: Reference to ListenBasedMapper instance (internal,
+            resolved lazily via the manager — see property below)
         _manager: Reference to PluginManager instance (internal)
     """
 
     plugin_id = None
     plugin_dir = None
     config = {}
-    _mapper = None
+    _mapper_ref = None
     _manager = None
+
+    # ── Mapper Reference (lazy) ─────────────────────────────────
+
+    @property
+    def _mapper(self):
+        # Plugins are enabled at startup before the mapper instance exists,
+        # and the mapper is recreated on connection restarts — always prefer
+        # the manager's live reference over the one captured at enable time.
+        if self._manager is not None and self._manager.mapper is not None:
+            return self._manager.mapper
+        return self._mapper_ref
+
+    @_mapper.setter
+    def _mapper(self, value):
+        self._mapper_ref = value
 
     # ── Database ────────────────────────────────────────────────
 
@@ -121,10 +137,11 @@ class MeshPlugin:
         Returns:
             bool: True on success, False if rejected by core.
         """
-        if not self._mapper:
-            self.log("inject_node error: no mapper reference")
+        mapper = self._mapper
+        if not mapper:
+            self.log("inject_node: mapper not ready yet")
             return False
-        return self._mapper.inject_external_node(node_data)
+        return mapper.inject_external_node(node_data)
 
     # ── WebSocket ───────────────────────────────────────────────
 

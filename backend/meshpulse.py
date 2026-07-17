@@ -5649,11 +5649,10 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
-            # Update plugin_manager's mapper reference for each new mapper instance
+            # Update plugin_manager's mapper reference for each new mapper
+            # instance — plugins resolve their mapper through it lazily
             if plugin_manager:
                 plugin_manager.mapper = mapper
-                for plugin in plugin_manager.plugins.values():
-                    plugin._mapper = mapper
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
                 watchdog_thread.start()
