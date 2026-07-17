@@ -1,6 +1,6 @@
 # Plugin Developer Guide
 
-Build your own plugins for Meshtastic Network Mapper. This guide walks you through creating, testing, and publishing a plugin from scratch.
+Build your own plugins for MeshPulse. This guide walks you through creating, testing, and publishing a plugin from scratch.
 
 ## Table of Contents
 1. [Overview](#overview)
@@ -371,7 +371,7 @@ The `.meshplugin` file is just a ZIP archive containing your plugin files.
 1. Create a GitHub repo for your plugin (e.g., `yourname/meshplugin-my-plugin`)
 2. Push your code
 3. Create a release with the `.meshplugin` file attached
-4. Contact us to add your plugin to the [Plugin Store](https://meshtastic.world/plugins)
+4. Contact us to add your plugin to the [Plugin Store](https://meshpulse.app/plugins)
 
 ### Option B: Manual Distribution
 Share the `.meshplugin` file directly. Users install via Config → Plugins → Install Plugin (upload).

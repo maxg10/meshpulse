@@ -1,7 +1,7 @@
 {
     "version": 1,
-    "updated": "2026-07-17T09:00:00Z",
-    "store_url": "https://meshtastic.world/plugins",
+    "updated": "2026-07-17T09:02:00Z",
+    "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
             "id": "maxg10/meshcore",
@@ -41,12 +41,12 @@
             "description": "Terrain/elevation overlay for the map — toggle topographic tiles (OpenTopoMap, Stamen Terrain, ArcGIS Shaded Relief) on/off. Frontend-only plugin.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshtastic.world",
+                "url": "https://meshpulse.app",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.4.0",
+            "tested_up_to": "2.6.0",
             "type": "frontend",
             "category": "map",
             "icon": "⛰️",
@@ -70,12 +70,12 @@
             "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshtastic.world",
+                "url": "https://meshpulse.app",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.3.0",
-            "tested_up_to": "2.3.0",
+            "tested_up_to": "2.6.0",
             "type": "backend",
             "category": "connectivity",
             "icon": "📡",
@@ -100,12 +100,12 @@
             "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and classic terminal UI.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshtastic.world",
+                "url": "https://meshpulse.app",
                 "github": "maxg10"
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.4.3",
+            "tested_up_to": "2.6.0",
             "type": "backend",
             "category": "communication",
             "icon": "📋",
@@ -137,7 +137,7 @@
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.5.3",
-            "tested_up_to": "2.5.3",
+            "tested_up_to": "2.6.0",
             "type": "frontend",
             "category": "map",
             "icon": "🌡️",

@@ -227,7 +227,7 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ## What's New in v2.3.0 — Plugin Store, MQTT Proxy & Backup/Restore
 
-**🏪 Plugin Store** — Browse and install plugins directly from your mapper. Visit [meshtastic.world/plugins](https://meshtastic.world/plugins) or open Config → Plugins.
+**🏪 Plugin Store** — Browse and install plugins directly from your mapper. Visit [meshpulse.app/plugins](https://meshpulse.app/plugins) or open Config → Plugins.
 
 **📡 MQTT Proxy Plugin** — Trackers without WiFi can now publish to MQTT brokers through the mapper. Zero configuration — reads settings from tracker firmware. [Install from Plugin Store](https://github.com/maxg10/meshplugin-mqtt-proxy)
 
@@ -246,7 +246,7 @@ That's it — pulls latest code, installs frontend files, restarts service.
 - Collects only: version, connection type, platform, OS, architecture, uptime
 - No personal data, no node data, no GPS coordinates — fully anonymous
 - **Opt-out** available in Config → Coverage tab — disable with one checkbox
-- [Privacy Policy](https://meshtastic.world/privacy.html) updated with full details
+- [Privacy Policy](https://meshpulse.app/privacy.html) updated with full details
 
 **📥 CSV Export**
 - Export all visible nodes as a CSV file from the Stats page
