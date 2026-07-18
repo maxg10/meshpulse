@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-07-18T22:00:00Z",
+    "updated": "2026-07-18T23:00:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -37,8 +37,8 @@
         {
             "id": "maxg10/elevation-map",
             "name": "Elevation Map",
-            "version": "1.0.1",
-            "description": "Terrain/elevation overlay for the map — toggle topographic tiles (OpenTopoMap, Stamen Terrain, ArcGIS Shaded Relief) on/off. Frontend-only plugin.",
+            "version": "1.0.2",
+            "description": "Terrain overlay for the map — switch base tiles (OpenTopoMap, Esri Topo, Shaded Relief) plus a stackable Hillshade overlay that shows terrain shading over any base map. Frontend-only.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
                 "url": "https://meshpulse.app",
@@ -50,11 +50,11 @@
             "type": "frontend",
             "category": "map",
             "icon": "⛰️",
-            "download_url": "https://github.com/maxg10/meshplugin-elevation-map/releases/download/v1.0.1/elevation-map-1.0.1.meshplugin",
-            "download_size": 0,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.2/elevation-map-1.0.2.meshplugin",
+            "download_size": 3613,
             "homepage": "https://github.com/maxg10/meshplugin-elevation-map",
             "repository": "https://github.com/maxg10/meshplugin-elevation-map",
-            "changelog": "v1.0.1: Live provider switch via config, opacity control",
+            "changelog": "v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
             "screenshots": [],
             "tags": [
                 "map",
