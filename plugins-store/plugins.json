@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-07-17T09:02:00Z",
+    "updated": "2026-07-18T22:00:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -128,7 +128,7 @@
         {
             "id": "maxg10/weather-overlay",
             "name": "Weather Overlay",
-            "version": "1.0.0",
+            "version": "1.0.1",
             "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
@@ -141,11 +141,11 @@
             "type": "frontend",
             "category": "map",
             "icon": "🌡️",
-            "download_url": "https://github.com/maxg10/meshplugin-weather-overlay/releases/download/v1.0.0/weather-overlay-1.0.0.meshplugin",
-            "download_size": 0,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.1/weather-overlay-1.0.1.meshplugin",
+            "download_size": 4763,
             "homepage": "https://github.com/maxg10/meshplugin-weather-overlay",
             "repository": "https://github.com/maxg10/meshplugin-weather-overlay",
-            "changelog": "v1.0.0: Initial release — temperature/humidity/pressure labels, heatmap with absolute temperature scale",
+            "changelog": "v1.0.1: labels render above map lines (z-index fix), migrated to monorepo",
             "screenshots": [],
             "tags": [
                 "weather",
