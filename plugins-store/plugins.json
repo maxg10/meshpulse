@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-07-18T23:00:00Z",
+    "updated": "2026-07-19T12:00:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -79,8 +79,8 @@
             "type": "backend",
             "category": "connectivity",
             "icon": "📡",
-            "download_url": "https://github.com/maxg10/meshplugin-mqtt-proxy/releases/download/v1.0.0/mqtt-proxy-1.0.0.meshplugin",
-            "download_size": 0,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/mqtt-proxy-v1.0.0/mqtt-proxy-1.0.0.meshplugin",
+            "download_size": 3490,
             "dependencies_note": "Requires paho-mqtt (auto-installed)",
             "homepage": "https://github.com/maxg10/meshplugin-mqtt-proxy",
             "repository": "https://github.com/maxg10/meshplugin-mqtt-proxy",
@@ -109,8 +109,8 @@
             "type": "backend",
             "category": "communication",
             "icon": "📋",
-            "download_url": "https://github.com/maxg10/meshplugin-bbs/releases/download/v1.0.6/bbs-1.0.6.meshplugin",
-            "download_size": 0,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.0.6/bbs-1.0.6.meshplugin",
+            "download_size": 16370,
             "homepage": "https://github.com/maxg10/meshplugin-bbs",
             "repository": "https://github.com/maxg10/meshplugin-bbs",
             "changelog": "v1.0.6: fix: _c_about returns default when about_message is empty, support \\n in config",
