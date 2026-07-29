@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.6.1
+- Feature: Generic plugin-panel mobile system — plugin control panels no longer
+  cover the map on phones. Panels live top-left on desktop and inside a new
+  "Map Layers" bottom drawer (🗺️ FAB) on mobile. The same DOM nodes are moved
+  between the two homes, so plugin state and event listeners are preserved.
+- Feature: New `api.panels.register(el)` / `api.panels.unregister(el)` plugin API —
+  the supported way for a plugin to add a control panel and have core place it
+  correctly on both desktop and mobile.
+- Compat: Plugins that predate `api.panels` and use `api.map.addControl()` are
+  adopted into the mobile drawer automatically (matched on core's own
+  `.leaflet-plugin-control` wrapper), so weather-overlay 1.0.1 and
+  elevation-map 1.0.2 work on mobile with no plugin changes.
+- Fix: Legend panel is hidden on mobile — it covered the filter controls and
+  duplicated information already shown in node popups.
+
 ## v2.6.0
 - Feature: Plugin node-injection API — `inject_node()` in the plugin API (core
   `inject_external_node()`) lets plugins add nodes from non-Meshtastic sources

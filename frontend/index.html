@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.6.0">
+    <link rel="stylesheet" href="styles.css?v=2.6.1">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -230,6 +230,15 @@
         width:48px;height:48px;border-radius:50%;background:#6b7280;color:white;
         border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
         align-items:center;justify-content:center;">📍</button>
+    <button id="mobile-layers-fab" onclick="toggleLayersDrawer()"
+        style="display:none;position:fixed;bottom:182px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#0f766e;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">🗺️</button>
+
+    <!-- Plugin control panels: top-left on desktop, moved into #plugin-drawer on mobile -->
+    <div id="plugin-panels"></div>
+    <div id="plugin-drawer"><h4>🗺️ Map Layers</h4></div>
 
     <div id="los-panel" style="display:none;">
         <div id="los-header">
@@ -2140,6 +2149,7 @@
                 noGpsPanel.classList.remove('drawer-open');
                 updateNoGpsFabBadge();
             }
+            closeLayersDrawer();
         }
         function toggleNoGpsDrawer() {
             const panel = document.getElementById('no-gps-panel');
@@ -2155,7 +2165,119 @@
                 meshPanel.classList.remove('drawer-open');
                 document.getElementById('mobile-meshinfo-fab').textContent = '📶';
             }
+            closeLayersDrawer();
         }
+
+        // --- Plugin panel mobile system ---------------------------------------
+        // Plugin panels live in #plugin-panels (fixed, top-left) on desktop and inside
+        // #plugin-drawer (bottom drawer) on mobile, so they never cover the map.
+        // The SAME DOM nodes are moved between parents — never cloned — so plugin
+        // references and event listeners survive the move.
+        //
+        // Safety net: plugins written before api.panels.register() add their UI via
+        // api.map.addControl(), which parks it in Leaflet's control corner wrapped in
+        // .leaflet-plugin-control (core's own class, so it catches every such plugin —
+        // weather-overlay 1.0.1 and elevation-map 1.0.2 included). Those are adopted on
+        // mobile and returned to their original parent on desktop.
+        const PLUGIN_PANEL_SELECTOR = '.plugin-panel, .leaflet-plugin-control';
+        let adoptedPanels = [];      // {el, parent, next} — original home, for restore
+        let syncingPanels = false;
+        let panelSyncTimer = null;
+
+        function isMobileView() { return window.innerWidth <= 768; }
+
+        function adoptLoosePanels(host) {
+            document.querySelectorAll(PLUGIN_PANEL_SELECTOR).forEach(function(el) {
+                if (el.closest('#plugin-panels')) return;   // already hosted
+                adoptedPanels.push({el: el, parent: el.parentElement, next: el.nextElementSibling});
+                host.appendChild(el);
+            });
+        }
+
+        function releaseAdoptedPanels() {
+            adoptedPanels.forEach(function(rec) {
+                // Owner removed it while adopted (e.g. plugin disabled) — leave it gone.
+                if (!rec.el.parentElement || !rec.parent) return;
+                if (rec.next && rec.next.parentElement === rec.parent) rec.parent.insertBefore(rec.el, rec.next);
+                else rec.parent.appendChild(rec.el);
+            });
+            adoptedPanels = [];
+        }
+
+        function updateLayersFabVisibility() {
+            const fab = document.getElementById('mobile-layers-fab');
+            const host = document.getElementById('plugin-panels');
+            if (!fab || !host) return;
+            // Only offer the FAB when there is actually a panel to show.
+            fab.classList.toggle('has-panels', host.children.length > 0);
+        }
+
+        function syncPluginPanelLayout() {
+            const host = document.getElementById('plugin-panels');
+            const drawer = document.getElementById('plugin-drawer');
+            if (!host || !drawer || syncingPanels) return;
+            syncingPanels = true;
+            try {
+                if (isMobileView()) {
+                    if (host.parentElement !== drawer) drawer.appendChild(host);
+                    adoptLoosePanels(host);
+                } else {
+                    releaseAdoptedPanels();
+                    if (host.parentElement !== document.body) document.body.appendChild(host);
+                    closeLayersDrawer();
+                }
+                updateLayersFabVisibility();
+            } finally {
+                // Released on a macrotask so our own mutations don't re-trigger the observer.
+                setTimeout(function() { syncingPanels = false; }, 0);
+            }
+        }
+
+        function schedulePanelSync() {
+            clearTimeout(panelSyncTimer);
+            panelSyncTimer = setTimeout(syncPluginPanelLayout, 150);
+        }
+
+        function toggleLayersDrawer() {
+            const panel = document.getElementById('plugin-drawer');
+            const meshPanel = document.getElementById('stats');
+            const noGpsPanel = document.getElementById('no-gps-panel');
+            panel.classList.toggle('drawer-open');
+            document.getElementById('mobile-layers-fab').textContent =
+                panel.classList.contains('drawer-open') ? '✕' : '🗺️';
+            // Close the other two if open
+            if (meshPanel.classList.contains('drawer-open')) {
+                meshPanel.classList.remove('drawer-open');
+                document.getElementById('mobile-meshinfo-fab').textContent = '📶';
+            }
+            if (noGpsPanel.classList.contains('drawer-open')) {
+                noGpsPanel.classList.remove('drawer-open');
+                updateNoGpsFabBadge();
+            }
+        }
+
+        function closeLayersDrawer() {
+            const panel = document.getElementById('plugin-drawer');
+            if (!panel || !panel.classList.contains('drawer-open')) return;
+            panel.classList.remove('drawer-open');
+            const fab = document.getElementById('mobile-layers-fab');
+            if (fab) fab.textContent = '🗺️';
+        }
+
+        window.addEventListener('resize', schedulePanelSync);
+        // Scoped observers only — a body-wide subtree observer would fire on every
+        // node-list re-render, which is wasteful on a Pi. Plugin UI can only appear in
+        // Leaflet's control container or in #plugin-panels; plugin load/unload also
+        // calls schedulePanelSync() directly.
+        try {
+            const panelObserver = new MutationObserver(function() {
+                if (!syncingPanels) schedulePanelSync();
+            });
+            const ctrlContainer = document.querySelector('.leaflet-control-container');
+            if (ctrlContainer) panelObserver.observe(ctrlContainer, {childList: true, subtree: true});
+            panelObserver.observe(document.getElementById('plugin-panels'), {childList: true});
+        } catch(e) { console.error('[PLUGINS] Panel observer failed:', e); }
+        syncPluginPanelLayout();
 
         // Close drawers when tapping map (mobile)
         map.on('click', function() {
@@ -2165,6 +2287,7 @@
                 const mfab = document.getElementById('mobile-meshinfo-fab');
                 if (mfab) mfab.textContent = '📶';
                 updateNoGpsFabBadge();
+                closeLayersDrawer();
             }
         });
 
@@ -2335,6 +2458,23 @@
                     onMapEvent: function(event, cb) { map.on(event, cb); },
                     getLeafletMap: function() { return map; }
                 },
+                panels: {
+                    // Register a control panel element. Core owns its placement:
+                    // top-left on desktop, inside the mobile Map Layers drawer on phones.
+                    register: function(el) {
+                        if (!el) return el;
+                        el.classList.add('plugin-panel');
+                        el.dataset.pluginPanelOwner = pluginId;
+                        var host = document.getElementById('plugin-panels');
+                        if (host && el.parentElement !== host) host.appendChild(el);
+                        syncPluginPanelLayout();
+                        return el;
+                    },
+                    unregister: function(el) {
+                        if (el && el.parentElement) el.parentElement.removeChild(el);
+                        syncPluginPanelLayout();
+                    }
+                },
                 nodes: {
                     getAll: function() {
                         try { return JSON.parse(JSON.stringify(allNodes)); } catch(e) { return []; }
@@ -2484,6 +2624,7 @@
                             var instance = new window.MeshPlugin();
                             instance.onEnable(api);
                             loadedPlugins[pluginId] = {instance: instance, api: api, manifest: pluginInfo};
+                            schedulePanelSync();   // pick up any panel the plugin just added
                             console.log('[PLUGINS] Loaded frontend: ' + pluginId);
                         } catch(e) {
                             console.error('[PLUGINS] Error loading ' + pluginId + ':', e);
@@ -2522,6 +2663,8 @@
             document.querySelectorAll('script[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
             document.querySelectorAll('[data-plugin-nav^="' + prefix + '"]').forEach(function(el) { el.remove(); });
             document.querySelectorAll('[data-plugin-panel^="' + prefix + '"]').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('[data-plugin-panel-owner="' + pluginId + '"]').forEach(function(el) { el.remove(); });
+            schedulePanelSync();
 
             delete loadedPlugins[pluginId];
             console.log('[PLUGINS] Unloaded frontend: ' + pluginId);
