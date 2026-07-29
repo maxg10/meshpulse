@@ -381,19 +381,28 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
        Sticky, not absolute: the drawer itself is the scroll container, so an absolutely
        positioned button would scroll out of reach on long content. */
     .drawer-close {
-        display: block;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         position: sticky;
-        top: 0;
+        top: 8px;                 /* never pins flush to the drawer's top edge */
         float: right;
-        z-index: 2;
+        /* 4px extra on top of the drawer's own 12px side padding = 16px from the
+           screen edge; 6px down so it clears the ::before drag handle. */
+        margin: 6px 4px 0 8px;
+        /* Above drawer content — inside #plugin-drawer the adopted plugin panels
+           carry z-index 1000, and the drawer's transform makes it a stacking
+           context, so a low value here would put the button underneath them. */
+        z-index: 1010;
         background: #374151;
         color: #e5e7eb;
         border: none;
         border-radius: 50%;
-        width: 32px; height: 32px;
-        min-width: 32px; min-height: 32px;
+        /* 44x44 touch target (Apple HIG) */
+        width: 44px; height: 44px;
+        min-width: 44px; min-height: 44px;
         padding: 0;
-        font-size: 15px;
+        font-size: 18px;
         line-height: 1;
         cursor: pointer;
     }
