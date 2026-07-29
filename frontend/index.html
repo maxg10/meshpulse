@@ -108,6 +108,10 @@
                 <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
             </label><br>
             <label class="filter-label">
+                <input type="checkbox" id="filter-routers" onchange="updateDisplay()"> Show only routers
+                <span title="Show only infrastructure nodes (Router, Router Late, Repeater) — reveals the coverage backbone. Works for both Meshtastic and Meshcore." style="cursor:help;color:#9ca3af"> ⓘ</span>
+            </label><br>
+            <label class="filter-label">
                 <input type="checkbox" id="filter-licensed" onchange="updateDisplay()"> Show only licensed
                 <span title="Show only nodes flagged as licensed (HAM) in their NodeInfo." style="cursor:help;color:#9ca3af"> ⓘ</span>
             </label><br>
@@ -258,6 +262,11 @@
         map.createPane('trackerPane');
         map.getPane('trackerPane').style.zIndex = 650;
         
+        // Infrastructure roles — same values for both networks: Meshcore nodes are injected
+        // with a real role (Repeater -> REPEATER, Room Server -> ROUTER), so one check covers MT + MC.
+        const ROUTER_ROLES = ['ROUTER', 'ROUTER_LATE', 'REPEATER'];
+        const isRouterRole = n => ROUTER_ROLES.includes(n.role);
+
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
@@ -1840,6 +1849,7 @@
             if (!showMqtt) {
                 filteredNodes = filteredNodes.filter(n => !n.via_mqtt);
             }
+            const onlyRouters = document.getElementById('filter-routers').checked;
             const onlyLicensed = document.getElementById('filter-licensed').checked;
             if (onlyLicensed) {
                 filteredNodes = filteredNodes.filter(n => n.is_licensed);
@@ -1860,6 +1870,10 @@
                 filteredNodes = filteredNodes.filter(n => (n.hops !== null && n.hops !== undefined) || isOwnTracker(n.id));
                 filteredNoGps = filteredNoGps.filter(n => n.hops !== null && n.hops !== undefined);
             }
+            if (onlyRouters) {
+                filteredNodes = filteredNodes.filter(n => isRouterRole(n) || isOwnTracker(n.id));
+                filteredNoGps = filteredNoGps.filter(isRouterRole);
+            }
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
             
@@ -1867,7 +1881,7 @@
             let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
             
             filteredNodes.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+                if (isRouterRole(n)) routers++;
                 else clients++;
                 if (isOwnTracker(n.id)) {
                     // own tracker - don't count in direct/relay stats
@@ -1878,7 +1892,7 @@
 
             // Also count routers/repeaters in No GPS list
             filteredNoGps.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+                if (isRouterRole(n)) routers++;
             });
 
             document.getElementById('cnt').textContent = `${filteredNodes.length + filteredNoGps.length} (${filteredNodes.length}+${filteredNoGps.length})`;
@@ -2156,7 +2170,7 @@
 
         function restoreFilterStates() {
             var filters = [
-                'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
+                'show-mqtt-nodes', 'filter-direct', 'filter-routers', 'filter-licensed', 'show-direct-lines',
                 'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
                 'showNetMT', 'showNetMC'
             ];
@@ -2173,7 +2187,7 @@
         }
 
         (function() {
-            ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
+            ['show-mqtt-nodes', 'filter-direct', 'filter-routers', 'filter-licensed', 'show-direct-lines',
              'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
              'showNetMT', 'showNetMC'
             ].forEach(function(id) {
