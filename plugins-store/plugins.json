@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-07-19T12:00:00Z",
+    "updated": "2026-07-19T14:00:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -37,7 +37,7 @@
         {
             "id": "maxg10/elevation-map",
             "name": "Elevation Map",
-            "version": "1.0.2",
+            "version": "1.0.3",
             "description": "Terrain overlay for the map — switch base tiles (OpenTopoMap, Esri Topo, Shaded Relief) plus a stackable Hillshade overlay that shows terrain shading over any base map. Frontend-only.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
@@ -46,12 +46,12 @@
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.6.0",
+            "tested_up_to": "2.6.1",
             "type": "frontend",
             "category": "map",
             "icon": "⛰️",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.2/elevation-map-1.0.2.meshplugin",
-            "download_size": 3613,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.3/elevation-map-1.0.3.meshplugin",
+            "download_size": 3697,
             "homepage": "https://github.com/maxg10/meshplugin-elevation-map",
             "repository": "https://github.com/maxg10/meshplugin-elevation-map",
             "changelog": "v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
@@ -128,7 +128,7 @@
         {
             "id": "maxg10/weather-overlay",
             "name": "Weather Overlay",
-            "version": "1.0.1",
+            "version": "1.0.2",
             "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
@@ -137,12 +137,12 @@
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.5.3",
-            "tested_up_to": "2.6.0",
+            "tested_up_to": "2.6.1",
             "type": "frontend",
             "category": "map",
             "icon": "🌡️",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.1/weather-overlay-1.0.1.meshplugin",
-            "download_size": 4763,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.2/weather-overlay-1.0.2.meshplugin",
+            "download_size": 4832,
             "homepage": "https://github.com/maxg10/meshplugin-weather-overlay",
             "repository": "https://github.com/maxg10/meshplugin-weather-overlay",
             "changelog": "v1.0.1: labels render above map lines (z-index fix), migrated to monorepo",
