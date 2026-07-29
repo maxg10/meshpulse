@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.6.1">
+    <link rel="stylesheet" href="styles.css?v=2.6.1-1">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -67,6 +67,7 @@
         <div id="search-results"></div>
     </div>
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A'){this.classList.toggle('open');document.getElementById('stats-title').textContent=this.classList.contains('open')?'📶 Mesh Info ▼':'📶 Mesh Info ▶';}">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
         <h3 id="stats-title">📶 Mesh Info ▼</h3>
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
@@ -191,6 +192,7 @@
         </div>
     </div>
     <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
         <h4 id="nogps-title">📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
         <div id="no-gps-content">
         <div id="no-gps-list"></div>
@@ -238,7 +240,10 @@
 
     <!-- Plugin control panels: top-left on desktop, moved into #plugin-drawer on mobile -->
     <div id="plugin-panels"></div>
-    <div id="plugin-drawer"><h4>🗺️ Map Layers</h4></div>
+    <div id="plugin-drawer">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
+        <h4>🗺️ Map Layers</h4>
+    </div>
 
     <div id="los-panel" style="display:none;">
         <div id="los-header">
@@ -2137,6 +2142,34 @@
             }
         }
 
+        // Mobile drawer bookkeeping.
+        // body.drawer-active hides all three FABs while any drawer is open — they sit at
+        // bottom 90/150/210px, inside the drawer's 60vh footprint, so they would otherwise
+        // float over its checkboxes. Single source of truth: read the panels, don't track
+        // state separately, so the cross-close logic can never leave the flag stuck.
+        const DRAWER_IDS = ['stats', 'no-gps-panel', 'plugin-drawer'];
+
+        function syncDrawerActive() {
+            const anyOpen = DRAWER_IDS.some(function(id) {
+                const el = document.getElementById(id);
+                return el && el.classList.contains('drawer-open');
+            });
+            document.body.classList.toggle('drawer-active', anyOpen);
+        }
+
+        // Close every drawer and restore the FABs. Used by the drawer ✕ buttons and by
+        // the tap-on-map handler.
+        function closeAllDrawers(event) {
+            if (event) event.stopPropagation();
+            document.getElementById('stats')?.classList.remove('drawer-open');
+            document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
+            const mfab = document.getElementById('mobile-meshinfo-fab');
+            if (mfab) mfab.textContent = '📶';
+            updateNoGpsFabBadge();
+            closeLayersDrawer();
+            syncDrawerActive();
+        }
+
         // Mobile drawer toggles
         function toggleMeshInfoDrawer() {
             const panel = document.getElementById('stats');
@@ -2150,6 +2183,7 @@
                 updateNoGpsFabBadge();
             }
             closeLayersDrawer();
+            syncDrawerActive();
         }
         function toggleNoGpsDrawer() {
             const panel = document.getElementById('no-gps-panel');
@@ -2166,6 +2200,7 @@
                 document.getElementById('mobile-meshinfo-fab').textContent = '📶';
             }
             closeLayersDrawer();
+            syncDrawerActive();
         }
 
         // --- Plugin panel mobile system ---------------------------------------
@@ -2254,14 +2289,19 @@
                 noGpsPanel.classList.remove('drawer-open');
                 updateNoGpsFabBadge();
             }
+            syncDrawerActive();
         }
 
         function closeLayersDrawer() {
             const panel = document.getElementById('plugin-drawer');
-            if (!panel || !panel.classList.contains('drawer-open')) return;
-            panel.classList.remove('drawer-open');
-            const fab = document.getElementById('mobile-layers-fab');
-            if (fab) fab.textContent = '🗺️';
+            if (panel && panel.classList.contains('drawer-open')) {
+                panel.classList.remove('drawer-open');
+                const fab = document.getElementById('mobile-layers-fab');
+                if (fab) fab.textContent = '🗺️';
+            }
+            // Always re-sync, including on the already-closed path: this is also reached
+            // from syncPluginPanelLayout() when the viewport grows to desktop.
+            syncDrawerActive();
         }
 
         window.addEventListener('resize', schedulePanelSync);
@@ -2281,14 +2321,7 @@
 
         // Close drawers when tapping map (mobile)
         map.on('click', function() {
-            if (window.innerWidth <= 768) {
-                document.getElementById('stats')?.classList.remove('drawer-open');
-                document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
-                const mfab = document.getElementById('mobile-meshinfo-fab');
-                if (mfab) mfab.textContent = '📶';
-                updateNoGpsFabBadge();
-                closeLayersDrawer();
-            }
+            if (window.innerWidth <= 768) closeAllDrawers();
         });
 
         function restoreFilterStates() {

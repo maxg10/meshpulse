@@ -247,6 +247,10 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
 #send-status{margin-top:4px;min-height:14px;font-size:10px;color:#666}
 
 /* ── Mobile responsive (≤ 768px) ─────────────────────────────────── */
+/* Drawer close button — mobile only. Declared before the max-width block so the
+   media query (same specificity, later in the file) wins on source order. */
+.drawer-close { display: none; }
+
 @media (max-width: 768px) {
     /* Fullscreen map below navbar */
     #map {
@@ -372,11 +376,41 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         pointer-events: auto;
     }
 
+    /* Drawer close button — the FABs are hidden while a drawer is open, and the drag
+       handle is decorative (no touch handlers), so this is the explicit close affordance.
+       Sticky, not absolute: the drawer itself is the scroll container, so an absolutely
+       positioned button would scroll out of reach on long content. */
+    .drawer-close {
+        display: block;
+        position: sticky;
+        top: 0;
+        float: right;
+        z-index: 2;
+        background: #374151;
+        color: #e5e7eb;
+        border: none;
+        border-radius: 50%;
+        width: 32px; height: 32px;
+        min-width: 32px; min-height: 32px;
+        padding: 0;
+        font-size: 15px;
+        line-height: 1;
+        cursor: pointer;
+    }
+
     /* Mobile FABs */
     #mobile-meshinfo-fab { display: flex !important; bottom: 90px; }
     #mobile-nogps-fab    { display: flex !important; bottom: 150px; }
     /* Only shown when a plugin panel actually exists (class set from JS) */
     #mobile-layers-fab.has-panels { display: flex !important; bottom: 210px; }
+
+    /* An open drawer occupies the bottom 60vh; the FABs live at bottom 90-258px, i.e.
+       inside it. Hide all three so nothing floats over the drawer's own content.
+       Specificity (1,1,1) beats #mobile-layers-fab.has-panels (1,1,0), so the
+       !important display:flex above does not win here. */
+    body.drawer-active #mobile-meshinfo-fab,
+    body.drawer-active #mobile-nogps-fab,
+    body.drawer-active #mobile-layers-fab { display: none !important; }
 
     /* Navbar — 2-row grid for portrait phones */
     #topnav {
