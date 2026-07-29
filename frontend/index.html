@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.6.0">
+    <link rel="stylesheet" href="styles.css?v=2.6.1-2">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -67,6 +67,7 @@
         <div id="search-results"></div>
     </div>
     <div id="stats" class="open" onclick="if(event.target.tagName!=='INPUT'&&event.target.tagName!=='A'){this.classList.toggle('open');document.getElementById('stats-title').textContent=this.classList.contains('open')?'📶 Mesh Info ▼':'📶 Mesh Info ▶';}">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
         <h3 id="stats-title">📶 Mesh Info ▼</h3>
         <div id="stats-content">
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
@@ -106,6 +107,10 @@
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="filter-direct" onchange="updateDisplay()"> Show only direct
+            </label><br>
+            <label class="filter-label">
+                <input type="checkbox" id="filter-routers" onchange="updateDisplay()"> Show only routers
+                <span title="Show only infrastructure nodes (Router, Router Late, Repeater) — reveals the coverage backbone. Works for both Meshtastic and Meshcore." style="cursor:help;color:#9ca3af"> ⓘ</span>
             </label><br>
             <label class="filter-label">
                 <input type="checkbox" id="filter-licensed" onchange="updateDisplay()"> Show only licensed
@@ -187,6 +192,7 @@
         </div>
     </div>
     <div id="no-gps-panel" class="open" onclick="if(event.target===this||event.target.tagName==='H4'||event.target.closest('h4')){this.classList.toggle('open');const t=document.getElementById('nogps-title');const cnt=document.getElementById('no-gps-cnt').textContent;if(t)t.innerHTML=this.classList.contains('open')?'📍 No GPS ▼ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)':'📍 No GPS ▶ (<span id=\'no-gps-cnt\'>'+cnt+'</span>)';}">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
         <h4 id="nogps-title">📍 No GPS ▼ (<span id="no-gps-cnt">0</span>)</h4>
         <div id="no-gps-content">
         <div id="no-gps-list"></div>
@@ -226,6 +232,18 @@
         width:48px;height:48px;border-radius:50%;background:#6b7280;color:white;
         border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
         align-items:center;justify-content:center;">📍</button>
+    <button id="mobile-layers-fab" onclick="toggleLayersDrawer()"
+        style="display:none;position:fixed;bottom:182px;left:16px;z-index:1002;
+        width:48px;height:48px;border-radius:50%;background:#0f766e;color:white;
+        border:none;font-size:20px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.4);
+        align-items:center;justify-content:center;">🗺️</button>
+
+    <!-- Plugin control panels: top-left on desktop, moved into #plugin-drawer on mobile -->
+    <div id="plugin-panels"></div>
+    <div id="plugin-drawer">
+        <button class="drawer-close" onclick="closeAllDrawers(event)" aria-label="Close panel">✕</button>
+        <h4>🗺️ Map Layers</h4>
+    </div>
 
     <div id="los-panel" style="display:none;">
         <div id="los-header">
@@ -258,6 +276,11 @@
         map.createPane('trackerPane');
         map.getPane('trackerPane').style.zIndex = 650;
         
+        // Infrastructure roles — same values for both networks: Meshcore nodes are injected
+        // with a real role (Repeater -> REPEATER, Room Server -> ROUTER), so one check covers MT + MC.
+        const ROUTER_ROLES = ['ROUTER', 'ROUTER_LATE', 'REPEATER'];
+        const isRouterRole = n => ROUTER_ROLES.includes(n.role);
+
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
@@ -1840,6 +1863,7 @@
             if (!showMqtt) {
                 filteredNodes = filteredNodes.filter(n => !n.via_mqtt);
             }
+            const onlyRouters = document.getElementById('filter-routers').checked;
             const onlyLicensed = document.getElementById('filter-licensed').checked;
             if (onlyLicensed) {
                 filteredNodes = filteredNodes.filter(n => n.is_licensed);
@@ -1860,6 +1884,10 @@
                 filteredNodes = filteredNodes.filter(n => (n.hops !== null && n.hops !== undefined) || isOwnTracker(n.id));
                 filteredNoGps = filteredNoGps.filter(n => n.hops !== null && n.hops !== undefined);
             }
+            if (onlyRouters) {
+                filteredNodes = filteredNodes.filter(n => isRouterRole(n) || isOwnTracker(n.id));
+                filteredNoGps = filteredNoGps.filter(isRouterRole);
+            }
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
             
@@ -1867,7 +1895,7 @@
             let routers = 0, clients = 0, direct = 0, relay = 0, snrSum = 0, snrCount = 0;
             
             filteredNodes.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+                if (isRouterRole(n)) routers++;
                 else clients++;
                 if (isOwnTracker(n.id)) {
                     // own tracker - don't count in direct/relay stats
@@ -1878,7 +1906,7 @@
 
             // Also count routers/repeaters in No GPS list
             filteredNoGps.forEach(n => {
-                if (n.role === 'ROUTER' || n.role === 'ROUTER_LATE' || n.role === 'REPEATER') routers++;
+                if (isRouterRole(n)) routers++;
             });
 
             document.getElementById('cnt').textContent = `${filteredNodes.length + filteredNoGps.length} (${filteredNodes.length}+${filteredNoGps.length})`;
@@ -2114,6 +2142,34 @@
             }
         }
 
+        // Mobile drawer bookkeeping.
+        // body.drawer-active hides all three FABs while any drawer is open — they sit at
+        // bottom 90/150/210px, inside the drawer's 60vh footprint, so they would otherwise
+        // float over its checkboxes. Single source of truth: read the panels, don't track
+        // state separately, so the cross-close logic can never leave the flag stuck.
+        const DRAWER_IDS = ['stats', 'no-gps-panel', 'plugin-drawer'];
+
+        function syncDrawerActive() {
+            const anyOpen = DRAWER_IDS.some(function(id) {
+                const el = document.getElementById(id);
+                return el && el.classList.contains('drawer-open');
+            });
+            document.body.classList.toggle('drawer-active', anyOpen);
+        }
+
+        // Close every drawer and restore the FABs. Used by the drawer ✕ buttons and by
+        // the tap-on-map handler.
+        function closeAllDrawers(event) {
+            if (event) event.stopPropagation();
+            document.getElementById('stats')?.classList.remove('drawer-open');
+            document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
+            const mfab = document.getElementById('mobile-meshinfo-fab');
+            if (mfab) mfab.textContent = '📶';
+            updateNoGpsFabBadge();
+            closeLayersDrawer();
+            syncDrawerActive();
+        }
+
         // Mobile drawer toggles
         function toggleMeshInfoDrawer() {
             const panel = document.getElementById('stats');
@@ -2126,6 +2182,8 @@
                 noGpsPanel.classList.remove('drawer-open');
                 updateNoGpsFabBadge();
             }
+            closeLayersDrawer();
+            syncDrawerActive();
         }
         function toggleNoGpsDrawer() {
             const panel = document.getElementById('no-gps-panel');
@@ -2141,22 +2199,134 @@
                 meshPanel.classList.remove('drawer-open');
                 document.getElementById('mobile-meshinfo-fab').textContent = '📶';
             }
+            closeLayersDrawer();
+            syncDrawerActive();
         }
+
+        // --- Plugin panel mobile system ---------------------------------------
+        // Plugin panels live in #plugin-panels (fixed, top-left) on desktop and inside
+        // #plugin-drawer (bottom drawer) on mobile, so they never cover the map.
+        // The SAME DOM nodes are moved between parents — never cloned — so plugin
+        // references and event listeners survive the move.
+        //
+        // Safety net: plugins written before api.panels.register() add their UI via
+        // api.map.addControl(), which parks it in Leaflet's control corner wrapped in
+        // .leaflet-plugin-control (core's own class, so it catches every such plugin —
+        // weather-overlay 1.0.1 and elevation-map 1.0.2 included). Those are adopted on
+        // mobile and returned to their original parent on desktop.
+        const PLUGIN_PANEL_SELECTOR = '.plugin-panel, .leaflet-plugin-control';
+        let adoptedPanels = [];      // {el, parent, next} — original home, for restore
+        let syncingPanels = false;
+        let panelSyncTimer = null;
+
+        function isMobileView() { return window.innerWidth <= 768; }
+
+        function adoptLoosePanels(host) {
+            document.querySelectorAll(PLUGIN_PANEL_SELECTOR).forEach(function(el) {
+                if (el.closest('#plugin-panels')) return;   // already hosted
+                adoptedPanels.push({el: el, parent: el.parentElement, next: el.nextElementSibling});
+                host.appendChild(el);
+            });
+        }
+
+        function releaseAdoptedPanels() {
+            adoptedPanels.forEach(function(rec) {
+                // Owner removed it while adopted (e.g. plugin disabled) — leave it gone.
+                if (!rec.el.parentElement || !rec.parent) return;
+                if (rec.next && rec.next.parentElement === rec.parent) rec.parent.insertBefore(rec.el, rec.next);
+                else rec.parent.appendChild(rec.el);
+            });
+            adoptedPanels = [];
+        }
+
+        function updateLayersFabVisibility() {
+            const fab = document.getElementById('mobile-layers-fab');
+            const host = document.getElementById('plugin-panels');
+            if (!fab || !host) return;
+            // Only offer the FAB when there is actually a panel to show.
+            fab.classList.toggle('has-panels', host.children.length > 0);
+        }
+
+        function syncPluginPanelLayout() {
+            const host = document.getElementById('plugin-panels');
+            const drawer = document.getElementById('plugin-drawer');
+            if (!host || !drawer || syncingPanels) return;
+            syncingPanels = true;
+            try {
+                if (isMobileView()) {
+                    if (host.parentElement !== drawer) drawer.appendChild(host);
+                    adoptLoosePanels(host);
+                } else {
+                    releaseAdoptedPanels();
+                    if (host.parentElement !== document.body) document.body.appendChild(host);
+                    closeLayersDrawer();
+                }
+                updateLayersFabVisibility();
+            } finally {
+                // Released on a macrotask so our own mutations don't re-trigger the observer.
+                setTimeout(function() { syncingPanels = false; }, 0);
+            }
+        }
+
+        function schedulePanelSync() {
+            clearTimeout(panelSyncTimer);
+            panelSyncTimer = setTimeout(syncPluginPanelLayout, 150);
+        }
+
+        function toggleLayersDrawer() {
+            const panel = document.getElementById('plugin-drawer');
+            const meshPanel = document.getElementById('stats');
+            const noGpsPanel = document.getElementById('no-gps-panel');
+            panel.classList.toggle('drawer-open');
+            document.getElementById('mobile-layers-fab').textContent =
+                panel.classList.contains('drawer-open') ? '✕' : '🗺️';
+            // Close the other two if open
+            if (meshPanel.classList.contains('drawer-open')) {
+                meshPanel.classList.remove('drawer-open');
+                document.getElementById('mobile-meshinfo-fab').textContent = '📶';
+            }
+            if (noGpsPanel.classList.contains('drawer-open')) {
+                noGpsPanel.classList.remove('drawer-open');
+                updateNoGpsFabBadge();
+            }
+            syncDrawerActive();
+        }
+
+        function closeLayersDrawer() {
+            const panel = document.getElementById('plugin-drawer');
+            if (panel && panel.classList.contains('drawer-open')) {
+                panel.classList.remove('drawer-open');
+                const fab = document.getElementById('mobile-layers-fab');
+                if (fab) fab.textContent = '🗺️';
+            }
+            // Always re-sync, including on the already-closed path: this is also reached
+            // from syncPluginPanelLayout() when the viewport grows to desktop.
+            syncDrawerActive();
+        }
+
+        window.addEventListener('resize', schedulePanelSync);
+        // Scoped observers only — a body-wide subtree observer would fire on every
+        // node-list re-render, which is wasteful on a Pi. Plugin UI can only appear in
+        // Leaflet's control container or in #plugin-panels; plugin load/unload also
+        // calls schedulePanelSync() directly.
+        try {
+            const panelObserver = new MutationObserver(function() {
+                if (!syncingPanels) schedulePanelSync();
+            });
+            const ctrlContainer = document.querySelector('.leaflet-control-container');
+            if (ctrlContainer) panelObserver.observe(ctrlContainer, {childList: true, subtree: true});
+            panelObserver.observe(document.getElementById('plugin-panels'), {childList: true});
+        } catch(e) { console.error('[PLUGINS] Panel observer failed:', e); }
+        syncPluginPanelLayout();
 
         // Close drawers when tapping map (mobile)
         map.on('click', function() {
-            if (window.innerWidth <= 768) {
-                document.getElementById('stats')?.classList.remove('drawer-open');
-                document.getElementById('no-gps-panel')?.classList.remove('drawer-open');
-                const mfab = document.getElementById('mobile-meshinfo-fab');
-                if (mfab) mfab.textContent = '📶';
-                updateNoGpsFabBadge();
-            }
+            if (window.innerWidth <= 768) closeAllDrawers();
         });
 
         function restoreFilterStates() {
             var filters = [
-                'show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
+                'show-mqtt-nodes', 'filter-direct', 'filter-routers', 'filter-licensed', 'show-direct-lines',
                 'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
                 'showNetMT', 'showNetMC'
             ];
@@ -2173,7 +2343,7 @@
         }
 
         (function() {
-            ['show-mqtt-nodes', 'filter-direct', 'filter-licensed', 'show-direct-lines',
+            ['show-mqtt-nodes', 'filter-direct', 'filter-routers', 'filter-licensed', 'show-direct-lines',
              'show-neighbor-links', 'show-relay-nodes', 'hide-unknown-hops', 'show-los-panel',
              'showNetMT', 'showNetMC'
             ].forEach(function(id) {
@@ -2320,6 +2490,23 @@
                     fitBounds: function(bounds) { map.fitBounds(bounds); },
                     onMapEvent: function(event, cb) { map.on(event, cb); },
                     getLeafletMap: function() { return map; }
+                },
+                panels: {
+                    // Register a control panel element. Core owns its placement:
+                    // top-left on desktop, inside the mobile Map Layers drawer on phones.
+                    register: function(el) {
+                        if (!el) return el;
+                        el.classList.add('plugin-panel');
+                        el.dataset.pluginPanelOwner = pluginId;
+                        var host = document.getElementById('plugin-panels');
+                        if (host && el.parentElement !== host) host.appendChild(el);
+                        syncPluginPanelLayout();
+                        return el;
+                    },
+                    unregister: function(el) {
+                        if (el && el.parentElement) el.parentElement.removeChild(el);
+                        syncPluginPanelLayout();
+                    }
                 },
                 nodes: {
                     getAll: function() {
@@ -2470,6 +2657,7 @@
                             var instance = new window.MeshPlugin();
                             instance.onEnable(api);
                             loadedPlugins[pluginId] = {instance: instance, api: api, manifest: pluginInfo};
+                            schedulePanelSync();   // pick up any panel the plugin just added
                             console.log('[PLUGINS] Loaded frontend: ' + pluginId);
                         } catch(e) {
                             console.error('[PLUGINS] Error loading ' + pluginId + ':', e);
@@ -2508,6 +2696,8 @@
             document.querySelectorAll('script[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
             document.querySelectorAll('[data-plugin-nav^="' + prefix + '"]').forEach(function(el) { el.remove(); });
             document.querySelectorAll('[data-plugin-panel^="' + prefix + '"]').forEach(function(el) { el.remove(); });
+            document.querySelectorAll('[data-plugin-panel-owner="' + pluginId + '"]').forEach(function(el) { el.remove(); });
+            schedulePanelSync();
 
             delete loadedPlugins[pluginId];
             console.log('[PLUGINS] Unloaded frontend: ' + pluginId);
