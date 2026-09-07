@@ -206,6 +206,8 @@ class MyPlugin(MeshPlugin):
 | `on_connect(info)` | Mapper connected | `{connection_type, host_or_port, local_node_id}` |
 | `on_disconnect(reason)` | Mapper disconnected | `{reason}` |
 | `on_node_expire(info)` | Node TTL expired | `{node_id, last_seen}` |
+| `on_ws_message(data, channel)` | Browser sent a frame on one of your channels | `data` (dict), `channel` (str) |
+| `on_ws_request(data, channel, reply)` | Same, but with a way to answer that browser ([details](#request-response-over-a-plugin-channel)) | `data`, `channel`, `reply` (async) |
 | `on_ws_client_connect(info)` | Browser connected | `{client_id}` |
 | `on_ws_client_disconnect(info)` | Browser disconnected | `{client_id}` |
 
@@ -499,6 +501,56 @@ The `.meshplugin` file is just a ZIP archive containing your plugin files.
 Share the `.meshplugin` file directly. Users install via Config → Plugins → Install Plugin (upload).
 
 ## API Reference
+
+### Request/response over a plugin channel
+
+*`on_ws_request` available since core 2.7.0.*
+
+MeshPulse has **no HTTP API server**. `self.register_api_route()` exists in the
+API and prints a line at startup, but nothing in the core dispatches to it — the
+routes go into a dict with no reader. Do not build against it yet. A plugin page
+that needs data from its backend uses the mapper's WebSocket (port 8765), which
+is the transport everything else already runs on.
+
+`broadcast_ws()` reaches every connected browser. That is right for events and
+wrong for a response: it wastes bandwidth on clients that did not ask, and it
+can hand one user's data to everyone. `on_ws_request()` gives you a `reply`
+that goes to the requesting client only:
+
+```python
+# backend
+def on_enable(self):
+    self.register_ws_channel('my_channel')     # without this the core cannot
+                                               # route incoming frames to you
+
+async def on_ws_request(self, data, channel, reply):
+    if data.get('action') == 'get_items':
+        await reply({'req': data.get('req'), 'result': {'items': self.items()}})
+```
+
+```javascript
+// frontend — a standalone plugin page has no MapperAPI, so it speaks the
+// protocol directly
+var CHANNEL = 'plugin:yourname/my-plugin:my_channel';
+var ws = new WebSocket('ws://' + location.hostname + ':8765');
+
+ws.send(JSON.stringify({
+    type: 'plugin_message', channel: CHANNEL,
+    data: {req: 'r1', action: 'get_items'}
+}));
+
+ws.onmessage = function (evt) {
+    var msg = JSON.parse(evt.data);
+    if (msg.type !== 'plugin_data' || msg.channel !== CHANNEL) return;  // shared socket
+    // msg.data.req identifies the answer; frames without it are broadcast events
+};
+```
+
+Carry your own request id (`req` above) and match responses on it — the socket is
+shared with the core and every other plugin, and frames arrive in any order.
+Plugins that only listen can keep overriding `on_ws_message(data, channel)`; the
+default `on_ws_request()` delegates to it.
+
 
 ### Node Injection
 

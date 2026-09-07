@@ -5245,8 +5245,30 @@ async def websocket_handler(websocket):
                         plugin_id = plugin_manager.ws_channels.get(channel)
                         if plugin_id and plugin_id in plugin_manager.plugins:
                             plugin = plugin_manager.plugins[plugin_id]
+
+                            async def plugin_reply(payload, _ws=websocket,
+                                                   _pid=plugin_id, _ch=channel):
+                                """Answer only the client that asked.
+
+                                broadcast_ws() goes to every connected browser,
+                                which is wrong for a response — it wastes
+                                bandwidth and can hand one user's data to all.
+                                """
+                                try:
+                                    await _ws.send(json.dumps({
+                                        'type': 'plugin_data',
+                                        'plugin_id': _pid,
+                                        'channel': _ch,
+                                        'data': payload
+                                    }, ensure_ascii=False))
+                                except Exception as e:
+                                    print(f"[PLUGIN:{_pid}] WS reply failed: {e}")
+
                             try:
-                                if hasattr(plugin, 'on_ws_message'):
+                                if hasattr(plugin, 'on_ws_request'):
+                                    await plugin.on_ws_request(
+                                        data.get('data', {}), channel, plugin_reply)
+                                elif hasattr(plugin, 'on_ws_message'):
                                     await plugin.on_ws_message(data.get('data', {}), channel)
                             except Exception as e:
                                 print(f"[PLUGIN:{plugin_id}] WS message error: {e}")
