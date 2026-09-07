@@ -1,5 +1,46 @@
 # Changelog
 
+## v2.7.0
+- Feature: `api.nodes.getVisible()` / `getVisibleNoPosition()` / `onFilterChange(cb)` —
+  the map's filter chain (MQTT, licensed, Meshtastic/Meshcore, direct, unknown
+  hops, routers) ran into a function-local variable that no plugin could see, so
+  overlays kept drawing nodes the user had filtered off the map. The visible set
+  is now module state and plugins are notified when it changes. `getAll()` keeps
+  its meaning — everything, unfiltered — so nothing existing breaks.
+- Feature: `frontend.pages[]` in a plugin manifest renders navbar tabs. The field
+  had existed since the BBS plugin shipped but no core code ever read it; the
+  only route into the navbar was `api.ui.addNavItem()` from plugin JavaScript,
+  which a backend-only plugin has no way to call. Tabs render on all four pages,
+  labels are set with `textContent`, and paths that are absolute,
+  protocol-relative or contain `..` are refused.
+- Feature: `on_ws_request(data, channel, reply)` plugin hook — plugins could push
+  to browsers but never answer one, so anything request-shaped had to be
+  broadcast to every open browser. `reply()` targets the requesting client. The
+  base class delegates to `on_ws_message()`, so listen-only plugins are
+  unaffected.
+- Fix: Plugin CSS/JS is loaded with `?v=<manifest version>`. The URL used to be
+  identical across plugin releases, so after upgrading a plugin from the store a
+  browser could keep serving the previous version's code from cache — the store
+  reported success and the fix never appeared.
+- Fix: The frontend requests `/meshpulse/` instead of the pre-rebranding
+  `/meshtastic/`. Writes and reads now agree on one path: `install.sh` deploys to
+  `/var/www/html/meshpulse` and the plugin manager writes plugin assets there,
+  while every navbar link, the stats `nodes.json` fetch and all plugin asset URLs
+  still asked for `/meshtastic/` and worked only through a redirect rule. Any
+  deployment behind a different web server, or without that rule, served the map
+  with all its plugins 404ing. The legacy redirect stays for old bookmarks.
+- Fix: The mobile drawer close button no longer grazes the screen edge;
+  `env(safe-area-inset-right)` keeps it clear of the notch cutout in landscape.
+- Docs: `api.panels`, `api.nodes.getVisible`, `frontend.pages[]` and the
+  WebSocket request/response pattern documented in the plugin developer guide.
+  `register_api_route()` is marked NOT IMPLEMENTED — it stores routes that
+  nothing dispatches, because MeshPulse runs no HTTP application server.
+- Store: `homepage`/`repository` for elevation-map, weather-overlay, bbs and
+  mqtt-proxy pointed at repos archived after the monorepo migration; changelogs
+  had fallen behind the shipped versions; documentation links were missing.
+- Chore: dropped `build-plugins.sh`, which packaged plugins from a directory
+  layout that no longer exists.
+
 ## v2.6.1
 - Feature: Generic plugin-panel mobile system — plugin control panels no longer
   cover the map on phones. Panels live top-left on desktop and inside a new

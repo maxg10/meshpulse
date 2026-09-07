@@ -387,9 +387,11 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         position: sticky;
         top: 8px;                 /* never pins flush to the drawer's top edge */
         float: right;
-        /* 4px extra on top of the drawer's own 12px side padding = 16px from the
-           screen edge; 6px down so it clears the ::before drag handle. */
-        margin: 6px 4px 0 8px;
+        /* 8px extra on top of the drawer's own 12px side padding = 20px from the
+           screen edge; 6px down so it clears the ::before drag handle. On notched
+           iPhones in landscape the rounded corner eats into that, so take whichever
+           is larger — env() resolves to 0px where there is no inset. */
+        margin: 6px max(8px, env(safe-area-inset-right)) 0 8px;
         /* Above drawer content — inside #plugin-drawer the adopted plugin panels
            carry z-index 1000, and the drawer's transform makes it a stacking
            context, so a low value here would put the button underneath them. */

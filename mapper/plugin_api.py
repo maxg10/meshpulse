@@ -261,6 +261,12 @@ class MeshPlugin:
     def register_api_route(self, method, path, handler):
         """Register HTTP API endpoint for this plugin.
 
+        NOT IMPLEMENTED YET — the route is stored but never served. MeshPulse
+        runs no HTTP application server (the web root is static files behind
+        lighttpd/Apache), so nothing dispatches to the registered handlers.
+        For a plugin page that needs data from its backend, use a WebSocket
+        channel and on_ws_request() instead — see the plugin developer guide.
+
         The path is automatically prefixed:
             register_api_route('GET', '/messages', handler)
             → mounted at /api/plugins/{plugin_id}/messages
@@ -428,6 +434,43 @@ class MeshPlugin:
             node_info (dict): {'node_id': str, 'last_seen': int}
         """
         pass
+
+    async def on_ws_message(self, data, channel):
+        """Message received from a browser on one of this plugin's WS channels.
+
+        Fire-and-forget: there is no way to answer the specific client from
+        here — override on_ws_request() instead when the browser expects a
+        response.
+
+        Args:
+            data (dict): Payload the browser sent
+            channel (str): Full channel name, 'plugin:{plugin_id}:{channel}'
+        """
+        pass
+
+    async def on_ws_request(self, data, channel, reply):
+        """Request received from a browser, with a way to answer that browser.
+
+        broadcast_ws() reaches every connected client, which is right for
+        events but wrong for a reply: it wastes bandwidth and can hand one
+        user's data to everyone. `reply` sends only to the client that asked.
+
+        The default implementation delegates to on_ws_message(), so a plugin
+        that only listens does not have to know this hook exists.
+
+        Args:
+            data (dict): Payload the browser sent
+            channel (str): Full channel name, 'plugin:{plugin_id}:{channel}'
+            reply (callable): async reply(payload) -> None, delivered to the
+                requesting client as {'type': 'plugin_data', 'plugin_id': ...,
+                'channel': ..., 'data': payload}
+
+        Example:
+            async def on_ws_request(self, data, channel, reply):
+                if data.get('action') == 'get_items':
+                    await reply({'req': data.get('req'), 'result': self.items()})
+        """
+        await self.on_ws_message(data, channel)
 
     async def on_ws_client_connect(self, client_info):
         """New WebSocket client connected.

@@ -54,10 +54,10 @@
         <span style="color:#6b7280">Last update: <span id="upd" style="color:#9ca3af">-</span></span>
     </div>
     <div class="topnav-links">
-        <a href="/meshtastic/" class="topnav-link active">🗺️ Map</a>
-        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
-        <a href="/meshtastic/config.html" class="topnav-link">⚙️ Config</a>
-        <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
+        <a href="/meshpulse/" class="topnav-link active">🗺️ Map</a>
+        <a href="/meshpulse/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshpulse/config.html" class="topnav-link">⚙️ Config</a>
+        <a href="/meshpulse/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
     </div>
 </nav>
     <div id="map"></div>
@@ -284,6 +284,12 @@
         let markers = {};
         let allNodes = [];
         let allNodesNoGps = [];
+        // What the map is actually showing: allNodes / allNodesNoGps after the filter
+        // chain in updateDisplay(). Plugins read these through api.nodes.getVisible()
+        // and getVisibleNoPosition() rather than re-deriving the filters themselves,
+        // so an overlay can never disagree with the markers underneath it.
+        let visibleNodes = [];
+        let visibleNodesNoGps = [];
         let expandedNoGpsId = null;
         let trackerInfo = {};
         let maxDistanceKm = null;
@@ -309,6 +315,7 @@
         var pluginNodeCallbacks = {};
         var pluginExpireCallbacks = {};
         var pluginMessageCallbacks = {};
+        var pluginFilterCallbacks = {};
         var pluginWsCallbacks = {};
 
         // Unread messages badge
@@ -466,6 +473,7 @@
                                 catch(e) { console.error('[PLUGINS] message callback error:', e); }
                             });
                         } else if (data.type === 'plugins_list') {
+                            renderPluginNavTabs(data.plugins);
                             // Load frontend for all enabled plugins
                             (data.plugins || []).forEach(function(p) {
                                 if (p.enabled && p.has_frontend && p.frontend) {
@@ -1230,7 +1238,7 @@
 
         function sendMessageToNode(nodeId, nodeName) {
             localStorage.setItem('meshtastic_dm_target', JSON.stringify({ id: nodeId, name: nodeName }));
-            window.location.href = '/meshtastic/messages.html';
+            window.location.href = '/meshpulse/messages.html';
         }
 
         function toggleNoGpsDetails(id, ev) {
@@ -1888,6 +1896,11 @@
                 filteredNodes = filteredNodes.filter(n => isRouterRole(n) || isOwnTracker(n.id));
                 filteredNoGps = filteredNoGps.filter(isRouterRole);
             }
+
+            // End of the filter chain — this is the single source of truth for
+            // "visible" from here on, for the markers below and for plugins alike.
+            visibleNodes = filteredNodes;
+            visibleNodesNoGps = filteredNoGps;
             
             console.log('[MAP] Updating display with', filteredNodes.length, 'nodes');
             
@@ -2104,6 +2117,19 @@
             // Update timestamp on every display refresh
             document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
 
+            // Fired last, after the markers are drawn, so a plugin reading
+            // getVisible() from this callback sees exactly what the map shows.
+            notifyPluginFilterChange();
+        }
+
+        // Tell plugins the visible node set may have changed — a filter toggled, or
+        // nodes arrived / expired. Plugins that draw per-node overlays subscribe via
+        // api.nodes.onFilterChange() and re-render from the set handed to them.
+        function notifyPluginFilterChange() {
+            Object.keys(pluginFilterCallbacks).forEach(function(key) {
+                try { pluginFilterCallbacks[key](JSON.parse(JSON.stringify(visibleNodes))); }
+                catch(e) { console.error('[PLUGINS] filter callback error:', e); }
+            });
         }
 
         // Restore saved TCP host from localStorage
@@ -2523,8 +2549,19 @@
                     getNoPosition: function() {
                         try { return JSON.parse(JSON.stringify(allNodesNoGps)); } catch(e) { return []; }
                     },
+                    // Nodes the map is currently showing (all core filters applied).
+                    // Use this, not getAll(), for anything drawn on top of the map.
+                    getVisible: function() {
+                        try { return JSON.parse(JSON.stringify(visibleNodes)); } catch(e) { return []; }
+                    },
+                    getVisibleNoPosition: function() {
+                        try { return JSON.parse(JSON.stringify(visibleNodesNoGps)); } catch(e) { return []; }
+                    },
                     onUpdate: function(cb) { pluginNodeCallbacks[prefix] = cb; },
-                    onExpire: function(cb) { pluginExpireCallbacks[prefix] = cb; }
+                    onExpire: function(cb) { pluginExpireCallbacks[prefix] = cb; },
+                    // Called whenever the visible set may have changed, with that set
+                    // as its argument. One callback per plugin, like onUpdate.
+                    onFilterChange: function(cb) { pluginFilterCallbacks[prefix] = cb; }
                 },
                 messages: {
                     getAll: function(ch) { return []; },
@@ -2624,7 +2661,7 @@
                     id: pluginId,
                     version: pluginInfo.version || '0.0.0',
                     config: pluginInfo.config || {},
-                    dataUrl: function(path) { return '/meshtastic/plugins/' + pluginId + '/' + path; }
+                    dataUrl: function(path) { return '/meshpulse/plugins/' + pluginId + '/' + path; }
                 }
             };
         }
@@ -2634,6 +2671,50 @@
             ws.send(JSON.stringify({type: 'get_plugins'}));
         }
 
+        // Plugin asset URL, versioned. Without the ?v= the URL is identical across
+        // plugin versions, so a browser is free to serve the previous release's JS
+        // from cache after an upgrade — the store reports success and the user runs
+        // old code. The version comes from the manifest, so the URL changes on every
+        // release and the cache invalidates itself.
+        function pluginAssetUrl(pluginId, path, version) {
+            return '/meshpulse/plugins/' + pluginId + '/' + path +
+                   '?v=' + encodeURIComponent(version || '0.0.0');
+        }
+
+        // ── Plugin nav tabs ──────────────────────────────────────────────
+        // A plugin declares browsable pages in its manifest:
+        //   "frontend": { "pages": [ { "id": "bbs", "title": "BBS",
+        //                              "icon": "💾", "path": "frontend/index.html" } ] }
+        // The core renders one navbar link per page of every enabled plugin, on
+        // every page of the app, so the navbar is the same wherever you are. No
+        // plugin JS is involved — a backend-only plugin gets its tab too.
+        function renderPluginNavTabs(plugins) {
+            var nav = document.querySelector('.topnav-links');
+            if (!nav) return;
+            nav.querySelectorAll('a[data-plugin-page]').forEach(function(el) { el.remove(); });
+            (plugins || []).forEach(function(p) {
+                if (!p.enabled || !p.frontend || !Array.isArray(p.frontend.pages)) return;
+                p.frontend.pages.forEach(function(page) {
+                    var path = String((page && page.path) || '');
+                    // Manifests are third-party content: keep the link inside the
+                    // plugin's own directory — no absolute URLs, no traversal.
+                    if (!path || /^[a-z]+:|^\/\//i.test(path) || path.indexOf('..') !== -1) {
+                        console.warn('[PLUGINS] Ignoring page with unsafe path in ' + p.id + ':', path);
+                        return;
+                    }
+                    var href = '/meshpulse/plugins/' + p.id + '/' + path.replace(/^\/+/, '');
+                    var a = document.createElement('a');
+                    a.className = 'topnav-link';
+                    a.href = href;
+                    a.dataset.pluginPage = p.id + ':' + (page.id || '');
+                    // textContent, never innerHTML — the label comes from a manifest.
+                    a.textContent = ((page.icon || '🧩') + ' ' + (page.title || page.id || 'Plugin')).trim();
+                    if (location.pathname === href) a.classList.add('active');
+                    nav.appendChild(a);
+                });
+            });
+        }
+
         function loadPluginFrontend(pluginInfo) {
             var pluginId = pluginInfo.id;
             if (loadedPlugins[pluginId]) return;
@@ -2641,14 +2722,14 @@
             if (pluginInfo.frontend && pluginInfo.frontend.css) {
                 var link = document.createElement('link');
                 link.rel = 'stylesheet';
-                link.href = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.css;
+                link.href = pluginAssetUrl(pluginId, pluginInfo.frontend.css, pluginInfo.version);
                 link.dataset.pluginId = pluginId;
                 document.head.appendChild(link);
             }
 
             if (pluginInfo.frontend && pluginInfo.frontend.js) {
                 var script = document.createElement('script');
-                script.src = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.js;
+                script.src = pluginAssetUrl(pluginId, pluginInfo.frontend.js, pluginInfo.version);
                 script.dataset.pluginId = pluginId;
                 script.onload = function() {
                     if (window.MeshPlugin) {
@@ -2690,6 +2771,7 @@
             Object.keys(pluginNodeCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginNodeCallbacks[key]; });
             Object.keys(pluginExpireCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginExpireCallbacks[key]; });
             Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
+            Object.keys(pluginFilterCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginFilterCallbacks[key]; });
             Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
 
             document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });

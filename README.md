@@ -187,6 +187,20 @@ That's it — pulls latest code, installs frontend files, restarts service.
 
 ### What's New in Latest Version
 
+## What's New in v2.7.0 — Plugins Get What the Core Knows
+
+**🗺️ Overlays follow the map's filters** — Plugins can read the node set the map is actually showing (`api.nodes.getVisible()`) and re-render when a filter changes (`api.nodes.onFilterChange()`). Uncheck Meshtastic and a plugin's labels now disappear along with the markers instead of floating over an empty map. Weather Overlay 1.0.3 uses it.
+
+**💾 Plugin tabs from the manifest** — A plugin that declares `frontend.pages[]` gets a navbar tab on every page, with no plugin JavaScript required — so a backend-only plugin can ship a browsable page. This is what finally opens the BBS web viewer: read the boards, netmail and node directory in a browser instead of typing `!bbs read` over radio.
+
+**💬 Plugins can answer the browser** — New `on_ws_request(data, channel, reply)` hook lets a plugin respond to the client that asked, instead of broadcasting every reply to every open browser.
+
+**♻️ Plugin updates actually take effect** — Plugin assets are loaded with a version query, so upgrading a plugin from the store no longer leaves the browser running the old code from cache.
+
+**🔗 One path, no redirect** — The frontend asks for `/meshpulse/` directly. Previously every navbar click and every plugin asset relied on a `/meshtastic/` → `/meshpulse/` redirect rule; without it, plugins 404'd.
+
+---
+
 ## What's New in v2.6.0 — Multi-Network Support & Plugin Node Injection
 
 **🌐 Multi-network map** — Nodes now carry a network tag (`net`): Meshtastic and Meshcore nodes live side by side on the same map. Non-Meshtastic nodes render as diamond markers, and per-network checkboxes in Mesh Info let you toggle whole networks on/off (persisted across refreshes).

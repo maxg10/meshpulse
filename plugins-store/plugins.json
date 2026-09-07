@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-07-19T14:00:00Z",
+    "updated": "2026-09-07T08:30:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -52,9 +52,10 @@
             "icon": "⛰️",
             "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.3/elevation-map-1.0.3.meshplugin",
             "download_size": 3697,
-            "homepage": "https://github.com/maxg10/meshplugin-elevation-map",
-            "repository": "https://github.com/maxg10/meshplugin-elevation-map",
-            "changelog": "v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
+            "documentation": "https://github.com/maxg10/meshplugins/blob/main/elevation-map/README.md",
+            "homepage": "https://github.com/maxg10/meshplugins/tree/main/elevation-map",
+            "repository": "https://github.com/maxg10/meshplugins",
+            "changelog": "v1.0.3: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1. v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
             "screenshots": [],
             "tags": [
                 "map",
@@ -82,8 +83,9 @@
             "download_url": "https://github.com/maxg10/meshplugins/releases/download/mqtt-proxy-v1.0.0/mqtt-proxy-1.0.0.meshplugin",
             "download_size": 3490,
             "dependencies_note": "Requires paho-mqtt (auto-installed)",
-            "homepage": "https://github.com/maxg10/meshplugin-mqtt-proxy",
-            "repository": "https://github.com/maxg10/meshplugin-mqtt-proxy",
+            "documentation": "https://github.com/maxg10/meshplugins/blob/main/mqtt-proxy/README.md",
+            "homepage": "https://github.com/maxg10/meshplugins/tree/main/mqtt-proxy",
+            "repository": "https://github.com/maxg10/meshplugins",
             "changelog": "v1.0.0: Initial release — uplink, downlink, implicit ACK, retained message filtering",
             "screenshots": [],
             "tags": [
@@ -111,8 +113,9 @@
             "icon": "📋",
             "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.0.6/bbs-1.0.6.meshplugin",
             "download_size": 16370,
-            "homepage": "https://github.com/maxg10/meshplugin-bbs",
-            "repository": "https://github.com/maxg10/meshplugin-bbs",
+            "documentation": "https://github.com/maxg10/meshplugins/blob/main/bbs/docs/COMMANDS.md",
+            "homepage": "https://github.com/maxg10/meshplugins/tree/main/bbs",
+            "repository": "https://github.com/maxg10/meshplugins",
             "changelog": "v1.0.6: fix: _c_about returns default when about_message is empty, support \\n in config",
             "screenshots": [],
             "tags": [
@@ -122,8 +125,7 @@
                 "communication",
                 "fido",
                 "store-forward"
-            ],
-            "documentation": "https://github.com/maxg10/meshplugin-bbs/blob/master/docs/COMMANDS.md"
+            ]
         },
         {
             "id": "maxg10/weather-overlay",
@@ -143,9 +145,10 @@
             "icon": "🌡️",
             "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.2/weather-overlay-1.0.2.meshplugin",
             "download_size": 4832,
-            "homepage": "https://github.com/maxg10/meshplugin-weather-overlay",
-            "repository": "https://github.com/maxg10/meshplugin-weather-overlay",
-            "changelog": "v1.0.1: labels render above map lines (z-index fix), migrated to monorepo",
+            "documentation": "https://github.com/maxg10/meshplugins/blob/main/weather-overlay/README.md",
+            "homepage": "https://github.com/maxg10/meshplugins/tree/main/weather-overlay",
+            "repository": "https://github.com/maxg10/meshplugins",
+            "changelog": "v1.0.2: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1. v1.0.1: labels render above map lines (z-index fix), migrated to monorepo",
             "screenshots": [],
             "tags": [
                 "weather",

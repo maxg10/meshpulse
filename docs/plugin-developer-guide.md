@@ -67,7 +67,15 @@ my-plugin/
     },
     "frontend": {
         "js": "frontend/js/plugin.js",
-        "css": "frontend/css/plugin.css"
+        "css": "frontend/css/plugin.css",
+        "pages": [
+            {
+                "id": "my-page",
+                "title": "My Page",
+                "icon": "🧩",
+                "path": "frontend/page.html"
+            }
+        ]
     },
     "config": {
         "my_setting": {
@@ -92,6 +100,41 @@ Informational — tells users what the plugin accesses:
 - `database` — uses SQLite database
 - `raw_map_access` — direct Leaflet map access
 - `node_inject` — injects nodes from non-Meshtastic sources into the node store
+
+### Pages (`frontend.pages`)
+
+*Available since core 2.7.0.*
+
+A plugin can ship standalone HTML pages and get a navbar tab for each of them.
+Declare them in the manifest — no plugin JavaScript is involved, so a
+**backend-only plugin can have a tab too**:
+
+```json
+"frontend": {
+    "js": null,
+    "css": null,
+    "pages": [
+        { "id": "bbs", "title": "BBS", "icon": "💾", "path": "frontend/index.html" }
+    ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique within the plugin; used to identify the tab |
+| `title` | Link text |
+| `icon` | Emoji shown before the title (defaults to 🧩) |
+| `path` | Page location **relative to the plugin directory** |
+
+The core renders one link per page of every enabled plugin, on every page of the
+app, so the navbar stays consistent wherever the user is. The link resolves to
+`/meshpulse/plugins/<plugin-id>/<path>`, i.e. your plugin's own directory in the
+web root — which means the page is served as a plain static file and gets no
+`MapperAPI`. Talk to the backend from it the same way any page would: the
+WebSocket on port 8765, or an API route your plugin registered.
+
+`path` must stay inside your plugin's directory. Absolute URLs, protocol-relative
+URLs and `..` are rejected and logged — the tab simply does not appear.
 
 ### Config Types
 - `boolean` — checkbox
@@ -163,6 +206,8 @@ class MyPlugin(MeshPlugin):
 | `on_connect(info)` | Mapper connected | `{connection_type, host_or_port, local_node_id}` |
 | `on_disconnect(reason)` | Mapper disconnected | `{reason}` |
 | `on_node_expire(info)` | Node TTL expired | `{node_id, last_seen}` |
+| `on_ws_message(data, channel)` | Browser sent a frame on one of your channels | `data` (dict), `channel` (str) |
+| `on_ws_request(data, channel, reply)` | Same, but with a way to answer that browser ([details](#request-response-over-a-plugin-channel)) | `data`, `channel`, `reply` (async) |
 | `on_ws_client_connect(info)` | Browser connected | `{client_id}` |
 | `on_ws_client_disconnect(info)` | Browser disconnected | `{client_id}` |
 
@@ -211,11 +256,15 @@ var MyPlugin = (function() {
         this.api = api;
         console.log('[MyPlugin] Enabled!');
 
-        // Add a control to the map
-        var control = document.createElement('div');
-        control.innerHTML = '<button id="my-btn">My Plugin</button>';
-        control.style.cssText = 'background:rgba(31,41,55,0.9);padding:6px 10px;border-radius:6px;color:#e5e7eb;font-size:12px;';
-        api.map.addControl('my-control', control, 'topleft');
+        // Add a control panel. Core owns the placement: top-left on desktop,
+        // inside the mobile "Map Layers" drawer on phones. The fallback keeps the
+        // plugin working on cores older than 2.6.1, which have no api.panels.
+        var panel = document.createElement('div');
+        panel.innerHTML = '<button id="my-btn">My Plugin</button>';
+        panel.style.cssText = 'background:rgba(31,41,55,0.9);padding:6px 10px;border-radius:6px;color:#e5e7eb;font-size:12px;';
+        this.panel = panel;
+        if (api.panels && api.panels.register) api.panels.register(panel);
+        else api.map.addControl('my-panel', panel, 'topleft');  // fallback < 2.6.1
 
         // Listen for node updates
         api.nodes.onUpdate(function(node) {
@@ -239,8 +288,9 @@ var MyPlugin = (function() {
     };
 
     Plugin.prototype.onDisable = function(api) {
-        // Clean up — remove controls, layers, etc.
-        api.map.removeControl('my-control');
+        // Clean up — remove panels, layers, listeners. Mirror the registration path.
+        if (api.panels && api.panels.unregister) api.panels.unregister(this.panel);
+        else api.map.removeControl('my-panel');
         console.log('[MyPlugin] Disabled');
     };
 
@@ -261,16 +311,90 @@ window.MeshPlugin = MyPlugin;
 | API | Methods |
 |-----|---------|
 | `api.map` | `addLayer()`, `removeLayer()`, `addControl()`, `removeControl()`, `getLeafletMap()` |
-| `api.nodes` | `getAll()`, `get(id)`, `getTracker()`, `onUpdate(cb)`, `onExpire(cb)` |
+| `api.panels` | `register(el)`, `unregister(el)` — preferred way to add a control panel (2.6.1+) |
+| `api.nodes` | `getVisible()`, `getVisibleNoPosition()`, `getAll()`, `get(id)`, `getTracker()`, `getNoPosition()`, `onUpdate(cb)`, `onExpire(cb)`, `onFilterChange(cb)` |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
 | `api.ui` | `addNavItem(label, onClick)`, `addPanel(id, html, position)`, `showNotification(msg, type)` |
 | `api.storage` | `get(key)`, `set(key, value)`, `remove(key)`, `getAll()` — auto-namespaced per plugin |
 | `api.info` | `id`, `version`, `config`, `dataUrl(path)` |
 
+### Control Panels (`api.panels`)
+
+*Available since core 2.6.1.*
+
+`api.panels` is the preferred way to put a control panel on screen. You hand the core a
+plain DOM element and the core owns its placement:
+
+- **Desktop** — the panel is hosted in `#plugin-panels`, floating at the top-left of the map.
+- **Mobile** (≤768px) — the same DOM node is *moved* (not cloned) into the "Map Layers"
+  drawer behind the 🗺️ FAB, so state and event listeners survive the move.
+
+```javascript
+// register(el) -> el   (adds the .plugin-panel class, tags the element with your plugin id)
+var panel = document.createElement('div');
+panel.innerHTML = '<label><input type="checkbox" id="my-toggle"> My layer</label>';
+
+if (api.panels && api.panels.register) api.panels.register(panel);
+else api.map.addControl('my-panel', panel, 'topleft');  // fallback < 2.6.1
+
+// ...and on disable:
+if (api.panels && api.panels.unregister) api.panels.unregister(panel);
+else api.map.removeControl('my-panel');
+```
+
+**Always keep the fallback guard.** Users are not all on the newest core, and a plugin
+that assumes `api.panels` exists renders nothing at all on 2.6.0 and older.
+
+`api.map.addControl()` is *not* deprecated — it stays the escape hatch for real Leaflet
+controls and for older cores. Cores from 2.6.1 on also adopt panels added through
+`addControl()` into the mobile drawer automatically (matched on `.leaflet-plugin-control`),
+so existing plugins keep working. But `api.panels` is explicit, needs no DOM-matching
+heuristics, and is what new plugins should use.
+
+### Visible vs. all nodes (`api.nodes.getVisible`)
+
+*Available since core 2.7.0.*
+
+The core's map has a filter chain — MQTT nodes, licensed only, Meshtastic/Meshcore,
+direct only, unknown hops, routers only. `getAll()` returns the **unfiltered** node
+list and knows nothing about it. If your plugin draws anything anchored to nodes —
+labels, a heatmap, lines — rendering from `getAll()` means your overlay keeps drawing
+nodes the user just filtered off the map. Uncheck "Meshtastic" and the markers vanish
+while your labels float on an empty map.
+
+Render from `getVisible()` and re-render on `onFilterChange()`:
+
+```javascript
+Plugin.prototype._render = function () {
+    var api = this.api;
+    // getVisible() is 2.7.0+; getAll() keeps the plugin working on older cores
+    var nodes = api.nodes.getVisible ? api.nodes.getVisible() : api.nodes.getAll();
+    // ...draw from `nodes`
+};
+
+Plugin.prototype.onEnable = function (api) {
+    var self = this;
+    this.api = api;
+    api.nodes.onUpdate(function () { self._render(); });
+    if (api.nodes.onFilterChange) api.nodes.onFilterChange(function () { self._render(); });
+    this._render();
+};
+```
+
+`onFilterChange(cb)` fires after the map has drawn, with the visible node array as its
+argument, whenever the set may have changed — a filter toggled, nodes arrived, nodes
+expired. One callback per plugin, same as `onUpdate`. `getVisibleNoPosition()` is the
+same idea for nodes without GPS.
+
+Keep `getAll()` for anything that genuinely needs the whole picture — counting the mesh,
+looking up a node the user filtered out, exporting data.
+
 ### IMPORTANT Rules
 - Always export: `window.MeshPlugin = YourClass;`
-- Clean up in `onDisable()` — remove all layers, controls, listeners
+- Clean up in `onDisable()` — remove all layers, panels, controls, listeners
+- Prefer `api.panels.register()` over `api.map.addControl()` for control panels, with a fallback guard for cores < 2.6.1
+- Draw map overlays from `api.nodes.getVisible()`, not `getAll()`, and re-render on `api.nodes.onFilterChange()` — otherwise your overlay contradicts the map's own filters
 - Use `api.storage` instead of `localStorage` directly (auto-namespaced)
 - Use `api.map.getLeafletMap()` for direct Leaflet access (requires `raw_map_access` permission)
 - All IDs are auto-prefixed with `plugin:author/name:` to avoid conflicts
@@ -377,6 +501,56 @@ The `.meshplugin` file is just a ZIP archive containing your plugin files.
 Share the `.meshplugin` file directly. Users install via Config → Plugins → Install Plugin (upload).
 
 ## API Reference
+
+### Request/response over a plugin channel
+
+*`on_ws_request` available since core 2.7.0.*
+
+MeshPulse has **no HTTP API server**. `self.register_api_route()` exists in the
+API and prints a line at startup, but nothing in the core dispatches to it — the
+routes go into a dict with no reader. Do not build against it yet. A plugin page
+that needs data from its backend uses the mapper's WebSocket (port 8765), which
+is the transport everything else already runs on.
+
+`broadcast_ws()` reaches every connected browser. That is right for events and
+wrong for a response: it wastes bandwidth on clients that did not ask, and it
+can hand one user's data to everyone. `on_ws_request()` gives you a `reply`
+that goes to the requesting client only:
+
+```python
+# backend
+def on_enable(self):
+    self.register_ws_channel('my_channel')     # without this the core cannot
+                                               # route incoming frames to you
+
+async def on_ws_request(self, data, channel, reply):
+    if data.get('action') == 'get_items':
+        await reply({'req': data.get('req'), 'result': {'items': self.items()}})
+```
+
+```javascript
+// frontend — a standalone plugin page has no MapperAPI, so it speaks the
+// protocol directly
+var CHANNEL = 'plugin:yourname/my-plugin:my_channel';
+var ws = new WebSocket('ws://' + location.hostname + ':8765');
+
+ws.send(JSON.stringify({
+    type: 'plugin_message', channel: CHANNEL,
+    data: {req: 'r1', action: 'get_items'}
+}));
+
+ws.onmessage = function (evt) {
+    var msg = JSON.parse(evt.data);
+    if (msg.type !== 'plugin_data' || msg.channel !== CHANNEL) return;  // shared socket
+    // msg.data.req identifies the answer; frames without it are broadcast events
+};
+```
+
+Carry your own request id (`req` above) and match responses on it — the socket is
+shared with the core and every other plugin, and frames arrive in any order.
+Plugins that only listen can keep overriding `on_ws_message(data, channel)`; the
+default `on_ws_request()` delegates to it.
+
 
 ### Node Injection
 

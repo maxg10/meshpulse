@@ -162,10 +162,10 @@
         <span style="color:#6b7280">Tracker: <span id="tracker-label" style="color:#9ca3af">-</span></span>
     </div>
     <div class="topnav-links">
-        <a href="/meshtastic/" class="topnav-link">🗺️ Map</a>
-        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
-        <a href="/meshtastic/config.html" class="topnav-link active">⚙️ Config</a>
-        <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
+        <a href="/meshpulse/" class="topnav-link">🗺️ Map</a>
+        <a href="/meshpulse/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshpulse/config.html" class="topnav-link active">⚙️ Config</a>
+        <a href="/meshpulse/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
     </div>
 </nav>
 
@@ -1892,6 +1892,7 @@ function connectWS() {
             }
             // If connected — don't update status here, let connection_status handle it
         } else if (d.type === 'plugins_list') {
+            renderPluginNavTabs(d.plugins);
             renderPluginsList(d.plugins);
             var pluginUpdates = d.available_updates || [];
             document.getElementById('plugin-update-badge')?.remove();
@@ -2299,6 +2300,40 @@ function showAlert(msg, type, persistent = false) {
 }
 
 // ── Plugin Management ──────────────────────────────────────────
+
+// ── Plugin nav tabs ──────────────────────────────────────────────
+// A plugin declares browsable pages in its manifest:
+//   "frontend": { "pages": [ { "id": "bbs", "title": "BBS",
+//                              "icon": "💾", "path": "frontend/index.html" } ] }
+// The core renders one navbar link per page of every enabled plugin, on
+// every page of the app, so the navbar is the same wherever you are. No
+// plugin JS is involved — a backend-only plugin gets its tab too.
+function renderPluginNavTabs(plugins) {
+    var nav = document.querySelector('.topnav-links');
+    if (!nav) return;
+    nav.querySelectorAll('a[data-plugin-page]').forEach(function(el) { el.remove(); });
+    (plugins || []).forEach(function(p) {
+        if (!p.enabled || !p.frontend || !Array.isArray(p.frontend.pages)) return;
+        p.frontend.pages.forEach(function(page) {
+            var path = String((page && page.path) || '');
+            // Manifests are third-party content: keep the link inside the
+            // plugin's own directory — no absolute URLs, no traversal.
+            if (!path || /^[a-z]+:|^\/\//i.test(path) || path.indexOf('..') !== -1) {
+                console.warn('[PLUGINS] Ignoring page with unsafe path in ' + p.id + ':', path);
+                return;
+            }
+            var href = '/meshpulse/plugins/' + p.id + '/' + path.replace(/^\/+/, '');
+            var a = document.createElement('a');
+            a.className = 'topnav-link';
+            a.href = href;
+            a.dataset.pluginPage = p.id + ':' + (page.id || '');
+            // textContent, never innerHTML — the label comes from a manifest.
+            a.textContent = ((page.icon || '🧩') + ' ' + (page.title || page.id || 'Plugin')).trim();
+            if (location.pathname === href) a.classList.add('active');
+            nav.appendChild(a);
+        });
+    });
+}
 
 function loadPluginsList() {
     if (ws && ws.readyState === WebSocket.OPEN) {

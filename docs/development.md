@@ -16,6 +16,18 @@
 
 **Add new WebSocket message type:** Add handler in `websocket_handler()` + `elif data.type === '...'` in frontend `ws.onmessage`.
 
+**Testing a modified plugin on a Pi:** The plugin's install directory
+(`~/meshpulse/plugins/<author>/<name>/`) is the source of truth; the web root copy
+(`/var/www/html/meshpulse/plugins/<author>/<name>/`) is derived from it. Both
+`plugin_manager` (on install) and `install.sh` (on every run) sync install dir ->
+web root, one-way. So copy changed plugin files into the **install directory** and
+re-run `./install.sh` — anything dropped straight into the web root survives only
+until the next `install.sh`, which silently copies the old version back over it.
+
+Copy the manifest too, not just the code: plugin asset URLs carry `?v=<version>`
+read from the manifest, so a stale `plugin.json` means a stale URL and a cached
+copy of the old JS.
+
 **Debugging parsers:** Run directly, watch `[RECV]` lines, add print statements, check `journalctl -u meshpulse -f`.
 
 ## Testing
