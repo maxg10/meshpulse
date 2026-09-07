@@ -2670,6 +2670,16 @@
             ws.send(JSON.stringify({type: 'get_plugins'}));
         }
 
+        // Plugin asset URL, versioned. Without the ?v= the URL is identical across
+        // plugin versions, so a browser is free to serve the previous release's JS
+        // from cache after an upgrade — the store reports success and the user runs
+        // old code. The version comes from the manifest, so the URL changes on every
+        // release and the cache invalidates itself.
+        function pluginAssetUrl(pluginId, path, version) {
+            return '/meshtastic/plugins/' + pluginId + '/' + path +
+                   '?v=' + encodeURIComponent(version || '0.0.0');
+        }
+
         function loadPluginFrontend(pluginInfo) {
             var pluginId = pluginInfo.id;
             if (loadedPlugins[pluginId]) return;
@@ -2677,14 +2687,14 @@
             if (pluginInfo.frontend && pluginInfo.frontend.css) {
                 var link = document.createElement('link');
                 link.rel = 'stylesheet';
-                link.href = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.css;
+                link.href = pluginAssetUrl(pluginId, pluginInfo.frontend.css, pluginInfo.version);
                 link.dataset.pluginId = pluginId;
                 document.head.appendChild(link);
             }
 
             if (pluginInfo.frontend && pluginInfo.frontend.js) {
                 var script = document.createElement('script');
-                script.src = '/meshtastic/plugins/' + pluginId + '/' + pluginInfo.frontend.js;
+                script.src = pluginAssetUrl(pluginId, pluginInfo.frontend.js, pluginInfo.version);
                 script.dataset.pluginId = pluginId;
                 script.onload = function() {
                     if (window.MeshPlugin) {
