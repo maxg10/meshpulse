@@ -67,7 +67,15 @@ my-plugin/
     },
     "frontend": {
         "js": "frontend/js/plugin.js",
-        "css": "frontend/css/plugin.css"
+        "css": "frontend/css/plugin.css",
+        "pages": [
+            {
+                "id": "my-page",
+                "title": "My Page",
+                "icon": "🧩",
+                "path": "frontend/page.html"
+            }
+        ]
     },
     "config": {
         "my_setting": {
@@ -92,6 +100,41 @@ Informational — tells users what the plugin accesses:
 - `database` — uses SQLite database
 - `raw_map_access` — direct Leaflet map access
 - `node_inject` — injects nodes from non-Meshtastic sources into the node store
+
+### Pages (`frontend.pages`)
+
+*Available since core 2.7.0.*
+
+A plugin can ship standalone HTML pages and get a navbar tab for each of them.
+Declare them in the manifest — no plugin JavaScript is involved, so a
+**backend-only plugin can have a tab too**:
+
+```json
+"frontend": {
+    "js": null,
+    "css": null,
+    "pages": [
+        { "id": "bbs", "title": "BBS", "icon": "💾", "path": "frontend/index.html" }
+    ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `id` | Unique within the plugin; used to identify the tab |
+| `title` | Link text |
+| `icon` | Emoji shown before the title (defaults to 🧩) |
+| `path` | Page location **relative to the plugin directory** |
+
+The core renders one link per page of every enabled plugin, on every page of the
+app, so the navbar stays consistent wherever the user is. The link resolves to
+`/meshpulse/plugins/<plugin-id>/<path>`, i.e. your plugin's own directory in the
+web root — which means the page is served as a plain static file and gets no
+`MapperAPI`. Talk to the backend from it the same way any page would: the
+WebSocket on port 8765, or an API route your plugin registered.
+
+`path` must stay inside your plugin's directory. Absolute URLs, protocol-relative
+URLs and `..` are rejected and logged — the tab simply does not appear.
 
 ### Config Types
 - `boolean` — checkbox

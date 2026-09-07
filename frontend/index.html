@@ -473,6 +473,7 @@
                                 catch(e) { console.error('[PLUGINS] message callback error:', e); }
                             });
                         } else if (data.type === 'plugins_list') {
+                            renderPluginNavTabs(data.plugins);
                             // Load frontend for all enabled plugins
                             (data.plugins || []).forEach(function(p) {
                                 if (p.enabled && p.has_frontend && p.frontend) {
@@ -2678,6 +2679,40 @@
         function pluginAssetUrl(pluginId, path, version) {
             return '/meshpulse/plugins/' + pluginId + '/' + path +
                    '?v=' + encodeURIComponent(version || '0.0.0');
+        }
+
+        // ── Plugin nav tabs ──────────────────────────────────────────────
+        // A plugin declares browsable pages in its manifest:
+        //   "frontend": { "pages": [ { "id": "bbs", "title": "BBS",
+        //                              "icon": "💾", "path": "frontend/index.html" } ] }
+        // The core renders one navbar link per page of every enabled plugin, on
+        // every page of the app, so the navbar is the same wherever you are. No
+        // plugin JS is involved — a backend-only plugin gets its tab too.
+        function renderPluginNavTabs(plugins) {
+            var nav = document.querySelector('.topnav-links');
+            if (!nav) return;
+            nav.querySelectorAll('a[data-plugin-page]').forEach(function(el) { el.remove(); });
+            (plugins || []).forEach(function(p) {
+                if (!p.enabled || !p.frontend || !Array.isArray(p.frontend.pages)) return;
+                p.frontend.pages.forEach(function(page) {
+                    var path = String((page && page.path) || '');
+                    // Manifests are third-party content: keep the link inside the
+                    // plugin's own directory — no absolute URLs, no traversal.
+                    if (!path || /^[a-z]+:|^\/\//i.test(path) || path.indexOf('..') !== -1) {
+                        console.warn('[PLUGINS] Ignoring page with unsafe path in ' + p.id + ':', path);
+                        return;
+                    }
+                    var href = '/meshpulse/plugins/' + p.id + '/' + path.replace(/^\/+/, '');
+                    var a = document.createElement('a');
+                    a.className = 'topnav-link';
+                    a.href = href;
+                    a.dataset.pluginPage = p.id + ':' + (page.id || '');
+                    // textContent, never innerHTML — the label comes from a manifest.
+                    a.textContent = ((page.icon || '🧩') + ' ' + (page.title || page.id || 'Plugin')).trim();
+                    if (location.pathname === href) a.classList.add('active');
+                    nav.appendChild(a);
+                });
+            });
         }
 
         function loadPluginFrontend(pluginInfo) {
