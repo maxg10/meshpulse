@@ -54,10 +54,10 @@
         <span style="color:#6b7280">Last update: <span id="upd" style="color:#9ca3af">-</span></span>
     </div>
     <div class="topnav-links">
-        <a href="/meshtastic/" class="topnav-link active">🗺️ Map</a>
-        <a href="/meshtastic/stats.html" class="topnav-link">📊 Stats</a>
-        <a href="/meshtastic/config.html" class="topnav-link">⚙️ Config</a>
-        <a href="/meshtastic/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
+        <a href="/meshpulse/" class="topnav-link active">🗺️ Map</a>
+        <a href="/meshpulse/stats.html" class="topnav-link">📊 Stats</a>
+        <a href="/meshpulse/config.html" class="topnav-link">⚙️ Config</a>
+        <a href="/meshpulse/messages.html" class="topnav-link" id="nav-messages">💬 Messages</a>
     </div>
 </nav>
     <div id="map"></div>
@@ -1237,7 +1237,7 @@
 
         function sendMessageToNode(nodeId, nodeName) {
             localStorage.setItem('meshtastic_dm_target', JSON.stringify({ id: nodeId, name: nodeName }));
-            window.location.href = '/meshtastic/messages.html';
+            window.location.href = '/meshpulse/messages.html';
         }
 
         function toggleNoGpsDetails(id, ev) {
@@ -2660,7 +2660,7 @@
                     id: pluginId,
                     version: pluginInfo.version || '0.0.0',
                     config: pluginInfo.config || {},
-                    dataUrl: function(path) { return '/meshtastic/plugins/' + pluginId + '/' + path; }
+                    dataUrl: function(path) { return '/meshpulse/plugins/' + pluginId + '/' + path; }
                 }
             };
         }
@@ -2676,7 +2676,7 @@
         // old code. The version comes from the manifest, so the URL changes on every
         // release and the cache invalidates itself.
         function pluginAssetUrl(pluginId, path, version) {
-            return '/meshtastic/plugins/' + pluginId + '/' + path +
+            return '/meshpulse/plugins/' + pluginId + '/' + path +
                    '?v=' + encodeURIComponent(version || '0.0.0');
         }
 
