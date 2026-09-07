@@ -267,7 +267,7 @@ window.MeshPlugin = MyPlugin;
 |-----|---------|
 | `api.map` | `addLayer()`, `removeLayer()`, `addControl()`, `removeControl()`, `getLeafletMap()` |
 | `api.panels` | `register(el)`, `unregister(el)` — preferred way to add a control panel (2.6.1+) |
-| `api.nodes` | `getAll()`, `get(id)`, `getTracker()`, `onUpdate(cb)`, `onExpire(cb)` |
+| `api.nodes` | `getVisible()`, `getVisibleNoPosition()`, `getAll()`, `get(id)`, `getTracker()`, `getNoPosition()`, `onUpdate(cb)`, `onExpire(cb)`, `onFilterChange(cb)` |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
 | `api.ui` | `addNavItem(label, onClick)`, `addPanel(id, html, position)`, `showNotification(msg, type)` |
@@ -307,10 +307,49 @@ controls and for older cores. Cores from 2.6.1 on also adopt panels added throug
 so existing plugins keep working. But `api.panels` is explicit, needs no DOM-matching
 heuristics, and is what new plugins should use.
 
+### Visible vs. all nodes (`api.nodes.getVisible`)
+
+*Available since core 2.7.0.*
+
+The core's map has a filter chain — MQTT nodes, licensed only, Meshtastic/Meshcore,
+direct only, unknown hops, routers only. `getAll()` returns the **unfiltered** node
+list and knows nothing about it. If your plugin draws anything anchored to nodes —
+labels, a heatmap, lines — rendering from `getAll()` means your overlay keeps drawing
+nodes the user just filtered off the map. Uncheck "Meshtastic" and the markers vanish
+while your labels float on an empty map.
+
+Render from `getVisible()` and re-render on `onFilterChange()`:
+
+```javascript
+Plugin.prototype._render = function () {
+    var api = this.api;
+    // getVisible() is 2.7.0+; getAll() keeps the plugin working on older cores
+    var nodes = api.nodes.getVisible ? api.nodes.getVisible() : api.nodes.getAll();
+    // ...draw from `nodes`
+};
+
+Plugin.prototype.onEnable = function (api) {
+    var self = this;
+    this.api = api;
+    api.nodes.onUpdate(function () { self._render(); });
+    if (api.nodes.onFilterChange) api.nodes.onFilterChange(function () { self._render(); });
+    this._render();
+};
+```
+
+`onFilterChange(cb)` fires after the map has drawn, with the visible node array as its
+argument, whenever the set may have changed — a filter toggled, nodes arrived, nodes
+expired. One callback per plugin, same as `onUpdate`. `getVisibleNoPosition()` is the
+same idea for nodes without GPS.
+
+Keep `getAll()` for anything that genuinely needs the whole picture — counting the mesh,
+looking up a node the user filtered out, exporting data.
+
 ### IMPORTANT Rules
 - Always export: `window.MeshPlugin = YourClass;`
 - Clean up in `onDisable()` — remove all layers, panels, controls, listeners
 - Prefer `api.panels.register()` over `api.map.addControl()` for control panels, with a fallback guard for cores < 2.6.1
+- Draw map overlays from `api.nodes.getVisible()`, not `getAll()`, and re-render on `api.nodes.onFilterChange()` — otherwise your overlay contradicts the map's own filters
 - Use `api.storage` instead of `localStorage` directly (auto-namespaced)
 - Use `api.map.getLeafletMap()` for direct Leaflet access (requires `raw_map_access` permission)
 - All IDs are auto-prefixed with `plugin:author/name:` to avoid conflicts
