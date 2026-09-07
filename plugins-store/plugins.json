@@ -1,6 +1,6 @@
 {
     "version": 1,
-    "updated": "2026-09-07T08:30:00Z",
+    "updated": "2026-09-07T21:15:00Z",
     "store_url": "https://meshpulse.app/plugins",
     "plugins": [
         {
@@ -98,8 +98,8 @@
         {
             "id": "maxg10/bbs",
             "name": "Meshtastic BBS",
-            "version": "1.0.6",
-            "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and classic terminal UI.",
+            "version": "1.1.0",
+            "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and a classic terminal UI — over the radio and, on core 2.7.0+, in a browser tab.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
                 "url": "https://meshpulse.app",
@@ -107,16 +107,16 @@
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.6.0",
+            "tested_up_to": "2.7.0",
             "type": "backend",
             "category": "communication",
             "icon": "📋",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.0.6/bbs-1.0.6.meshplugin",
-            "download_size": 16370,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.1.0/bbs-1.1.0.meshplugin",
+            "download_size": 18078,
             "documentation": "https://github.com/maxg10/meshplugins/blob/main/bbs/docs/COMMANDS.md",
             "homepage": "https://github.com/maxg10/meshplugins/tree/main/bbs",
             "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.0.6: fix: _c_about returns default when about_message is empty, support \\n in config",
+            "changelog": "v1.1.0: web board viewer — the BBS tab in the MeshPulse navbar opens a browsable view of the boards, netmail, node directory and stats (needs core 2.7.0 for manifest page tabs; the mesh side still runs on 2.2.0+). Transport moved to the plugin WebSocket channel; fixes a missing register_ws_channel() and swapped broadcast_ws() arguments that kept live events from ever arriving. v1.0.6: _c_about returns default when about_message is empty, support \\n in config",
             "screenshots": [],
             "tags": [
                 "bbs",
@@ -130,7 +130,7 @@
         {
             "id": "maxg10/weather-overlay",
             "name": "Weather Overlay",
-            "version": "1.0.2",
+            "version": "1.0.3",
             "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
             "author": {
                 "name": "Mariusz \"Max\" Gieparda",
@@ -139,16 +139,16 @@
             },
             "license": "GPL-3.0",
             "min_mapper_version": "2.5.3",
-            "tested_up_to": "2.6.1",
+            "tested_up_to": "2.7.0",
             "type": "frontend",
             "category": "map",
             "icon": "🌡️",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.2/weather-overlay-1.0.2.meshplugin",
-            "download_size": 4832,
+            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.3/weather-overlay-1.0.3.meshplugin",
+            "download_size": 5010,
             "documentation": "https://github.com/maxg10/meshplugins/blob/main/weather-overlay/README.md",
             "homepage": "https://github.com/maxg10/meshplugins/tree/main/weather-overlay",
             "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.0.2: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1. v1.0.1: labels render above map lines (z-index fix), migrated to monorepo",
+            "changelog": "v1.0.3: renders from the map’s visible node set (api.nodes.getVisible, core 2.7.0) and re-renders on filter changes — labels and heatmap no longer survive filtering their nodes off the map; falls back to getAll() on older cores. v1.0.2: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1",
             "screenshots": [],
             "tags": [
                 "weather",
