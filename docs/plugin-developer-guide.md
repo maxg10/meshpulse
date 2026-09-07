@@ -211,11 +211,15 @@ var MyPlugin = (function() {
         this.api = api;
         console.log('[MyPlugin] Enabled!');
 
-        // Add a control to the map
-        var control = document.createElement('div');
-        control.innerHTML = '<button id="my-btn">My Plugin</button>';
-        control.style.cssText = 'background:rgba(31,41,55,0.9);padding:6px 10px;border-radius:6px;color:#e5e7eb;font-size:12px;';
-        api.map.addControl('my-control', control, 'topleft');
+        // Add a control panel. Core owns the placement: top-left on desktop,
+        // inside the mobile "Map Layers" drawer on phones. The fallback keeps the
+        // plugin working on cores older than 2.6.1, which have no api.panels.
+        var panel = document.createElement('div');
+        panel.innerHTML = '<button id="my-btn">My Plugin</button>';
+        panel.style.cssText = 'background:rgba(31,41,55,0.9);padding:6px 10px;border-radius:6px;color:#e5e7eb;font-size:12px;';
+        this.panel = panel;
+        if (api.panels && api.panels.register) api.panels.register(panel);
+        else api.map.addControl('my-panel', panel, 'topleft');  // fallback < 2.6.1
 
         // Listen for node updates
         api.nodes.onUpdate(function(node) {
@@ -239,8 +243,9 @@ var MyPlugin = (function() {
     };
 
     Plugin.prototype.onDisable = function(api) {
-        // Clean up — remove controls, layers, etc.
-        api.map.removeControl('my-control');
+        // Clean up — remove panels, layers, listeners. Mirror the registration path.
+        if (api.panels && api.panels.unregister) api.panels.unregister(this.panel);
+        else api.map.removeControl('my-panel');
         console.log('[MyPlugin] Disabled');
     };
 
@@ -261,6 +266,7 @@ window.MeshPlugin = MyPlugin;
 | API | Methods |
 |-----|---------|
 | `api.map` | `addLayer()`, `removeLayer()`, `addControl()`, `removeControl()`, `getLeafletMap()` |
+| `api.panels` | `register(el)`, `unregister(el)` — preferred way to add a control panel (2.6.1+) |
 | `api.nodes` | `getAll()`, `get(id)`, `getTracker()`, `onUpdate(cb)`, `onExpire(cb)` |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
@@ -268,9 +274,43 @@ window.MeshPlugin = MyPlugin;
 | `api.storage` | `get(key)`, `set(key, value)`, `remove(key)`, `getAll()` — auto-namespaced per plugin |
 | `api.info` | `id`, `version`, `config`, `dataUrl(path)` |
 
+### Control Panels (`api.panels`)
+
+*Available since core 2.6.1.*
+
+`api.panels` is the preferred way to put a control panel on screen. You hand the core a
+plain DOM element and the core owns its placement:
+
+- **Desktop** — the panel is hosted in `#plugin-panels`, floating at the top-left of the map.
+- **Mobile** (≤768px) — the same DOM node is *moved* (not cloned) into the "Map Layers"
+  drawer behind the 🗺️ FAB, so state and event listeners survive the move.
+
+```javascript
+// register(el) -> el   (adds the .plugin-panel class, tags the element with your plugin id)
+var panel = document.createElement('div');
+panel.innerHTML = '<label><input type="checkbox" id="my-toggle"> My layer</label>';
+
+if (api.panels && api.panels.register) api.panels.register(panel);
+else api.map.addControl('my-panel', panel, 'topleft');  // fallback < 2.6.1
+
+// ...and on disable:
+if (api.panels && api.panels.unregister) api.panels.unregister(panel);
+else api.map.removeControl('my-panel');
+```
+
+**Always keep the fallback guard.** Users are not all on the newest core, and a plugin
+that assumes `api.panels` exists renders nothing at all on 2.6.0 and older.
+
+`api.map.addControl()` is *not* deprecated — it stays the escape hatch for real Leaflet
+controls and for older cores. Cores from 2.6.1 on also adopt panels added through
+`addControl()` into the mobile drawer automatically (matched on `.leaflet-plugin-control`),
+so existing plugins keep working. But `api.panels` is explicit, needs no DOM-matching
+heuristics, and is what new plugins should use.
+
 ### IMPORTANT Rules
 - Always export: `window.MeshPlugin = YourClass;`
-- Clean up in `onDisable()` — remove all layers, controls, listeners
+- Clean up in `onDisable()` — remove all layers, panels, controls, listeners
+- Prefer `api.panels.register()` over `api.map.addControl()` for control panels, with a fallback guard for cores < 2.6.1
 - Use `api.storage` instead of `localStorage` directly (auto-namespaced)
 - Use `api.map.getLeafletMap()` for direct Leaflet access (requires `raw_map_access` permission)
 - All IDs are auto-prefixed with `plugin:author/name:` to avoid conflicts
