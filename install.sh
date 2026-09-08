@@ -159,7 +159,6 @@ sudo cp frontend/favicon_stats.ico /var/www/html/meshpulse/
 sudo cp frontend/stats.html /var/www/html/meshpulse/
 sudo cp frontend/config.html /var/www/html/meshpulse/
 sudo cp frontend/messages.html /var/www/html/meshpulse/
-sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse
 
 # Sync plugin frontend assets to web root so lighttpd can serve them
 if [ -d "$PLUGIN_DIR" ]; then
@@ -173,6 +172,12 @@ if [ -d "$PLUGIN_DIR" ]; then
     done
     echo "[INSTALL] Plugin assets synced"
 fi
+
+# Ownership LAST: the sync above runs under sudo, so everything it creates is
+# root-owned. The service runs as $CURRENT_USER and cannot chown its way out of
+# that (a non-root process may not give files away), so installing a plugin from
+# the UI would fail with permission denied on a fresh install.
+sudo chown -R $CURRENT_USER:$CURRENT_USER /var/www/html/meshpulse
 
 # Create empty nodes.json if it doesn't exist
 if [ ! -f "/var/www/html/meshpulse/nodes.json" ]; then

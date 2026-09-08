@@ -293,6 +293,15 @@ function renderPluginNavTabs(plugins) {
             a.className = 'topnav-link';
             a.href = href;
             a.dataset.pluginPage = p.id + ':' + (page.id || '');
+            // A plugin page is a separate app with its own chrome and no way back,
+            // and navigating away would tear down the map's WebSocket and node state.
+            // New tab unless the manifest opts out with "target": "_self".
+            // noopener/noreferrer: the page is third-party content and must not be
+            // able to reach window.opener.
+            if (page.target !== '_self') {
+                a.target = '_blank';
+                a.rel = 'noopener noreferrer';
+            }
             // textContent, never innerHTML — the label comes from a manifest.
             a.textContent = ((page.icon || '🧩') + ' ' + (page.title || page.id || 'Plugin')).trim();
             if (location.pathname === href) a.classList.add('active');

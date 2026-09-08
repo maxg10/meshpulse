@@ -10,7 +10,15 @@ services:
     environment:
       - TRACKER_HOST=${TRACKER_HOST:-}
     volumes:
-      - mapper-data:/var/www/html/meshtastic
+      # Web root: nodes.json, config.json, stats.db and plugin frontend assets.
+      # Was mounted on the pre-rebranding /var/www/html/meshtastic while the app
+      # read and wrote /var/www/html/meshpulse, so nothing the app used was ever
+      # persisted. Same volume, correct path — existing data carries over.
+      - mapper-data:/var/www/html/meshpulse
+      # Plugin install directory (packages + enabled.json). Without this a plugin
+      # installed from the store disappears when the container is recreated.
+      - mapper-plugins:/app/plugins
 
 volumes:
   mapper-data:
+  mapper-plugins:

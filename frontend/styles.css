@@ -457,11 +457,23 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         border-top: 1px solid #374151;
         padding-top: 4px;
         margin-top: 2px;
+        /* Plugins add tabs at runtime, so the count is not fixed at four. Scroll
+           sideways rather than squeezing labels into unreadable slivers; wrapping
+           is not an option because #map is positioned against a fixed 72px navbar
+           and a second row would slide underneath it. */
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;              /* Firefox */
     }
+    .topnav-links::-webkit-scrollbar { display: none; }
     .topnav-links a {
         font-size: 11px;
         padding: 4px 8px;
-        flex: 1;
+        /* Grow to fill the bar while the tabs fit, never shrink below the label */
+        flex: 1 0 auto;
+        white-space: nowrap;
         text-align: center;
         min-height: 32px;
         display: flex;

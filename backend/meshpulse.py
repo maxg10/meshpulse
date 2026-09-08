@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.7.0'
+MAPPER_VERSION = '2.7.1'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -735,33 +735,63 @@ def _version_newer(a, b):
         return False
 
 
-def _check_plugin_updates():
-    """Check plugin store for updates once, 60 s after startup."""
-    import time as _time
+def _fetch_store_versions():
+    """Return {plugin_id: version} from the plugin store."""
     import urllib.request
-    _time.sleep(60)
+    cfg = load_config()
+    store_url = cfg.get('plugin_store_url',
+        'https://meshpulse.app/plugins/plugins.json')
+    with urllib.request.urlopen(store_url, timeout=10) as r:
+        store_data = json.loads(r.read().decode())
+    return {p['id']: p['version'] for p in store_data.get('plugins', [])}
+
+
+def compute_plugin_updates():
+    """Which installed plugins are behind the last store snapshot.
+
+    Derived on demand, not cached: the badge has to clear the moment a plugin
+    is updated. Reads list_plugins() — a directory scan — rather than the
+    loaded plugin instances, so frontend-only plugins are checked too.
+    """
+    if plugin_manager is None:
+        return []
+    store_versions = getattr(plugin_manager, '_store_versions', None) or {}
+    if not store_versions:
+        return []
     try:
-        cfg = load_config()
-        store_url = cfg.get('plugin_store_url',
-            'https://meshpulse.app/plugins/plugins.json')
-        with urllib.request.urlopen(store_url, timeout=10) as r:
-            store_data = json.loads(r.read().decode())
-        store_plugins = {p['id']: p['version']
-            for p in store_data.get('plugins', [])}
-        updates = []
-        for pid, instance in (plugin_manager.plugins if plugin_manager else {}).items():
-            manifest = getattr(instance, '_manifest', None) or {}
-            local_ver = manifest.get('version', '0.0.0')
-            store_ver = store_plugins.get(pid)
-            if store_ver and _version_newer(store_ver, local_ver):
-                updates.append({'id': pid, 'local': local_ver,
-                    'available': store_ver})
-        if updates:
-            print(f"[PLUGINS] Updates available: {[u['id'] for u in updates]}")
-        if plugin_manager is not None:
-            plugin_manager._pending_updates = updates
+        installed = plugin_manager.list_plugins()
     except Exception as e:
-        print(f"[PLUGINS] Update check failed: {e}")
+        print(f"[PLUGINS] Update comparison failed: {e}")
+        return []
+    updates = []
+    for p in installed:
+        local_ver = p.get('version', '0.0.0')
+        store_ver = store_versions.get(p.get('id'))
+        if store_ver and _version_newer(store_ver, local_ver):
+            updates.append({'id': p['id'], 'local': local_ver,
+                'available': store_ver})
+    return updates
+
+
+def _plugin_update_watcher():
+    """Refresh the store snapshot 60 s after startup, then every 6 h.
+
+    An instance that runs for months used to check exactly once and never hear
+    about a new plugin release again.
+    """
+    import time as _time
+    _time.sleep(60)
+    while True:
+        try:
+            versions = _fetch_store_versions()
+            if plugin_manager is not None:
+                plugin_manager._store_versions = versions
+                pending = compute_plugin_updates()
+                if pending:
+                    print(f"[PLUGINS] Updates available: {[u['id'] for u in pending]}")
+        except Exception as e:
+            print(f"[PLUGINS] Update check failed: {e}")
+        _time.sleep(6 * 3600)
 
 
 def save_config(connection_type, host=None, port=None):
@@ -5092,7 +5122,7 @@ async def websocket_handler(websocket):
                 elif data.get('type') == 'get_plugins':
                     if plugin_manager:
                         plugins = plugin_manager.list_plugins()
-                        updates = getattr(plugin_manager, '_pending_updates', [])
+                        updates = compute_plugin_updates()
                         await websocket.send(json.dumps({
                             'type': 'plugins_list',
                             'plugins': plugins,
@@ -5681,7 +5711,7 @@ if __name__ == '__main__':
                 if not _plugins_loaded:
                     _plugins_loaded = True
                     plugin_manager.load_enabled_plugins()
-                    t = threading.Thread(target=_check_plugin_updates, daemon=True)
+                    t = threading.Thread(target=_plugin_update_watcher, daemon=True)
                     t.start()
             if not _watchdog_started:
                 watchdog_thread = threading.Thread(target=mapper._watchdog_loop, daemon=True)
