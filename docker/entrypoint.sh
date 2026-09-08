@@ -1,10 +1,13 @@
 #!/bin/bash
 set -e
 
-echo "🚀 MeshPulse v2.6.0 starting..."
+VERSION=$(grep -m1 "^MAPPER_VERSION" /app/backend/meshpulse.py | grep -o "'[^']*'" | tr -d "'")
+echo "🚀 MeshPulse v${VERSION:-unknown} starting..."
 
-# Legacy path kept for backward compat with existing Docker volumes
-DATA_DIR="/var/www/html/meshtastic"
+# The web root the backend reads and writes (CONFIG_PATH, nodes.json, stats.db)
+# and the path lighttpd serves /meshpulse from. Must match the volume mount in
+# docker-compose.yml, or the container persists nothing the app uses.
+DATA_DIR="/var/www/html/meshpulse"
 # Ensure data dir exists (fresh container without a pre-existing volume)
 mkdir -p "$DATA_DIR"
 
