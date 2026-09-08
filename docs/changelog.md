@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.7.1
+- Fix: Docker stored nothing the application used. The entrypoint wrote
+  config.json and nodes.json to `/var/www/html/meshtastic` and the compose file
+  mounted the volume there, while the backend reads and writes
+  `/var/www/html/meshpulse`. `TRACKER_HOST` never reached the backend, the
+  volume persisted nothing, and the frontend files the entrypoint synced were
+  unreachable behind the legacy redirect. Both now use `/var/www/html/meshpulse`
+  — the same named volume mounted at the correct path, so existing data carries
+  over untouched. **Users with their own `docker-compose.yml` must update the
+  mount path.**
+- Fix: Docker plugin installs are persistent — a second volume covers
+  `/app/plugins`, the plugin install directory and `enabled.json`, which lived
+  only in the container layer and vanished on container recreate.
+- Fix: `install.sh` applied `chown -R` to the web root *before* syncing plugin
+  assets, and that sync creates its directories under `sudo`. Everything it
+  wrote stayed root-owned, so installing a plugin from the UI failed with
+  permission denied on a fresh install — the service runs unprivileged and a
+  non-root process cannot chown its way out. Ownership is now applied last.
+- Fix: The plugin update badge no longer lies. The store check ran once, 60 s
+  after startup, and cached its result forever: the badge stayed lit after the
+  user updated the plugin it pointed at, and a long-running instance never heard
+  about a new plugin release at all. The store snapshot now refreshes every 6 h
+  and the badge is derived on demand, so it clears the moment a plugin is
+  updated. The comparison scans the plugin directory instead of the loaded
+  instances, so frontend-only plugins are checked too.
+- Feature: Plugin page tabs open in a new tab (`rel="noopener noreferrer"`), so
+  the map keeps its WebSocket and node state instead of being torn down and
+  rebuilt on return. A manifest can opt out per page with `"target": "_self"`.
+- Fix: The mobile navbar scrolls sideways instead of squeezing labels — it
+  assumed a fixed four links, and plugins add tabs at runtime.
+- Fix: The Docker entrypoint reads the version from the backend instead of
+  announcing "v2.6.0" on every start.
+
 ## v2.7.0
 - Feature: `api.nodes.getVisible()` / `getVisibleNoPosition()` / `onFilterChange(cb)` —
   the map's filter chain (MQTT, licensed, Meshtastic/Meshcore, direct, unknown
