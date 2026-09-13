@@ -79,7 +79,10 @@
   became the farthest known node and took over Network reach with 5061 km. All
   six checks now reject anything within half a degree of (0, 0): wide enough for
   a stalled receiver's output, still 500 km of open water short of land, so a
-  genuine node near the equator (Quito, Libreville) is unaffected.
+  genuine node near the equator (Quito, Libreville) is unaffected. Nodes saved
+  before this fix are re-checked when `nodes.json` is loaded, so a bogus position
+  already on disk is stripped at the next restart instead of surviving on the map
+  until its TTL expires.
 - Feature: Network reach, a second metric next to Max range. Max range stays a
   radio measurement (`hops == 0`) and, with real data, applies only to
   Meshtastic: Meshcore's companion API cannot say whether an advert arrived
