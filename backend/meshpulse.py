@@ -711,13 +711,54 @@ class StatsDB:
             return [dict(r) for r in nodes_data]
 
 
+def config_defaults():
+    """Connection settings used when there is no config file to read."""
+    return {'connection_type': 'serial', 'port': None, 'host': None}
+
+
+def report_config_source():
+    """Say which config file is in use, once, at startup.
+
+    The live config lives in the web root (CONFIG_PATH) while config.json.example
+    ships next to the source, so editing a copy in the repo is the natural
+    mistake — and one that otherwise fails in complete silence: the app simply
+    falls back to defaults and never mentions the file it did not read.
+    """
+    if os.path.exists(CONFIG_PATH):
+        print(f"[CONFIG] Using {CONFIG_PATH}")
+    else:
+        print(f"[CONFIG] No {CONFIG_PATH} yet — starting with defaults (serial, auto-detect)")
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    stray = os.path.join(repo_root, 'config.json')
+    if os.path.exists(stray) and os.path.realpath(stray) != os.path.realpath(CONFIG_PATH):
+        print(f"[CONFIG] WARNING: {stray} exists but is NOT read by MeshPulse.")
+        print(f"[CONFIG] WARNING: settings are only read from {CONFIG_PATH} — copy them there.")
+
+
 def load_config():
-    """Load connection config from JSON file"""
+    """Load connection config from CONFIG_PATH, falling back to defaults.
+
+    A missing file is normal on a fresh install and stays quiet. A malformed one
+    is reported every time: silently treating a broken edit as "no config" is how
+    a wrong port survives three restarts while the logs say nothing.
+    """
     try:
         with open(CONFIG_PATH, 'r') as f:
             config = json.load(f)
-    except Exception:
-        config = {'connection_type': 'serial', 'port': None, 'host': None}
+    except FileNotFoundError:
+        config = config_defaults()
+    except json.JSONDecodeError as e:
+        print(f"[CONFIG] ERROR: {CONFIG_PATH} is not valid JSON ({e})")
+        print("[CONFIG] ERROR: falling back to defaults — your settings are being ignored")
+        config = config_defaults()
+    except Exception as e:
+        print(f"[CONFIG] ERROR reading {CONFIG_PATH}: {e} — falling back to defaults")
+        config = config_defaults()
+
+    if not isinstance(config, dict):
+        print(f"[CONFIG] ERROR: {CONFIG_PATH} must hold a JSON object — falling back to defaults")
+        config = config_defaults()
     config.setdefault('coverage_server_url', '')
     config.setdefault('coverage_api_key', '')
     config.setdefault('coverage_antenna_gain', 2.0)
@@ -5773,6 +5814,7 @@ if __name__ == '__main__':
         return None
 
     # Load config
+    report_config_source()
     config = load_config()
     connection_type = config.get('connection_type', 'serial')
     host = config.get('host')

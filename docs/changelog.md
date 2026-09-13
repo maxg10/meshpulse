@@ -11,6 +11,13 @@
   device an enabled plugin has configured for itself, comparing through realpath
   so a `/dev/serial/by-id/...` symlink shadows the `ttyUSB` it resolves to. An
   explicit `port` in config.json is still honoured as-is, shared or not.
+- Fix: Config file confusion made silent. The live config is `/var/www/html/
+  meshpulse/config.json` while `config.json.example` ships next to the source,
+  so editing a copy in the repo looks right and changes nothing — `load_config()`
+  swallowed every error and fell back to defaults without a word. Startup now
+  prints which file is in use, warns when a `config.json` sits in the repo root
+  where nothing will read it, and reports a malformed config as an error instead
+  of quietly ignoring your settings. `config.json.example` says where it belongs.
 - Feature: Per-network Max range in Mesh Info. The panel now shows one row per
   network, each measured from that network's OWN local node — Meshtastic from
   the tracker (`hops == 0`, MQTT excluded), Meshcore from the companion node
