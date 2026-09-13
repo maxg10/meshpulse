@@ -5703,6 +5703,45 @@ async def start_websocket_server():
         await asyncio.Future()  # Run forever
 
 
+def plugin_claimed_serial_ports():
+    """Serial devices that enabled plugins have configured for themselves.
+
+    Serial auto-detection runs before the plugin manager exists, so the stored
+    plugin configs are read straight off disk here. Every value is resolved with
+    realpath: a plugin pointed at a stable /dev/serial/by-id/... symlink must
+    still shadow the /dev/ttyUSB0 that symlink resolves to, which is exactly the
+    device naive auto-detection would otherwise hand to the mesh interface.
+
+    Returns:
+        set: resolved device paths that auto-detection must not pick.
+    """
+    claimed = set()
+    # Same rule as PluginManager: plugins/ sits next to backend/ in the repo
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(repo_root, 'plugins')
+
+    try:
+        with open(os.path.join(plugins_dir, 'enabled.json'), 'r') as f:
+            enabled_ids = json.load(f)
+    except Exception:
+        return claimed          # no plugins installed, or unreadable — claim nothing
+
+    for plugin_id in enabled_ids or []:
+        parts = str(plugin_id).split('/', 1)
+        try:
+            with open(os.path.join(plugins_dir, *parts, 'config.json'), 'r') as f:
+                plugin_config = json.load(f)
+        except Exception:
+            continue            # plugin never configured, or config unreadable
+        if not isinstance(plugin_config, dict):
+            continue
+        for value in plugin_config.values():
+            if isinstance(value, str) and value.strip().startswith('/dev/'):
+                claimed.add(os.path.realpath(value.strip()))
+
+    return claimed
+
+
 def run_websocket_server_thread():
     """Run WebSocket server in separate thread"""
     asyncio.run(start_websocket_server())
@@ -5720,9 +5759,17 @@ if __name__ == '__main__':
     ]
 
     def detect_serial_port():
+        claimed = plugin_claimed_serial_ports()
         for p in possible_ports:
-            if os.path.exists(p):
-                return p
+            if not os.path.exists(p):
+                continue
+            if os.path.realpath(p) in claimed:
+                # A plugin (e.g. Meshcore) already talks to this radio. Taking it
+                # would have both sides fighting over the same file descriptor and
+                # neither getting a usable reply.
+                print(f"[SERIAL] Skipping {p} — claimed by an enabled plugin")
+                continue
+            return p
         return None
 
     # Load config
@@ -5737,6 +5784,10 @@ if __name__ == '__main__':
         if not port:
             print("WARNING: No serial port found")
             print("Checked:", possible_ports)
+            claimed_now = plugin_claimed_serial_ports()
+            if claimed_now:
+                print("Skipped (claimed by enabled plugins):", sorted(claimed_now))
+                print("Set \"port\" explicitly in config.json if a device is shared.")
             print("Waiting for TCP connection configuration via web interface...")
             print(f"Open http://localhost/meshpulse/ and configure TCP connection")
 

@@ -1,6 +1,16 @@
 # Changelog
 
 ## v2.7.2
+- Fix: Serial auto-detection picked `/dev/ttyUSB0` purely because it is first in
+  the candidate list — no check of what the device is, or whether anything else
+  is already using it. With a Meshcore companion on USB and the Meshtastic
+  tracker on ACM, core grabbed the plugin's radio and spoke protobufs at it: the
+  tracker went unserved (`Local node ID: None`, `Connection status: failed`,
+  MQTT Proxy unable to read its config) while the plugin lost replies mid-frame
+  and reported "no response from meshcore node". Auto-detection now skips any
+  device an enabled plugin has configured for itself, comparing through realpath
+  so a `/dev/serial/by-id/...` symlink shadows the `ttyUSB` it resolves to. An
+  explicit `port` in config.json is still honoured as-is, shared or not.
 - Feature: Per-network Max range in Mesh Info. The panel now shows one row per
   network, each measured from that network's OWN local node — Meshtastic from
   the tracker (`hops == 0`, MQTT excluded), Meshcore from the companion node
