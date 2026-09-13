@@ -106,6 +106,21 @@ except ImportError:
     print("[PLUGINS] Plugin system not available (mapper module not found)")
 
 # Global set of connected WebSocket clients
+# A GPS with no fix reports coordinates at or beside (0, 0) — open Atlantic,
+# 600 km off Ghana, where no mesh node has ever stood. Half a degree is about
+# 55 km, wide enough to catch the near-zero junk a stalled receiver emits and
+# still narrower than the nearest land.
+NULL_ISLAND_RADIUS_DEG = 0.5
+
+
+def is_placeholder_position(lat, lon):
+    """True when coordinates are the absence of a fix rather than a location."""
+    try:
+        return abs(float(lat)) < NULL_ISLAND_RADIUS_DEG and abs(float(lon)) < NULL_ISLAND_RADIUS_DEG
+    except (TypeError, ValueError):
+        return True
+
+
 connected_clients = set()
 # {websocket: {'plugin:<id>:<channel>', ...}} — which plugin channels each browser
 # asked for. The plugin API has always promised that broadcast_ws(channel=...)
@@ -2322,7 +2337,7 @@ class ListenBasedMapper:
             lon = float(lon_match.group(1))
             
             # Skip invalid coordinates
-            if lat == 0 and lon == 0:
+            if is_placeholder_position(lat, lon):
                 return False
             
             # Extract SNR if available
@@ -2768,7 +2783,7 @@ class ListenBasedMapper:
                 if (isinstance(lat, (int, float)) and not isinstance(lat, bool)
                         and isinstance(lon, (int, float)) and not isinstance(lon, bool)
                         and -90 <= lat <= 90 and -180 <= lon <= 180
-                        and not (lat == 0 and lon == 0)):
+                        and not (is_placeholder_position(lat, lon))):
                     lat = round(float(lat), 6)
                     lon = round(float(lon), 6)
                     has_pos = True
@@ -2863,7 +2878,7 @@ class ListenBasedMapper:
             lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
             lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
 
-            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+            if lat is not None and lon is not None and not (is_placeholder_position(lat, lon)):
                 alt = pos.get('altitude', 0)
                 is_new = node_id not in self.nodes
                 self.nodes[node_id] = {
@@ -2946,7 +2961,7 @@ class ListenBasedMapper:
             lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
             lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
 
-            if lat is None or lon is None or (lat == 0 and lon == 0):
+            if lat is None or lon is None or (is_placeholder_position(lat, lon)):
                 return False
 
             snr = packet.get('rxSnr', 0)
@@ -3550,7 +3565,7 @@ class ListenBasedMapper:
                             tracker_role = node_info.get('user', {}).get('role', 'CLIENT')
                             self.tracker_info['role'] = tracker_role
                         try:
-                            if lat and lon and not (lat == 0 and lon == 0):
+                            if lat and lon and not (is_placeholder_position(lat, lon)):
                                 self.tracker_info['lat'] = round(lat, 6)
                                 self.tracker_info['lon'] = round(lon, 6)
                                 self.tracker_info['alt'] = alt or 0
@@ -3857,7 +3872,7 @@ class ListenBasedMapper:
                     except Exception:
                         tracker_role = my_info.get('user', {}).get('role', 'CLIENT')
                         self.tracker_info['role'] = tracker_role
-                    if lat and lon and not (lat == 0 and lon == 0):
+                    if lat and lon and not (is_placeholder_position(lat, lon)):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)
                         self.tracker_info['alt'] = alt or 0

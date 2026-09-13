@@ -72,6 +72,14 @@
   prints which file is in use, warns when a `config.json` sits in the repo root
   where nothing will read it, and reports a malformed config as an error instead
   of quietly ignoring your settings. `config.json.example` says where it belongs.
+- Fix: A node with no GPS fix is no longer plotted in the Atlantic. Six checks
+  rejected coordinates at exactly `(0, 0)`, which let near-zero junk through —
+  a real node on this network reports `(0.026214, 0.026214)`, both values
+  identical, about 3 km from Null Island. Harmless as a stray marker, but it
+  became the farthest known node and took over Network reach with 5061 km. All
+  six checks now reject anything within half a degree of (0, 0): wide enough for
+  a stalled receiver's output, still 500 km of open water short of land, so a
+  genuine node near the equator (Quito, Libreville) is unaffected.
 - Feature: Network reach, a second metric next to Max range. Max range stays a
   radio measurement (`hops == 0`) and, with real data, applies only to
   Meshtastic: Meshcore's companion API cannot say whether an advert arrived
