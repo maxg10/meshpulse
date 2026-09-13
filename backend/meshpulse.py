@@ -1255,6 +1255,21 @@ class ListenBasedMapper:
                         self.clean_old_nodes_from_dict(nodes)
                         self.clean_old_nodes_from_dict(nodes_no_pos)
 
+                        # A node saved before the Null Island filter existed keeps
+                        # its bogus coordinates through restarts, so re-check here
+                        # too: strip the position and move it to the no-GPS list,
+                        # which is what it should have been all along.
+                        bogus = [nid for nid, n in nodes.items()
+                                 if is_placeholder_position(n.get('lat'), n.get('lon'))]
+                        for nid in bogus:
+                            node = nodes.pop(nid)
+                            node.pop('lat', None)
+                            node.pop('lon', None)
+                            nodes_no_pos.setdefault(nid, node)
+                        if bogus:
+                            print(f"[LOAD] Dropped bogus (0,0)-area position from {len(bogus)} node(s): "
+                                  + ', '.join(sorted(bogus)[:5]))
+
                         # Remove from no-position any node that already has GPS position
                         duplicates = [nid for nid in nodes_no_pos if nid in nodes]
                         for nid in duplicates:
