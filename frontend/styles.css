@@ -49,7 +49,12 @@ body{font-family:Arial,sans-serif}
 #map{height:100vh;width:100%;margin-top:44px}
 #stats{position:fixed;top:54px;right:10px;background:rgba(255,255,255,.95);
        padding:12px;border-radius:6px;z-index:1000;font-size:13px;
-       box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px}
+       box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px;
+       /* A by-id device path is ~60 characters and would otherwise stretch the
+          panel across the map. Cap the width; long values elide instead. */
+       max-width:min(340px,calc(100vw - 20px));box-sizing:border-box}
+#serial-port{display:inline-block;max-width:100%;overflow:hidden;
+             text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 #stats{cursor:pointer}
 #stats h3{user-select:none}
 #stats-content{display:none;margin-top:8px}

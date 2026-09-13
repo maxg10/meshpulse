@@ -1,6 +1,10 @@
 # Changelog
 
 ## v2.7.2
+- Fix: A `/dev/serial/by-id/` path stretched the Mesh Info panel across the map.
+  The panel is now width-capped, and the connection line shows the device name
+  with the full path in its tooltip. It also no longer prints "(Auto)" next to
+  an explicitly configured port, which claimed the opposite of the truth.
 - Feature: Serial ports are picked from a list instead of typed from memory.
   A new `list_serial_ports` WebSocket message enumerates `/dev/serial/by-id/`
   entries (falling back to ttyUSB/ttyACM where by-id is absent), each with the

@@ -96,7 +96,7 @@
             <option value="tcp">TCP</option>
         </select>
         <span id="connection-status" style="color:#eab308;" title="Unknown">●</span></small><br>
-        <div id="serial-info"><small><span id="serial-port">-</span> <span style="color:#888;">(Auto)</span></small></div>
+        <div id="serial-info"><small><span id="serial-port" title="">-</span></small></div>
         <div id="tcp-info" style="display:none;">
             <input type="text" id="tcp-host" placeholder="192.168.1.100:4403" size="18" style="width:20ch">
             <button onclick="connectTCP()">Connect</button>
@@ -1980,7 +1980,13 @@
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';
                 document.getElementById('connection-type').value = connType;
-                document.getElementById('serial-port').textContent = trackerInfo.port || 'Auto';
+                // A /dev/serial/by-id/ path is far too long for this panel, and the
+                // interesting half is the device name. Show that, keep the full
+                // path in the tooltip. "(Auto)" used to be printed next to an
+                // explicitly configured port, which said the opposite of the truth.
+                var portEl = document.getElementById('serial-port');
+                portEl.textContent = trackerInfo.port ? deviceLabel(trackerInfo.port) : 'Auto-detect';
+                portEl.title = trackerInfo.port || 'No port configured — auto-detecting';
                 if (trackerInfo.host) {
                     document.getElementById('tcp-host').value = trackerInfo.host;
                 }
@@ -2142,6 +2148,17 @@
         // path still works; networks injected by plugins get a row built from
         // max_distance_by_net. A row shows only while its layer checkbox is ticked,
         // so the panel never claims range for a network hidden on the map.
+        // "usb-Seeed_Studio_TRACKER_L1_DEF772D9AAFDA1D6-if00" -> "Seeed Studio TRACKER L1"
+        // Mirrors how the backend labels devices in the serial port picker.
+        function deviceLabel(path) {
+            var name = String(path || '').split('/').pop();
+            if (!name) return String(path || '');
+            name = name.replace(/^usb-/, '').replace(/-if\d+.*$/, '').replace(/_/g, ' ');
+            // Trailing serial numbers add length without telling the reader much
+            name = name.replace(/\s+[0-9A-F]{8,}$/i, '');
+            return name.trim() || String(path);
+        }
+
         function renderNetRangeRows() {
             const rows = document.getElementById('maxrange-rows');
             if (!rows) return;
