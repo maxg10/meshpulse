@@ -1,5 +1,134 @@
 # Changelog
 
+## v2.7.2
+- Fix: The stylesheet cache key is derived from the file, not maintained by hand.
+  `styles.css?v=2.6.1-2` was written into four HTML files and had to be bumped
+  manually; it stayed at 2.6.1 across four releases, so browsers paired new
+  markup with an old stylesheet. The HTML now carries a `__ASSET_HASH__`
+  placeholder that install.sh and the Docker entrypoint replace with a hash of
+  styles.css when copying to the web root — it changes exactly when the file
+  changes, and never otherwise. The repo keeps the placeholder, so nothing has to
+  be committed on deploy and `git reset --hard` has nothing to undo.
+- Fix: A `/dev/serial/by-id/` path stretched the Mesh Info panel across the map.
+  The panel is now width-capped, and the connection line shows the device name
+  with the full path in its tooltip. It also no longer prints "(Auto)" next to
+  an explicitly configured port, which claimed the opposite of the truth.
+- Feature: The main connection picks its device from the same list. Mesh Info's
+  Connection section showed the configured port as text with a hardcoded
+  "(Auto)" beside it and offered no way to change it — switching radios meant
+  editing config.json by hand and restarting. It is now a dropdown of the
+  devices the machine has, with Auto-detect as the first entry; choosing one
+  switches the connection the same way the USB/TCP selector already did.
+  Devices an enabled plugin has configured are listed but not selectable, and a
+  configured device that is currently unplugged stays selected and marked "not
+  present" so a rescan cannot silently reset it to auto-detect.
+- Feature: Serial ports are picked from a list instead of typed from memory.
+  A new `list_serial_ports` WebSocket message enumerates `/dev/serial/by-id/`
+  entries (falling back to ttyUSB/ttyACM where by-id is absent), each with the
+  name the device reports for itself and the plugin already using it, if any.
+  Plugin config gained a `device` field type that renders this as a dropdown:
+  devices claimed by another plugin are shown as taken and cannot be selected,
+  and a configured path that is currently unplugged stays in the list marked
+  "not present" rather than silently disappearing. The Meshcore plugin uses it
+  (1.2.0); on an older core the field degrades to the plain text box it was.
+- Fix: `subscribe_plugin` is handled instead of logged as an unknown message.
+  The plugin API documents that `broadcast_ws(channel=...)` reaches only the
+  clients subscribed to that channel, but the backend had nowhere to record a
+  subscription — it answered "Unknown message type" and sent every channel
+  message to every open browser. Subscriptions are now tracked per connection
+  and dropped when it closes, `unsubscribe_plugin` is understood, and a channel
+  broadcast goes only to its subscribers. A broadcast with no channel still
+  reaches everyone, as before.
+- Fix: Mesh Info's Max range tooltip was written in Polish; all UI text is
+  English.
+- Fix: Updating a plugin no longer wipes its settings and data. `install()`
+  removed the plugin directory before unpacking the new package, taking
+  `config.json` and any database with it — so a Meshcore update silently cleared
+  the configured device path ("Not configured — set the serial device path") and
+  a BBS update would have taken the board database. The package format was
+  already built for this (build.sh ships neither file, specifically to avoid
+  clobbering user settings); only the install side was missing. Runtime state is
+  now moved aside and restored around the replacement, and a package that does
+  ship its own config keeps precedence.
+- Fix: `config.json` is no longer served to the web. It lives in the web root
+  because that is where the backend keeps its state, but it is storage, not a
+  public asset — the frontend never fetches it (settings travel over the
+  WebSocket) while it can hold a broker host, credentials and the coverage API
+  key. lighttpd now denies `/meshpulse/config.json` (both in the Docker image
+  and in the config install.sh writes), and the backend chmods the file to 600
+  whenever it saves it, so a web server running as its own user cannot read it
+  even where that rule is missing.
+- Fix: install.sh created `config.json` in the repo — the one place nothing
+  reads it — and announced it as if that were the live config. It now creates
+  `/var/www/html/meshpulse/config.json` (owner-only) and, if a repo-root
+  config.json is lying around from an earlier install, says out loud that it is
+  being ignored.
+- Fix: `on_connect` and `on_disconnect` are actually dispatched. Both have been
+  in the documented plugin API since the hook system landed, but nothing ever
+  called them, so a plugin needing the radio had to do its work in `on_enable` —
+  which runs while the interface is still connecting. MQTT Proxy hit this on
+  every cold start, roughly five seconds before the tracker was up, and reported
+  it as "Make sure tracker is connected". `on_connect` now fires after
+  `set_interface()` (so `get_tracker_config()` works inside the hook) and again
+  after each reconnect; `on_disconnect` fires when the link drops. A plugin
+  raising inside either hook cannot break the connection loop.
+- Fix: Serial auto-detection picked `/dev/ttyUSB0` purely because it is first in
+  the candidate list — no check of what the device is, or whether anything else
+  is already using it. With a Meshcore companion on USB and the Meshtastic
+  tracker on ACM, core grabbed the plugin's radio and spoke protobufs at it: the
+  tracker went unserved (`Local node ID: None`, `Connection status: failed`,
+  MQTT Proxy unable to read its config) while the plugin lost replies mid-frame
+  and reported "no response from meshcore node". Auto-detection now skips any
+  device an enabled plugin has configured for itself, comparing through realpath
+  so a `/dev/serial/by-id/...` symlink shadows the `ttyUSB` it resolves to. An
+  explicit `port` in config.json is still honoured as-is, shared or not.
+- Fix: Config file confusion made silent. The live config is `/var/www/html/
+  meshpulse/config.json` while `config.json.example` ships next to the source,
+  so editing a copy in the repo looks right and changes nothing — `load_config()`
+  swallowed every error and fell back to defaults without a word. Startup now
+  prints which file is in use, warns when a `config.json` sits in the repo root
+  where nothing will read it, and reports a malformed config as an error instead
+  of quietly ignoring your settings. `config.json.example` says where it belongs.
+- Fix: A node with no GPS fix is no longer plotted in the Atlantic. Six checks
+  rejected coordinates at exactly `(0, 0)`, which let near-zero junk through —
+  a real node on this network reports `(0.026214, 0.026214)`, both values
+  identical, about 3 km from Null Island. Harmless as a stray marker, but it
+  became the farthest known node and took over Network reach with 5061 km. All
+  six checks now reject anything within half a degree of (0, 0): wide enough for
+  a stalled receiver's output, still 500 km of open water short of land, so a
+  genuine node near the equator (Quito, Libreville) is unaffected. Nodes saved
+  before this fix are re-checked when `nodes.json` is loaded, so a bogus position
+  already on disk is stripped at the next restart instead of surviving on the map
+  until its TTL expires. The NodeDB backfill — which replays whatever the
+  tracker's own node database remembers, on every connect — checks positions too;
+  without that it walked the rejected coordinates straight back in after each
+  restart.
+- Feature: Network reach, a second metric next to Max range. Max range stays a
+  radio measurement (`hops == 0`) and, with real data, applies only to
+  Meshtastic: Meshcore's companion API cannot say whether an advert arrived
+  directly — an advertisement event carries a public key and nothing else, and
+  a contact's `out_path_len` describes an outbound route that only exists once
+  you have talked to that node (on a listening-only companion it is -1 for every
+  contact). Network reach answers the question that data can answer — how far
+  the network extends, through any number of repeaters — under a name that does
+  not claim to be antenna performance. Shown per network, and only where it
+  differs from Max range, so the same figure never appears twice under two
+  names. MQTT-sourced nodes are excluded from both.
+- Feature: Per-network Max range in Mesh Info. The panel now shows one row per
+  network, each measured from that network's OWN local node — Meshtastic from
+  the tracker (`hops == 0`, MQTT excluded), Meshcore from the companion node
+  (`hops_away == 0`). Rows follow the map's visual language: circle = Meshtastic,
+  diamond = an injected network, colour left neutral because on the map colour
+  means node age. A row is shown only while its network layer checkbox is ticked.
+- Feature: Two optional `inject_node()` fields for plugins — `net_self` marks a
+  network's own local node, `hops_away` gives radio hops from it (0 = direct).
+  A network that supplies neither is simply not measured: nodes reached through
+  repeaters never get counted as radio range.
+- Compat: `max_distance_km` and `farthest_node` keep their existing Meshtastic
+  meaning in `nodes.json` and the `stats_update` WebSocket message; the new
+  `max_distance_by_net` map is additive, so stats.html and third-party plugins
+  need no changes.
+
 ## v2.7.1
 - Fix: Docker stored nothing the application used. The entrypoint wrote
   config.json and nodes.json to `/var/www/html/meshtastic` and the compose file

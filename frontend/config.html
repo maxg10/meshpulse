@@ -22,7 +22,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1">
     <title>MeshPulse — Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
-    <link rel="stylesheet" href="styles.css?v=2.6.1-2">
+    <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
     <style>
         * { box-sizing: border-box; }
         body {
@@ -1720,6 +1720,7 @@ function connectWS() {
         updateDeviceStatus(false);
         ws.send(JSON.stringify({type: 'get_config'}));
         ws.send(JSON.stringify({type: 'get_plugins'}));
+        ws.send(JSON.stringify({type: 'list_serial_ports'}));
         startDeviceHeartbeat();
         // retry handled by global startConfigRetry()
     };
@@ -1740,7 +1741,11 @@ function connectWS() {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
             return;
         }
-        if (d.type === 'config_data') {
+        if (d.type === 'serial_ports') {
+            serialPorts = d.ports || [];
+            // Plugins may already be on screen with an empty picker — redraw them
+            if (_lastPluginList) renderPluginsList(_lastPluginList);
+        } else if (d.type === 'config_data') {
             originalConfig = d.config;
             pendingChanges = {};
             populateForm(d.config);
@@ -2347,10 +2352,16 @@ function renderPluginNavTabs(plugins) {
 function loadPluginsList() {
     if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({type: 'get_plugins'}));
+        ws.send(JSON.stringify({type: 'list_serial_ports'}));
     }
 }
 
+// Serial devices reported by the backend, for 'device' config fields.
+var serialPorts = [];
+var _lastPluginList = null;
+
 function renderPluginsList(plugins) {
+    _lastPluginList = plugins;
     var container = document.getElementById('plugins-list');
     if (!container) return;
 
@@ -2422,6 +2433,32 @@ function renderPluginConfig(plugin) {
                 (spec.max !== undefined ? ' max="' + spec.max + '"' : '') +
                 ' onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',Number(this.value))"' +
                 ' style="width:80px;padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">';
+        } else if (spec.type === 'device') {
+            // A serial device is picked from what the machine actually has, not
+            // typed from memory: the list carries the stable /dev/serial/by-id
+            // path and says which device is already spoken for by a plugin.
+            var setter = 'savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',this.value)';
+            var known = serialPorts.some(function(pt) { return pt.path === currentVal; });
+            var opts = '<option value="">— select a device —</option>';
+            opts += serialPorts.map(function(pt) {
+                var taken = pt.claimed_by && pt.claimed_by !== plugin.id;
+                var text = pt.label + ' (' + pt.dev.replace(/^\/dev\//, '') + ')' +
+                    (pt.claimed_by ? (taken ? ' — in use by ' + pt.claimed_by : ' — this plugin') : '');
+                return '<option value="' + escHtml(pt.path) + '"' +
+                    (pt.path === currentVal ? ' selected' : '') +
+                    (taken ? ' disabled' : '') + '>' + escHtml(text) + '</option>';
+            }).join('');
+            if (currentVal && !known) {
+                // Never silently drop a configured path just because the device
+                // is unplugged right now.
+                opts += '<option value="' + escHtml(currentVal) + '" selected>' +
+                    escHtml(currentVal) + ' (not present)</option>';
+            }
+            inputHtml = '<select onchange="' + escHtml(setter) + '"' +
+                ' style="max-width:340px;padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">' +
+                opts + '</select>' +
+                '<button onclick="refreshSerialPorts()" title="Rescan devices"' +
+                ' style="margin-left:4px;padding:2px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#9ca3af;font-size:11px;cursor:pointer">&#8635;</button>';
         } else if (spec.type === 'select') {
             inputHtml = '<select onchange="savePluginConfigField(\'' + escHtml(plugin.id) + '\',\'' + escHtml(key) + '\',this.value)"' +
                 ' style="padding:3px 6px;border:1px solid #374151;border-radius:4px;background:#1f2937;color:#e5e7eb;font-size:12px">' +
@@ -2444,6 +2481,12 @@ function renderPluginConfig(plugin) {
         '<summary style="color:#9ca3af;font-size:11px;cursor:pointer">⚙️ Settings</summary>' +
         '<div style="margin-top:8px;padding:8px;background:#0d1117;border-radius:6px">' + fields + '</div>' +
         '</details>';
+}
+
+function refreshSerialPorts() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'list_serial_ports'}));
+    }
 }
 
 function togglePlugin(pluginId, enable) {

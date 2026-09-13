@@ -1,6 +1,8 @@
 {
+  "_where": "This is an EXAMPLE, not the file MeshPulse reads. The live config lives in the web root — /var/www/html/meshpulse/config.json — and a copy left next to this example is ignored silently. Copy this file there, then restart the service.",
   "connection_type": "serial",
   "port": null,
+  "_port_note": "null = auto-detect the first free serial device. Prefer an explicit /dev/serial/by-id/... path: ttyUSB/ttyACM numbering shifts on reboot, and auto-detect has no way to tell one radio from another.",
   "host": null,
   "_host_note": "For TCP mode, 'host' accepts 'host' or 'host:port', e.g. \"192.168.1.100:4405\" — the port defaults to 4403 (Meshtastic standard) when omitted"
 }

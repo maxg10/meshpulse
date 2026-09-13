@@ -594,9 +594,14 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 
 Extend the mapper with plugins from the [Plugin Store](https://meshpulse.app/plugins).
 
+All plugins live in one monorepo — **[maxg10/meshplugins](https://github.com/maxg10/meshplugins)** — each released under its own tag with a `.meshplugin` package attached.
+
 Available plugins:
-- **[Elevation Map](https://github.com/maxg10/meshplugin-elevation-map)** — terrain/topographic tile overlay
-- **[MQTT Proxy](https://github.com/maxg10/meshplugin-mqtt-proxy)** — MQTT client proxy for trackers without WiFi
+- **[Meshtastic BBS](https://github.com/maxg10/meshplugins/tree/main/bbs)** — bulletin boards, netmail with store & forward, node directory; over the radio and, on 2.7.0+, in a browser tab
+- **[Meshcore](https://github.com/maxg10/meshplugins/tree/main/meshcore)** — Meshcore nodes on the same map as Meshtastic, as diamond markers
+- **[Weather Overlay](https://github.com/maxg10/meshplugins/tree/main/weather-overlay)** — environment sensor data as map labels and a heatmap
+- **[Elevation Map](https://github.com/maxg10/meshplugins/tree/main/elevation-map)** — terrain/topographic tiles plus a stackable hillshade overlay
+- **[MQTT Proxy](https://github.com/maxg10/meshplugins/tree/main/mqtt-proxy)** — MQTT client proxy for trackers without WiFi
 
 Install plugins from Config → Plugins → Plugin Store, or download from [meshpulse.app/plugins](https://meshpulse.app/plugins).
 

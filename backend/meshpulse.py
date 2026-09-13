@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.7.1'
+MAPPER_VERSION = '2.7.2'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -106,7 +106,27 @@ except ImportError:
     print("[PLUGINS] Plugin system not available (mapper module not found)")
 
 # Global set of connected WebSocket clients
+# A GPS with no fix reports coordinates at or beside (0, 0) — open Atlantic,
+# 600 km off Ghana, where no mesh node has ever stood. Half a degree is about
+# 55 km, wide enough to catch the near-zero junk a stalled receiver emits and
+# still narrower than the nearest land.
+NULL_ISLAND_RADIUS_DEG = 0.5
+
+
+def is_placeholder_position(lat, lon):
+    """True when coordinates are the absence of a fix rather than a location."""
+    try:
+        return abs(float(lat)) < NULL_ISLAND_RADIUS_DEG and abs(float(lon)) < NULL_ISLAND_RADIUS_DEG
+    except (TypeError, ValueError):
+        return True
+
+
 connected_clients = set()
+# {websocket: {'plugin:<id>:<channel>', ...}} — which plugin channels each browser
+# asked for. The plugin API has always promised that broadcast_ws(channel=...)
+# reaches only subscribers; without this the backend had nowhere to record who
+# subscribed, so it answered 'Unknown message type' and broadcast to everyone.
+plugin_subscriptions = {}
 
 # Config path (shared with frontend)
 CONFIG_PATH = '/var/www/html/meshpulse/config.json'
@@ -711,13 +731,54 @@ class StatsDB:
             return [dict(r) for r in nodes_data]
 
 
+def config_defaults():
+    """Connection settings used when there is no config file to read."""
+    return {'connection_type': 'serial', 'port': None, 'host': None}
+
+
+def report_config_source():
+    """Say which config file is in use, once, at startup.
+
+    The live config lives in the web root (CONFIG_PATH) while config.json.example
+    ships next to the source, so editing a copy in the repo is the natural
+    mistake — and one that otherwise fails in complete silence: the app simply
+    falls back to defaults and never mentions the file it did not read.
+    """
+    if os.path.exists(CONFIG_PATH):
+        print(f"[CONFIG] Using {CONFIG_PATH}")
+    else:
+        print(f"[CONFIG] No {CONFIG_PATH} yet — starting with defaults (serial, auto-detect)")
+
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    stray = os.path.join(repo_root, 'config.json')
+    if os.path.exists(stray) and os.path.realpath(stray) != os.path.realpath(CONFIG_PATH):
+        print(f"[CONFIG] WARNING: {stray} exists but is NOT read by MeshPulse.")
+        print(f"[CONFIG] WARNING: settings are only read from {CONFIG_PATH} — copy them there.")
+
+
 def load_config():
-    """Load connection config from JSON file"""
+    """Load connection config from CONFIG_PATH, falling back to defaults.
+
+    A missing file is normal on a fresh install and stays quiet. A malformed one
+    is reported every time: silently treating a broken edit as "no config" is how
+    a wrong port survives three restarts while the logs say nothing.
+    """
     try:
         with open(CONFIG_PATH, 'r') as f:
             config = json.load(f)
-    except Exception:
-        config = {'connection_type': 'serial', 'port': None, 'host': None}
+    except FileNotFoundError:
+        config = config_defaults()
+    except json.JSONDecodeError as e:
+        print(f"[CONFIG] ERROR: {CONFIG_PATH} is not valid JSON ({e})")
+        print("[CONFIG] ERROR: falling back to defaults — your settings are being ignored")
+        config = config_defaults()
+    except Exception as e:
+        print(f"[CONFIG] ERROR reading {CONFIG_PATH}: {e} — falling back to defaults")
+        config = config_defaults()
+
+    if not isinstance(config, dict):
+        print(f"[CONFIG] ERROR: {CONFIG_PATH} must hold a JSON object — falling back to defaults")
+        config = config_defaults()
     config.setdefault('coverage_server_url', '')
     config.setdefault('coverage_api_key', '')
     config.setdefault('coverage_antenna_gain', 2.0)
@@ -801,6 +862,13 @@ def save_config(connection_type, host=None, port=None):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=2)
+        # Owner-only: this file shares a directory with the served frontend and
+        # can hold a broker host, credentials and the coverage API key. The web
+        # server runs as its own user and has no business reading it.
+        try:
+            os.chmod(CONFIG_PATH, 0o600)
+        except OSError:
+            pass
         print(f"[CONFIG] Saved: {connection_type} {host or port or ''}")
     except Exception as e:
         print(f"[CONFIG] Save error: {e}")
@@ -962,6 +1030,39 @@ class ListenBasedMapper:
         
         return R * c
     
+    def notify_plugins_connected(self):
+        """Tell plugins the radio link is up and usable.
+
+        on_connect has been part of the documented plugin API all along but was
+        never dispatched, so a plugin that needs the radio had no choice but to
+        do its setup in on_enable — which runs while the interface is still
+        connecting. MQTT Proxy failed there on every cold start, reading a
+        tracker config that did not exist yet and reporting it as a user error.
+
+        Dispatched after set_interface(), so get_tracker_config() works by the
+        time a plugin's hook runs. Fires again after each reconnect: a plugin
+        that lost the radio gets to set itself up once it is back.
+        """
+        if not plugin_manager:
+            return
+        try:
+            plugin_manager.dispatch_hook_sync('on_connect', {
+                'connection_type': self.connection_type,
+                'host_or_port': self.host or self.port or '',
+                'local_node_id': self.local_node_id,
+            })
+        except Exception as e:
+            print(f"[PLUGINS] on_connect dispatch error: {e}")
+
+    def notify_plugins_disconnected(self, reason):
+        """Tell plugins the radio link is gone. Counterpart of on_connect."""
+        if not plugin_manager:
+            return
+        try:
+            plugin_manager.dispatch_hook_sync('on_disconnect', {'reason': reason})
+        except Exception as e:
+            print(f"[PLUGINS] on_disconnect dispatch error: {e}")
+
     def get_max_distance(self):
         """Find maximum distance to directly reachable node (hops=0)"""
         if not self.local_node_id or self.local_node_id not in self.nodes:
@@ -997,6 +1098,143 @@ class ListenBasedMapper:
         
         return round(max_dist, 2), farthest_id 
 
+    # ── Per-network range ───────────────────────────────────────
+    # Networks other than Meshtastic reach the map through plugin inject_node().
+    # Two optional conventions make them measurable the same way:
+    #   net_self  — marks that network's own local node (its point of origin)
+    #   hops_away — radio hops from that local node; 0 = direct neighbour
+    # Meshtastic uses its native 'hops'. A node without the field is "unknown",
+    # never "direct", so an unmeasurable network simply gets no row.
+
+    NET_LABELS = {'MT': 'Meshtastic', 'MC': 'Meshcore'}
+
+    @staticmethod
+    def net_of(node):
+        """Network tag of a node. Absent/empty means Meshtastic."""
+        return (node.get('net') or 'MT').upper()
+
+    def local_node_id_for_net(self, net):
+        """The node a given network measures distances from."""
+        if net == 'MT':
+            return self.local_node_id
+        for node_id, node in self.nodes.items():
+            # 'mc_self' is what meshcore plugin <= 1.0.0 sends; keep accepting it
+            if self.net_of(node) == net and (node.get('net_self') or node.get('mc_self')):
+                return node_id
+        return None
+
+    def get_max_distance_for_net(self, net):
+        """Max distance to a node this network hears with zero radio hops,
+        measured from that network's own local node. (km, node_id) or (None, None)."""
+        local_id = self.local_node_id_for_net(net)
+        if not local_id or local_id not in self.nodes:
+            return None, None
+
+        local = self.nodes[local_id]
+        local_lat, local_lon = local.get('lat'), local.get('lon')
+        if not local_lat or not local_lon:
+            return None, None
+
+        max_dist = 0
+        farthest_id = None
+
+        for node_id, node in self.nodes.items():
+            if node_id == local_id or self.net_of(node) != net:
+                continue
+            hops = node.get('hops') if net == 'MT' else node.get('hops_away')
+            if hops != 0:
+                continue
+            if net == 'MT' and node.get('via_mqtt', False):
+                continue
+
+            lat, lon = node.get('lat'), node.get('lon')
+            if not lat or not lon:
+                continue
+
+            dist = self.calculate_distance(local_lat, local_lon, lat, lon)
+            if dist > max_dist:
+                max_dist = dist
+                farthest_id = node_id
+
+        if not farthest_id:
+            return None, None
+        return round(max_dist, 2), farthest_id
+
+    def get_network_reach_for_net(self, net):
+        """Distance to the farthest node of a network that is known at all.
+
+        Deliberately not a radio measurement: it counts nodes reached through any
+        number of repeaters. Meshcore needs this because its companion API cannot
+        report whether an advert arrived directly — every contact looks the same —
+        so the honest thing to show is how far the network extends, under a name
+        that does not claim otherwise. MQTT-sourced nodes stay excluded: those
+        arrive over the internet and would measure nothing about the mesh.
+
+        Returns:
+            tuple: (km, node_id) or (None, None).
+        """
+        local_id = self.local_node_id_for_net(net)
+        if not local_id or local_id not in self.nodes:
+            return None, None
+
+        local = self.nodes[local_id]
+        local_lat, local_lon = local.get('lat'), local.get('lon')
+        if not local_lat or not local_lon:
+            return None, None
+
+        max_dist = 0
+        farthest_id = None
+
+        for node_id, node in self.nodes.items():
+            if node_id == local_id or self.net_of(node) != net:
+                continue
+            if node.get('via_mqtt', False):
+                continue
+
+            lat, lon = node.get('lat'), node.get('lon')
+            if not lat or not lon:
+                continue
+
+            dist = self.calculate_distance(local_lat, local_lon, lat, lon)
+            if dist > max_dist:
+                max_dist = dist
+                farthest_id = node_id
+
+        if not farthest_id:
+            return None, None
+        return round(max_dist, 2), farthest_id
+
+    def _net_entry(self, net, dist, farthest_id):
+        """Shape one per-network row for the UI."""
+        farthest = self.nodes.get(farthest_id) or {}
+        return {
+            'label': self.NET_LABELS.get(net, net),
+            'km': dist,
+            'node_id': farthest_id,
+            'node_name': farthest.get('name') or farthest_id,
+            'from_id': self.local_node_id_for_net(net),
+        }
+
+    def get_network_reach_by_net(self):
+        """Per-network reach — farthest known node, any number of hops."""
+        result = {}
+        for net in sorted({self.net_of(n) for n in self.nodes.values()}):
+            dist, farthest_id = self.get_network_reach_for_net(net)
+            if dist is not None:
+                result[net] = self._net_entry(net, dist, farthest_id)
+        return result
+
+    def get_max_distance_by_net(self):
+        """Per-network max range for the Mesh Info panel. Only networks that have
+        a positioned local node AND at least one direct neighbour show up."""
+        result = {}
+        for net in sorted({self.net_of(n) for n in self.nodes.values()}):
+            dist, farthest_id = self.get_max_distance_for_net(net)
+            if dist is None:
+                continue
+            result[net] = self._net_entry(net, dist, farthest_id)
+        return result
+
     def load_existing_nodes(self):
         """Load nodes from existing JSON file"""
         try:
@@ -1016,6 +1254,21 @@ class ListenBasedMapper:
                         # Clean old nodes immediately
                         self.clean_old_nodes_from_dict(nodes)
                         self.clean_old_nodes_from_dict(nodes_no_pos)
+
+                        # A node saved before the Null Island filter existed keeps
+                        # its bogus coordinates through restarts, so re-check here
+                        # too: strip the position and move it to the no-GPS list,
+                        # which is what it should have been all along.
+                        bogus = [nid for nid, n in nodes.items()
+                                 if is_placeholder_position(n.get('lat'), n.get('lon'))]
+                        for nid in bogus:
+                            node = nodes.pop(nid)
+                            node.pop('lat', None)
+                            node.pop('lon', None)
+                            nodes_no_pos.setdefault(nid, node)
+                        if bogus:
+                            print(f"[LOAD] Dropped bogus (0,0)-area position from {len(bogus)} node(s): "
+                                  + ', '.join(sorted(bogus)[:5]))
 
                         # Remove from no-position any node that already has GPS position
                         duplicates = [nid for nid in nodes_no_pos if nid in nodes]
@@ -2099,7 +2352,7 @@ class ListenBasedMapper:
             lon = float(lon_match.group(1))
             
             # Skip invalid coordinates
-            if lat == 0 and lon == 0:
+            if is_placeholder_position(lat, lon):
                 return False
             
             # Extract SNR if available
@@ -2415,7 +2668,12 @@ class ListenBasedMapper:
                 lat = pos.get('latitude')
                 lon = pos.get('longitude')
                 alt = pos.get('altitude', 0)
-                has_pos = lat is not None and lon is not None
+                # The tracker's NodeDB remembers whatever a node once broadcast,
+                # bogus coordinates included, and replays it on every connect —
+                # so a position rejected on the packet path walks back in here
+                # unless it is checked again.
+                has_pos = (lat is not None and lon is not None
+                           and not is_placeholder_position(lat, lon))
 
                 dm = raw.get('deviceMetrics', {})
                 battery = dm.get('batteryLevel')
@@ -2545,7 +2803,7 @@ class ListenBasedMapper:
                 if (isinstance(lat, (int, float)) and not isinstance(lat, bool)
                         and isinstance(lon, (int, float)) and not isinstance(lon, bool)
                         and -90 <= lat <= 90 and -180 <= lon <= 180
-                        and not (lat == 0 and lon == 0)):
+                        and not (is_placeholder_position(lat, lon))):
                     lat = round(float(lat), 6)
                     lon = round(float(lon), 6)
                     has_pos = True
@@ -2640,7 +2898,7 @@ class ListenBasedMapper:
             lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
             lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
 
-            if lat is not None and lon is not None and not (lat == 0 and lon == 0):
+            if lat is not None and lon is not None and not (is_placeholder_position(lat, lon)):
                 alt = pos.get('altitude', 0)
                 is_new = node_id not in self.nodes
                 self.nodes[node_id] = {
@@ -2723,7 +2981,7 @@ class ListenBasedMapper:
             lat = pos.get('latitude') or (lat_i / 1e7 if lat_i is not None else None)
             lon = pos.get('longitude') or (lon_i / 1e7 if lon_i is not None else None)
 
-            if lat is None or lon is None or (lat == 0 and lon == 0):
+            if lat is None or lon is None or (is_placeholder_position(lat, lon)):
                 return False
 
             snr = packet.get('rxSnr', 0)
@@ -3072,6 +3330,8 @@ class ListenBasedMapper:
             'type': 'stats_update',
             'max_distance_km': max_dist,
             'farthest_node': farthest_id,
+            'max_distance_by_net': self.get_max_distance_by_net(),
+            'network_reach_by_net': self.get_network_reach_by_net(),
             'relay_nodes': relay_nodes,
             'timestamp': int(time.time())
         })
@@ -3256,6 +3516,8 @@ class ListenBasedMapper:
                 'cnt_no_pos': len(nodes_no_pos_list),
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
+                'max_distance_by_net': self.get_max_distance_by_net(),
+                'network_reach_by_net': self.get_network_reach_by_net(),
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': nodes_list,
                 'nodes_no_pos': nodes_no_pos_list,
@@ -3323,7 +3585,7 @@ class ListenBasedMapper:
                             tracker_role = node_info.get('user', {}).get('role', 'CLIENT')
                             self.tracker_info['role'] = tracker_role
                         try:
-                            if lat and lon and not (lat == 0 and lon == 0):
+                            if lat and lon and not (is_placeholder_position(lat, lon)):
                                 self.tracker_info['lat'] = round(lat, 6)
                                 self.tracker_info['lon'] = round(lon, 6)
                                 self.tracker_info['alt'] = alt or 0
@@ -3365,6 +3627,7 @@ class ListenBasedMapper:
                 print(f"[SERIAL] Connected successfully")
                 if plugin_manager:
                     plugin_manager.set_interface(serial_iface)
+                    self.notify_plugins_connected()
                 self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
@@ -3463,6 +3726,7 @@ class ListenBasedMapper:
                         pass
                 try:
                     asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting...'))
+                    self.notify_plugins_disconnected('Serial disconnected')
                 except Exception:
                     pass
                 self._serial_iface = None
@@ -3606,6 +3870,7 @@ class ListenBasedMapper:
                 print(f"[TCP] Connected to {tcp_host}:{tcp_port}")
                 if plugin_manager:
                     plugin_manager.set_interface(tcp_iface)
+                    self.notify_plugins_connected()
                 self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup
@@ -3627,7 +3892,7 @@ class ListenBasedMapper:
                     except Exception:
                         tracker_role = my_info.get('user', {}).get('role', 'CLIENT')
                         self.tracker_info['role'] = tracker_role
-                    if lat and lon and not (lat == 0 and lon == 0):
+                    if lat and lon and not (is_placeholder_position(lat, lon)):
                         self.tracker_info['lat'] = round(lat, 6)
                         self.tracker_info['lon'] = round(lon, 6)
                         self.tracker_info['alt'] = alt or 0
@@ -3769,6 +4034,7 @@ class ListenBasedMapper:
                         pass
                 try:
                     asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting...'))
+                    self.notify_plugins_disconnected('TCP disconnected')
                 except Exception:
                     pass
 
@@ -4350,8 +4616,23 @@ async def handle_connection_change(data, websocket):
 
     print(f"[WS] Connection change: {connection_type} {host or ''}")
 
-    # Determine port for serial
+    # Determine port for serial. The UI may name one explicitly (picked from
+    # list_serial_ports); an empty value means "auto-detect", which is how this
+    # always behaved. Anything else is rejected rather than written to config,
+    # where a bad value would be re-read on every start.
     port = mapper.port if (mapper and connection_type == 'serial') else None
+    if connection_type == 'serial' and 'port' in data:
+        requested = (data.get('port') or '').strip()
+        if not requested:
+            port = None                      # explicit "auto-detect"
+        elif requested.startswith('/dev/'):
+            port = requested
+        else:
+            await websocket.send(json.dumps({
+                'type': 'connection_status', 'status': 'failed',
+                'message': f"Invalid serial device '{requested}'"
+            }, ensure_ascii=False))
+            return
 
     # Save config
     save_config(connection_type, host=host or None, port=port)
@@ -5268,6 +5549,28 @@ async def websocket_handler(websocket):
                                 'type': 'plugin_installed', **result
                             }, ensure_ascii=False))
 
+                elif data.get('type') == 'list_serial_ports':
+                    await websocket.send(json.dumps({
+                        'type': 'serial_ports',
+                        'ports': list_serial_devices(),
+                        'current': mapper.port if mapper else None,
+                    }, ensure_ascii=False))
+
+                elif data.get('type') == 'subscribe_plugin':
+                    # A browser wants one plugin's channel. Recorded per
+                    # connection and dropped when the connection goes away.
+                    channel = data.get('channel', '')
+                    if isinstance(channel, str) and channel.startswith('plugin:'):
+                        plugin_subscriptions.setdefault(websocket, set()).add(channel)
+                    else:
+                        print(f"[WS] Ignoring subscribe_plugin with bad channel: {channel!r}")
+
+                elif data.get('type') == 'unsubscribe_plugin':
+                    channel = data.get('channel', '')
+                    subs = plugin_subscriptions.get(websocket)
+                    if subs:
+                        subs.discard(channel)
+
                 elif data.get('type') == 'plugin_message':
                     # Forward plugin WebSocket message to plugin handler
                     if plugin_manager:
@@ -5594,6 +5897,7 @@ async def websocket_handler(websocket):
         if plugin_manager:
             await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
+        plugin_subscriptions.pop(websocket, None)
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
@@ -5621,6 +5925,96 @@ async def start_websocket_server():
         await asyncio.Future()  # Run forever
 
 
+def plugin_claimed_serial_ports():
+    """Serial devices that enabled plugins have configured for themselves.
+
+    Serial auto-detection runs before the plugin manager exists, so the stored
+    plugin configs are read straight off disk here. Every value is resolved with
+    realpath: a plugin pointed at a stable /dev/serial/by-id/... symlink must
+    still shadow the /dev/ttyUSB0 that symlink resolves to, which is exactly the
+    device naive auto-detection would otherwise hand to the mesh interface.
+
+    Returns:
+        dict: {resolved device path: plugin id} — auto-detection must not pick
+            these, and the UI can say who holds each one.
+    """
+    claimed = {}
+    # Same rule as PluginManager: plugins/ sits next to backend/ in the repo
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    plugins_dir = os.path.join(repo_root, 'plugins')
+
+    try:
+        with open(os.path.join(plugins_dir, 'enabled.json'), 'r') as f:
+            enabled_ids = json.load(f)
+    except Exception:
+        return claimed          # no plugins installed, or unreadable — claim nothing
+
+    for plugin_id in enabled_ids or []:
+        parts = str(plugin_id).split('/', 1)
+        try:
+            with open(os.path.join(plugins_dir, *parts, 'config.json'), 'r') as f:
+                plugin_config = json.load(f)
+        except Exception:
+            continue            # plugin never configured, or config unreadable
+        if not isinstance(plugin_config, dict):
+            continue
+        for value in plugin_config.values():
+            if isinstance(value, str) and value.strip().startswith('/dev/'):
+                claimed[os.path.realpath(value.strip())] = str(plugin_id)
+
+    return claimed
+
+
+def list_serial_devices():
+    """Enumerate serial devices a radio could be attached to.
+
+    Prefers /dev/serial/by-id/ entries: those names survive a reboot, while
+    ttyUSB0/ttyACM0 numbering depends on the order things were plugged in. Each
+    entry says what the device calls itself and whether a plugin already speaks
+    to it, so a user picking a port can see that "this one is the Meshcore
+    radio" rather than finding out by watching two processes fight over it.
+
+    Returns:
+        list: dicts with path, dev, label and claimed_by (plugin id or None),
+            sorted by label.
+    """
+    claimed = plugin_claimed_serial_ports()
+    by_id_dir = '/dev/serial/by-id'
+    devices = {}
+
+    def add(path, label):
+        try:
+            resolved = os.path.realpath(path)
+        except OSError:
+            resolved = path
+        # by-id wins over a bare tty for the same device: it is the stable name
+        if resolved in devices and devices[resolved]['path'].startswith(by_id_dir):
+            return
+        devices[resolved] = {
+            'path': path,
+            'dev': resolved,
+            'label': label,
+            'claimed_by': claimed.get(resolved),
+        }
+
+    try:
+        for name in sorted(os.listdir(by_id_dir)):
+            # usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+            #   -> "Silicon Labs CP2102 USB to UART Bridge Controller 0001"
+            label = re.sub(r'^usb-', '', name)
+            label = re.sub(r'-if\d+.*$', '', label).replace('_', ' ').strip()
+            add(os.path.join(by_id_dir, name), label or name)
+    except OSError:
+        pass        # no by-id on this system (or no USB serial at all)
+
+    for path in ('/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2',
+                 '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2'):
+        if os.path.exists(path):
+            add(path, os.path.basename(path))
+
+    return sorted(devices.values(), key=lambda d: d['label'].lower())
+
+
 def run_websocket_server_thread():
     """Run WebSocket server in separate thread"""
     asyncio.run(start_websocket_server())
@@ -5638,12 +6032,21 @@ if __name__ == '__main__':
     ]
 
     def detect_serial_port():
+        claimed = plugin_claimed_serial_ports()
         for p in possible_ports:
-            if os.path.exists(p):
-                return p
+            if not os.path.exists(p):
+                continue
+            if os.path.realpath(p) in claimed:
+                # A plugin (e.g. Meshcore) already talks to this radio. Taking it
+                # would have both sides fighting over the same file descriptor and
+                # neither getting a usable reply.
+                print(f"[SERIAL] Skipping {p} — claimed by an enabled plugin")
+                continue
+            return p
         return None
 
     # Load config
+    report_config_source()
     config = load_config()
     connection_type = config.get('connection_type', 'serial')
     host = config.get('host')
@@ -5655,6 +6058,10 @@ if __name__ == '__main__':
         if not port:
             print("WARNING: No serial port found")
             print("Checked:", possible_ports)
+            claimed_now = plugin_claimed_serial_ports()
+            if claimed_now:
+                print("Skipped (claimed by enabled plugins):", sorted(claimed_now))
+                print("Set \"port\" explicitly in config.json if a device is shared.")
             print("Waiting for TCP connection configuration via web interface...")
             print(f"Open http://localhost/meshpulse/ and configure TCP connection")
 
@@ -5688,6 +6095,7 @@ if __name__ == '__main__':
         if PLUGINS_AVAILABLE:
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
+            plugin_manager._plugin_subscriptions = plugin_subscriptions
 
         # Mapper loop with runtime restart support
         _watchdog_started = False

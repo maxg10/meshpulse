@@ -569,6 +569,14 @@ Declare the `node_inject` permission in `plugin.json` to use it.
   Meshcore. `'MT'` means Meshtastic and is the default for nodes with no `net` field.
 
 **Optional fields:** `name`, `lat`, `lon`, `alt`, `role`, `snr`, `rssi`.
+
+**Range-measurement fields (optional, since 2.7.2):** set `net_self: True` on the
+one node your network measures from (your companion/gateway radio), and
+`hops_away` on every other node — radio hops from that local node, `0` meaning a
+direct neighbour. Supply both and Mesh Info shows a Max range row for your
+network, computed exactly like the Meshtastic one. Omit `hops_away` on a node
+whose path is unknown rather than guessing `0`: a node reached through repeaters
+is not radio range, and a missing field is treated as unknown, never as direct.
 Any additional keys are passed through as-is and reach the frontend — useful for
 protocol-specific fields.
 

@@ -25,7 +25,7 @@
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-    <link rel="stylesheet" href="styles.css?v=2.6.1-2">
+    <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -42,6 +42,13 @@
     /* Local Meshcore companion (mc_self): diamond in the same own-node blue as .marker.tracker-home */
     .marker.net-mc.tracker-home{background:transparent;border:none;border-radius:0}
     .marker.net-mc.tracker-home::before{background:#3b82f6;border-color:#1d4ed8}
+    /* Mesh Info → Max range rows. Shape carries the network, exactly as on the
+       map (circle = Meshtastic, diamond = everything injected by a plugin);
+       colour stays neutral here because on the map colour means node age. */
+    .mr-row{line-height:1.5}
+    .net-chip{display:inline-block;width:8px;height:8px;margin-right:6px;background:#9ca3af;
+        border:1px solid #4b5563;border-radius:50%;vertical-align:middle}
+    .net-chip.other{border-radius:1px;transform:rotate(45deg)}
     </style>
 </head>
 <body>
@@ -73,7 +80,14 @@
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB <span id="bad-pct" style="color:#ef4444;font-size:11px"></span><br>
-        <b>Max range:</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a><br>
+        <b>Max range:</b><span title="Distance to the farthest node heard directly (zero hops), measured per network from that network's own node. Shapes match the map: &#9679; Meshtastic, &#9670; Meshcore." style="cursor:help;color:#9ca3af"> ⓘ</span><br>
+        <div id="maxrange-rows">
+          <div id="maxrange-row-MT" class="mr-row"><span class="net-chip"></span><b>MT</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ show)</a></div>
+        </div>
+        <div id="reach-block" style="display:none">
+        <b>Network reach:</b><span title="Distance to the farthest node this network knows about, through any number of repeaters. Unlike Max range this is not a radio measurement — Meshcore's companion API cannot tell a direct advert from a relayed one." style="cursor:help;color:#9ca3af"> &#9432;</span><br>
+        <div id="reach-rows"></div>
+        </div>
         <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
@@ -86,7 +100,12 @@
             <option value="tcp">TCP</option>
         </select>
         <span id="connection-status" style="color:#eab308;" title="Unknown">●</span></small><br>
-        <div id="serial-info"><small><span id="serial-port">-</span> <span style="color:#888;">(Auto)</span></small></div>
+        <div id="serial-info"><small>
+            <select id="serial-port-select" onchange="connectSerial()" title=""
+                style="max-width:190px;font-size:11px;vertical-align:middle"></select>
+            <a href="#" onclick="refreshSerialPorts();return false;" title="Rescan devices"
+               style="font-size:11px;text-decoration:none">&#8635;</a>
+        </small></div>
         <div id="tcp-info" style="display:none;">
             <input type="text" id="tcp-host" placeholder="192.168.1.100:4403" size="18" style="width:20ch">
             <button onclick="connectTCP()">Connect</button>
@@ -294,6 +313,8 @@
         let trackerInfo = {};
         let maxDistanceKm = null;
         let farthestNode = null;
+        let maxDistanceByNet = {};
+        let networkReachByNet = {};
         let mapReady = false;
         let initialFetchDone = false;
         let directLines = [];
@@ -395,6 +416,8 @@
                     console.log('[WS] Connected!');
                     updateWSStatus('connected');
                     isUsingWebSocket = true;
+                    // Populate the Connection device dropdown as soon as we can talk
+                    ws.send(JSON.stringify({type: 'list_serial_ports'}));
 
                     // Stop polling when WebSocket connects
                     if (pollingInterval) {
@@ -517,10 +540,18 @@
                                     }
                                 }
                             }
+                        } else if (data.type === 'serial_ports') {
+                            serialPorts = data.ports || [];
+                            serialPortsLoaded = true;
+                            renderSerialPortSelect(data.current || (trackerInfo && trackerInfo.port) || '');
                         } else if (data.type === 'stats_update') {
                             console.log('[WS] Stats update:', data.max_distance_km, 'km to', data.farthest_node);
                             maxDistanceKm = data.max_distance_km;
                             farthestNode = data.farthest_node;
+                            maxDistanceByNet = data.max_distance_by_net || {};
+                            networkReachByNet = data.network_reach_by_net || {};
+                            renderNetRangeRows();
+                            renderNetReachRows();
                             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
                             const maxLink = document.getElementById('maxrange-link');
                             if (farthestNode && markers[farthestNode]) {
@@ -809,6 +840,8 @@
                     }
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
+                    maxDistanceByNet = d.max_distance_by_net || {};
+                    networkReachByNet = d.network_reach_by_net || {};
 
                     if (d.neighbor_graph) {
                         neighborData = {};
@@ -1426,6 +1459,51 @@
             };
         }
         
+        // Devices the backend can see, from list_serial_ports.
+        var serialPorts = [];
+        var serialPortsLoaded = false;
+
+        function refreshSerialPorts() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'list_serial_ports'}));
+            }
+        }
+
+        // Connection → device dropdown. Built from what the machine actually has,
+        // because the alternative is typing a 60-character by-id path by hand and
+        // finding out it was wrong only from the logs. A device another plugin has
+        // configured is listed but not selectable: two readers on one port means
+        // neither gets a usable reply.
+        function renderSerialPortSelect(currentPort) {
+            const sel = document.getElementById('serial-port-select');
+            if (!sel) return;
+            const current = currentPort || '';
+            let html = '<option value=""' + (current ? '' : ' selected') + '>Auto-detect</option>';
+            let seen = false;
+            serialPorts.forEach(pt => {
+                const taken = !!pt.claimed_by;
+                const isCurrent = pt.path === current;
+                if (isCurrent) seen = true;
+                const suffix = taken ? ' — in use by ' + pt.claimed_by : '';
+                html += '<option value="' + escHtml(pt.path) + '"' +
+                    (isCurrent ? ' selected' : '') +
+                    (taken && !isCurrent ? ' disabled' : '') + '>' +
+                    escHtml(deviceLabel(pt.path) + ' (' + pt.dev.replace(/^\/dev\//, '') + ')' + suffix) +
+                    '</option>';
+            });
+            // Keep a configured-but-absent device in the list: rescanning with the
+            // radio unplugged must not quietly reset the setting to auto-detect.
+            if (current && !seen) {
+                html += '<option value="' + escHtml(current) + '" selected>' +
+                    escHtml(deviceLabel(current)) + ' (not present)</option>';
+            }
+            if (!serialPortsLoaded && !current) {
+                html = '<option value="">Auto-detect</option>';
+            }
+            sel.innerHTML = html;
+            sel.title = current || 'No port configured — auto-detecting';
+        }
+
         function connectSerial() {
             const keepData = document.getElementById('keep-previous-data').checked;
             const msgEl = document.getElementById('connection-message');
@@ -1442,7 +1520,11 @@
 
             updateConnectionStatus('connecting');
             msgEl.textContent = 'Switching to USB...';
-            ws.send(JSON.stringify({type: 'connect', connection_type: 'serial', keep_data: keepData}));
+            const sel = document.getElementById('serial-port-select');
+            ws.send(JSON.stringify({
+                type: 'connect', connection_type: 'serial', keep_data: keepData,
+                port: sel ? sel.value : ''
+            }));
 
             if (!keepData) {
                 allNodes = [];
@@ -1966,7 +2048,11 @@
             if (!userChangingConnection) {
                 const connType = trackerInfo.connection_type || 'serial';
                 document.getElementById('connection-type').value = connType;
-                document.getElementById('serial-port').textContent = trackerInfo.port || 'Auto';
+                // A /dev/serial/by-id/ path is far too long for this panel, and the
+                // interesting half is the device name. Show that, keep the full
+                // path in the tooltip. "(Auto)" used to be printed next to an
+                // explicitly configured port, which said the opposite of the truth.
+                renderSerialPortSelect(trackerInfo.port);
                 if (trackerInfo.host) {
                     document.getElementById('tcp-host').value = trackerInfo.host;
                 }
@@ -2113,6 +2199,8 @@
             } else {
                 maxLink.style.display = 'none';
             }
+            renderNetRangeRows();
+            renderNetReachRows();
 
             // Update timestamp on every display refresh
             document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
@@ -2120,6 +2208,116 @@
             // Fired last, after the markers are drawn, so a plugin reading
             // getVisible() from this callback sees exactly what the map shows.
             notifyPluginFilterChange();
+        }
+
+        // Mesh Info → Max range, one row per network. Meshtastic keeps the original
+        // #maxrange / #maxrange-link elements untouched, so every existing update
+        // path still works; networks injected by plugins get a row built from
+        // max_distance_by_net. A row shows only while its layer checkbox is ticked,
+        // so the panel never claims range for a network hidden on the map.
+        // "usb-Seeed_Studio_TRACKER_L1_DEF772D9AAFDA1D6-if00" -> "Seeed Studio TRACKER L1"
+        // Mirrors how the backend labels devices in the serial port picker.
+        function deviceLabel(path) {
+            var name = String(path || '').split('/').pop();
+            if (!name) return String(path || '');
+            name = name.replace(/^usb-/, '').replace(/-if\d+.*$/, '').replace(/_/g, ' ');
+            // Trailing serial numbers add length without telling the reader much
+            name = name.replace(/\s+[0-9A-F]{8,}$/i, '');
+            return name.trim() || String(path);
+        }
+
+        // Network reach: farthest known node per network, any number of hops.
+        // Shown only where it says something Max range does not — same node in
+        // both means the farthest node is also a direct neighbour, and printing
+        // the identical figure twice under two names would just look like a bug.
+        function renderNetReachRows() {
+            const block = document.getElementById('reach-block');
+            const rows = document.getElementById('reach-rows');
+            if (!block || !rows) return;
+            const reach = networkReachByNet || {};
+            const direct = maxDistanceByNet || {};
+            const netVisible = net => {
+                const cb = document.getElementById(net === 'MT' ? 'showNetMT' : 'showNetMC');
+                return !cb || cb.checked;
+            };
+
+            let html = '';
+            Object.keys(reach).sort().forEach(net => {
+                const info = reach[net] || {};
+                if (!netVisible(net)) return;
+                if (direct[net] && direct[net].node_id === info.node_id) return;
+                const name = String(info.node_name || info.node_id || '').substring(0, 15);
+                const chip = net === 'MT' ? '<span class="net-chip"></span>'
+                                          : '<span class="net-chip other"></span>';
+                html += '<div class="mr-row" data-reach-net="' + escHtml(net) + '">' + chip +
+                    '<b>' + escHtml(net) + '</b> ' + escHtml(String(info.km != null ? info.km : '-')) + ' km ' +
+                    (markers[info.node_id] ? '<a href="#" style="font-size:11px">(\u2192 ' + escHtml(name) + ')</a>' : '') +
+                    '</div>';
+            });
+            rows.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+
+            rows.querySelectorAll('a').forEach(link => {
+                const net = link.parentElement.getAttribute('data-reach-net');
+                const info = reach[net] || {};
+                link.onclick = function(e) {
+                    e.preventDefault();
+                    const m = markers[info.node_id];
+                    if (!m) return;
+                    map.setView(m.getLatLng(), 14);
+                    m.openPopup();
+                };
+            });
+        }
+
+        function renderNetRangeRows() {
+            const rows = document.getElementById('maxrange-rows');
+            if (!rows) return;
+            const byNet = maxDistanceByNet || {};
+            const netVisible = net => {
+                const cb = document.getElementById(net === 'MT' ? 'showNetMT' : 'showNetMC');
+                return !cb || cb.checked;
+            };
+
+            const mtRow = document.getElementById('maxrange-row-MT');
+            if (mtRow) mtRow.style.display = netVisible('MT') ? '' : 'none';
+
+            Object.keys(byNet).forEach(net => {
+                if (net === 'MT') return;
+                const info = byNet[net] || {};
+                const rowId = 'maxrange-row-' + net;
+                let row = document.getElementById(rowId);
+                if (!row) {
+                    row = document.createElement('div');
+                    row.id = rowId;
+                    row.className = 'mr-row';
+                    rows.appendChild(row);
+                }
+                if (!netVisible(net)) { row.style.display = 'none'; return; }
+                row.style.display = '';
+
+                const name = String(info.node_name || info.node_id || '').substring(0, 15);
+                const km = (info.km != null) ? info.km : '-';
+                row.innerHTML = '<span class="net-chip other"></span><b>' + escHtml(net) + '</b> ' +
+                    escHtml(String(km)) + ' km ' +
+                    (markers[info.node_id] ? '<a href="#" style="font-size:11px">(\u2192 ' + escHtml(name) + ')</a>' : '');
+                const link = row.querySelector('a');
+                if (link) {
+                    link.onclick = function(e) {
+                        e.preventDefault();
+                        const m = markers[info.node_id];
+                        if (!m) return;
+                        map.setView(m.getLatLng(), 14);
+                        m.openPopup();
+                    };
+                }
+            });
+
+            // Networks that disappeared (plugin disabled, nodes aged out) lose their row
+            Array.from(rows.children).forEach(row => {
+                const net = row.id.replace('maxrange-row-', '');
+                if (net !== 'MT' && !byNet[net]) row.remove();
+            });
         }
 
         // Tell plugins the visible node set may have changed — a filter toggled, or
@@ -2583,7 +2781,13 @@
                             ws.send(JSON.stringify({type: 'subscribe_plugin', channel: fullCh}));
                         }
                     },
-                    unsubscribe: function(channel) { delete pluginWsCallbacks[prefix + channel]; },
+                    unsubscribe: function(channel) {
+                        var fullCh = prefix + channel;
+                        delete pluginWsCallbacks[fullCh];
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'unsubscribe_plugin', channel: fullCh}));
+                        }
+                    },
                     send: function(channel, data) {
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({

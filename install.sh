@@ -160,6 +160,26 @@ sudo cp frontend/stats.html /var/www/html/meshpulse/
 sudo cp frontend/config.html /var/www/html/meshpulse/
 sudo cp frontend/messages.html /var/www/html/meshpulse/
 
+# Cache-bust the stylesheet by its own content. A hand-maintained version in the
+# query string is only correct while someone remembers to bump it — ours sat at
+# 2.6.1 through four releases, so browsers kept serving an old stylesheet with
+# new markup. The hash changes exactly when styles.css changes, and never
+# otherwise, so returning visitors re-download it only when there is something
+# to re-download. Stamped into the served copies, never into the repo, so
+# `git status` stays clean and `git reset --hard` has nothing to undo.
+if command -v md5sum > /dev/null 2>&1; then
+    ASSET_HASH=$(md5sum frontend/styles.css | cut -c1-12)
+elif command -v md5 > /dev/null 2>&1; then          # macOS
+    ASSET_HASH=$(md5 -q frontend/styles.css | cut -c1-12)
+else
+    ASSET_HASH=$(date +%s)                          # no hasher: fall back to "always fresh"
+fi
+for f in index.html stats.html config.html messages.html; do
+    sudo sed -i "s/styles\.css?v=__ASSET_HASH__/styles.css?v=$ASSET_HASH/g" \
+        "/var/www/html/meshpulse/$f"
+done
+echo "🧹 Stylesheet cache key: $ASSET_HASH"
+
 # Sync plugin frontend assets to web root so lighttpd can serve them
 if [ -d "$PLUGIN_DIR" ]; then
     echo "[INSTALL] Syncing plugin assets to web root..."
@@ -195,16 +215,33 @@ if command -v lighttpd &> /dev/null; then
 $HTTP["url"] =~ "^/meshtastic(/.*)?$" {
     url.redirect = ( "^/meshtastic(/.*)?$" => "/meshpulse$1" )
 }
+
+# config.json sits in the web root as backend storage, not as a public asset:
+# the frontend never fetches it (settings travel over the WebSocket) and it can
+# hold a broker host, credentials and the coverage API key.
+$HTTP["url"] =~ "^/meshpulse/config\.json$" {
+    url.access-deny = ( "" )
+}
 LIGHTTPD_EOF
     sudo ln -sf /etc/lighttpd/conf-available/meshpulse.conf /etc/lighttpd/conf-enabled/meshpulse.conf
     sudo systemctl reload lighttpd 2>/dev/null || sudo service lighttpd reload 2>/dev/null || true
     echo "✅ Redirect configured"
 fi
 
-# Create config.json from example if it doesn't exist
-if [ ! -f "$REPO_PATH/config.json" ]; then
-    echo "⚙️  Creating config.json from example..."
-    cp "$REPO_PATH/config.json.example" "$REPO_PATH/config.json"
+# Create the live config if it doesn't exist. It belongs in the web root: that
+# is the only path the backend reads (CONFIG_PATH). Earlier versions of this
+# script put it in the repo instead, where nothing ever loaded it — editing that
+# copy looked like it worked and changed nothing.
+LIVE_CONFIG="/var/www/html/meshpulse/config.json"
+if [ ! -f "$LIVE_CONFIG" ]; then
+    echo "⚙️  Creating $LIVE_CONFIG from example..."
+    sudo cp "$REPO_PATH/config.json.example" "$LIVE_CONFIG"
+    sudo chown $CURRENT_USER:$CURRENT_USER "$LIVE_CONFIG"
+    sudo chmod 600 "$LIVE_CONFIG"
+fi
+if [ -f "$REPO_PATH/config.json" ]; then
+    echo "⚠️  $REPO_PATH/config.json exists but is NOT read by MeshPulse."
+    echo "   The live config is $LIVE_CONFIG — copy any settings there."
 fi
 
 # Reload systemd

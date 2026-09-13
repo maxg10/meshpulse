@@ -15,3 +15,6 @@ build/
 dist/
 *.meshplugin
 sbom.zip
+
+# Release notes staging (built per release, not versioned)
+.release/

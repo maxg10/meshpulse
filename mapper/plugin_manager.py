@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import shutil
+import tempfile
 import zipfile
 import asyncio
 import importlib
@@ -50,6 +51,7 @@ class PluginManager:
 
         # Reference to connected_clients set — set from meshpulse after init
         self._connected_clients = None
+        self._plugin_subscriptions = None   # {websocket: {channel, ...}}, owned by the WS server
 
         # Active radio interface wrapper (set by mapper after connect)
         self._interface = None
@@ -83,6 +85,44 @@ class PluginManager:
             print(f"[PLUGINS] Error saving enabled list: {e}")
 
     # ── Plugin Discovery ────────────────────────────────────────
+
+    # Files a plugin owns at runtime rather than ships: its user config and any
+    # database it keeps. Upgrading must not touch them.
+    RUNTIME_STATE = ('config.json', 'data')
+
+    def _take_runtime_state(self, plugin_dir):
+        """Move a plugin's runtime state aside before its directory is replaced.
+
+        Returns:
+            str: path of the temporary directory holding it, or None.
+        """
+        present = [name for name in self.RUNTIME_STATE
+                   if os.path.exists(os.path.join(plugin_dir, name))]
+        if not present:
+            return None
+        try:
+            stash = tempfile.mkdtemp(prefix='meshpulse_plugin_state_')
+            for name in present:
+                shutil.move(os.path.join(plugin_dir, name), os.path.join(stash, name))
+            print(f"[PLUGINS] Preserving across upgrade: {', '.join(present)}")
+            return stash
+        except Exception as e:
+            # Losing settings is bad; failing the upgrade over it is worse.
+            print(f"[PLUGINS] Could not preserve runtime state: {e}")
+            return None
+
+    def _restore_runtime_state(self, plugin_dir, stash):
+        """Put the preserved config/data back, without overwriting shipped files."""
+        try:
+            for name in os.listdir(stash):
+                dest = os.path.join(plugin_dir, name)
+                if os.path.exists(dest):
+                    continue        # the package shipped its own — leave it alone
+                shutil.move(os.path.join(stash, name), dest)
+        except Exception as e:
+            print(f"[PLUGINS] Could not restore runtime state: {e}")
+        finally:
+            shutil.rmtree(stash, ignore_errors=True)
 
     def _get_plugin_dir(self, plugin_id):
         """Get the directory path for a plugin.
@@ -200,10 +240,20 @@ class PluginManager:
                     if plugin_id in self.enabled_ids:
                         was_enabled = True
                         self.disable(plugin_id)
+                    # The package deliberately ships no config.json and no
+                    # database (see build.sh), precisely so an upgrade keeps the
+                    # user's settings — but wiping the directory threw them away
+                    # anyway, which is half a mechanism. Carry the runtime state
+                    # across the replacement.
+                    preserved = self._take_runtime_state(plugin_dir)
                     shutil.rmtree(plugin_dir)
+                else:
+                    preserved = None
 
                 os.makedirs(plugin_dir, exist_ok=True)
                 zf.extractall(plugin_dir)
+                if preserved:
+                    self._restore_runtime_state(plugin_dir, preserved)
 
                 # Copy frontend assets to web root for lighttpd
                 frontend_src = os.path.join(plugin_dir, 'frontend')
@@ -553,7 +603,16 @@ class PluginManager:
             'data': data
         }
         if channel:
-            msg['channel'] = f'plugin:{plugin_id}:{channel}'
+            # Documented behaviour: a channel broadcast reaches only the clients
+            # that subscribed to it. Anything else sends one plugin's traffic to
+            # every open browser.
+            full_channel = f'plugin:{plugin_id}:{channel}'
+            msg['channel'] = full_channel
+            subs = self._plugin_subscriptions
+            if subs is not None:
+                clients = [ws for ws in clients if full_channel in subs.get(ws, ())]
+                if not clients:
+                    return
 
         try:
             message_str = json.dumps(msg, ensure_ascii=False)
