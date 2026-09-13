@@ -1,5 +1,21 @@
 # Changelog
 
+## v2.7.2
+- Feature: Per-network Max range in Mesh Info. The panel now shows one row per
+  network, each measured from that network's OWN local node — Meshtastic from
+  the tracker (`hops == 0`, MQTT excluded), Meshcore from the companion node
+  (`hops_away == 0`). Rows follow the map's visual language: circle = Meshtastic,
+  diamond = an injected network, colour left neutral because on the map colour
+  means node age. A row is shown only while its network layer checkbox is ticked.
+- Feature: Two optional `inject_node()` fields for plugins — `net_self` marks a
+  network's own local node, `hops_away` gives radio hops from it (0 = direct).
+  A network that supplies neither is simply not measured: nodes reached through
+  repeaters never get counted as radio range.
+- Compat: `max_distance_km` and `farthest_node` keep their existing Meshtastic
+  meaning in `nodes.json` and the `stats_update` WebSocket message; the new
+  `max_distance_by_net` map is additive, so stats.html and third-party plugins
+  need no changes.
+
 ## v2.7.1
 - Fix: Docker stored nothing the application used. The entrypoint wrote
   config.json and nodes.json to `/var/www/html/meshtastic` and the compose file

@@ -93,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.7.1'
+MAPPER_VERSION = '2.7.2'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -996,6 +996,86 @@ class ListenBasedMapper:
                 farthest_id = node_id
         
         return round(max_dist, 2), farthest_id 
+
+    # ── Per-network range ───────────────────────────────────────
+    # Networks other than Meshtastic reach the map through plugin inject_node().
+    # Two optional conventions make them measurable the same way:
+    #   net_self  — marks that network's own local node (its point of origin)
+    #   hops_away — radio hops from that local node; 0 = direct neighbour
+    # Meshtastic uses its native 'hops'. A node without the field is "unknown",
+    # never "direct", so an unmeasurable network simply gets no row.
+
+    NET_LABELS = {'MT': 'Meshtastic', 'MC': 'Meshcore'}
+
+    @staticmethod
+    def net_of(node):
+        """Network tag of a node. Absent/empty means Meshtastic."""
+        return (node.get('net') or 'MT').upper()
+
+    def local_node_id_for_net(self, net):
+        """The node a given network measures distances from."""
+        if net == 'MT':
+            return self.local_node_id
+        for node_id, node in self.nodes.items():
+            # 'mc_self' is what meshcore plugin <= 1.0.0 sends; keep accepting it
+            if self.net_of(node) == net and (node.get('net_self') or node.get('mc_self')):
+                return node_id
+        return None
+
+    def get_max_distance_for_net(self, net):
+        """Max distance to a node this network hears with zero radio hops,
+        measured from that network's own local node. (km, node_id) or (None, None)."""
+        local_id = self.local_node_id_for_net(net)
+        if not local_id or local_id not in self.nodes:
+            return None, None
+
+        local = self.nodes[local_id]
+        local_lat, local_lon = local.get('lat'), local.get('lon')
+        if not local_lat or not local_lon:
+            return None, None
+
+        max_dist = 0
+        farthest_id = None
+
+        for node_id, node in self.nodes.items():
+            if node_id == local_id or self.net_of(node) != net:
+                continue
+            hops = node.get('hops') if net == 'MT' else node.get('hops_away')
+            if hops != 0:
+                continue
+            if net == 'MT' and node.get('via_mqtt', False):
+                continue
+
+            lat, lon = node.get('lat'), node.get('lon')
+            if not lat or not lon:
+                continue
+
+            dist = self.calculate_distance(local_lat, local_lon, lat, lon)
+            if dist > max_dist:
+                max_dist = dist
+                farthest_id = node_id
+
+        if not farthest_id:
+            return None, None
+        return round(max_dist, 2), farthest_id
+
+    def get_max_distance_by_net(self):
+        """Per-network max range for the Mesh Info panel. Only networks that have
+        a positioned local node AND at least one direct neighbour show up."""
+        result = {}
+        for net in sorted({self.net_of(n) for n in self.nodes.values()}):
+            dist, farthest_id = self.get_max_distance_for_net(net)
+            if dist is None:
+                continue
+            farthest = self.nodes.get(farthest_id) or {}
+            result[net] = {
+                'label': self.NET_LABELS.get(net, net),
+                'km': dist,
+                'node_id': farthest_id,
+                'node_name': farthest.get('name') or farthest_id,
+                'from_id': self.local_node_id_for_net(net),
+            }
+        return result
 
     def load_existing_nodes(self):
         """Load nodes from existing JSON file"""
@@ -3072,6 +3152,7 @@ class ListenBasedMapper:
             'type': 'stats_update',
             'max_distance_km': max_dist,
             'farthest_node': farthest_id,
+            'max_distance_by_net': self.get_max_distance_by_net(),
             'relay_nodes': relay_nodes,
             'timestamp': int(time.time())
         })
@@ -3256,6 +3337,7 @@ class ListenBasedMapper:
                 'cnt_no_pos': len(nodes_no_pos_list),
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
+                'max_distance_by_net': self.get_max_distance_by_net(),
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': nodes_list,
                 'nodes_no_pos': nodes_no_pos_list,
