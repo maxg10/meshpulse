@@ -1,6 +1,19 @@
 # Changelog
 
 ## v2.7.2
+- Fix: `config.json` is no longer served to the web. It lives in the web root
+  because that is where the backend keeps its state, but it is storage, not a
+  public asset — the frontend never fetches it (settings travel over the
+  WebSocket) while it can hold a broker host, credentials and the coverage API
+  key. lighttpd now denies `/meshpulse/config.json` (both in the Docker image
+  and in the config install.sh writes), and the backend chmods the file to 600
+  whenever it saves it, so a web server running as its own user cannot read it
+  even where that rule is missing.
+- Fix: install.sh created `config.json` in the repo — the one place nothing
+  reads it — and announced it as if that were the live config. It now creates
+  `/var/www/html/meshpulse/config.json` (owner-only) and, if a repo-root
+  config.json is lying around from an earlier install, says out loud that it is
+  being ignored.
 - Fix: `on_connect` and `on_disconnect` are actually dispatched. Both have been
   in the documented plugin API since the hook system landed, but nothing ever
   called them, so a plugin needing the radio had to do its work in `on_enable` —

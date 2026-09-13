@@ -195,16 +195,33 @@ if command -v lighttpd &> /dev/null; then
 $HTTP["url"] =~ "^/meshtastic(/.*)?$" {
     url.redirect = ( "^/meshtastic(/.*)?$" => "/meshpulse$1" )
 }
+
+# config.json sits in the web root as backend storage, not as a public asset:
+# the frontend never fetches it (settings travel over the WebSocket) and it can
+# hold a broker host, credentials and the coverage API key.
+$HTTP["url"] =~ "^/meshpulse/config\.json$" {
+    url.access-deny = ( "" )
+}
 LIGHTTPD_EOF
     sudo ln -sf /etc/lighttpd/conf-available/meshpulse.conf /etc/lighttpd/conf-enabled/meshpulse.conf
     sudo systemctl reload lighttpd 2>/dev/null || sudo service lighttpd reload 2>/dev/null || true
     echo "✅ Redirect configured"
 fi
 
-# Create config.json from example if it doesn't exist
-if [ ! -f "$REPO_PATH/config.json" ]; then
-    echo "⚙️  Creating config.json from example..."
-    cp "$REPO_PATH/config.json.example" "$REPO_PATH/config.json"
+# Create the live config if it doesn't exist. It belongs in the web root: that
+# is the only path the backend reads (CONFIG_PATH). Earlier versions of this
+# script put it in the repo instead, where nothing ever loaded it — editing that
+# copy looked like it worked and changed nothing.
+LIVE_CONFIG="/var/www/html/meshpulse/config.json"
+if [ ! -f "$LIVE_CONFIG" ]; then
+    echo "⚙️  Creating $LIVE_CONFIG from example..."
+    sudo cp "$REPO_PATH/config.json.example" "$LIVE_CONFIG"
+    sudo chown $CURRENT_USER:$CURRENT_USER "$LIVE_CONFIG"
+    sudo chmod 600 "$LIVE_CONFIG"
+fi
+if [ -f "$REPO_PATH/config.json" ]; then
+    echo "⚠️  $REPO_PATH/config.json exists but is NOT read by MeshPulse."
+    echo "   The live config is $LIVE_CONFIG — copy any settings there."
 fi
 
 # Reload systemd

@@ -842,6 +842,13 @@ def save_config(connection_type, host=None, port=None):
         os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
         with open(CONFIG_PATH, 'w') as f:
             json.dump(config, f, indent=2)
+        # Owner-only: this file shares a directory with the served frontend and
+        # can hold a broker host, credentials and the coverage API key. The web
+        # server runs as its own user and has no business reading it.
+        try:
+            os.chmod(CONFIG_PATH, 0o600)
+        except OSError:
+            pass
         print(f"[CONFIG] Saved: {connection_type} {host or port or ''}")
     except Exception as e:
         print(f"[CONFIG] Save error: {e}")
