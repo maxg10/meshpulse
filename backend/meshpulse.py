@@ -107,6 +107,11 @@ except ImportError:
 
 # Global set of connected WebSocket clients
 connected_clients = set()
+# {websocket: {'plugin:<id>:<channel>', ...}} — which plugin channels each browser
+# asked for. The plugin API has always promised that broadcast_ws(channel=...)
+# reaches only subscribers; without this the backend had nowhere to record who
+# subscribed, so it answered 'Unknown message type' and broadcast to everyone.
+plugin_subscriptions = {}
 
 # Config path (shared with frontend)
 CONFIG_PATH = '/var/www/html/meshpulse/config.json'
@@ -5435,6 +5440,21 @@ async def websocket_handler(websocket):
                                 'type': 'plugin_installed', **result
                             }, ensure_ascii=False))
 
+                elif data.get('type') == 'subscribe_plugin':
+                    # A browser wants one plugin's channel. Recorded per
+                    # connection and dropped when the connection goes away.
+                    channel = data.get('channel', '')
+                    if isinstance(channel, str) and channel.startswith('plugin:'):
+                        plugin_subscriptions.setdefault(websocket, set()).add(channel)
+                    else:
+                        print(f"[WS] Ignoring subscribe_plugin with bad channel: {channel!r}")
+
+                elif data.get('type') == 'unsubscribe_plugin':
+                    channel = data.get('channel', '')
+                    subs = plugin_subscriptions.get(websocket)
+                    if subs:
+                        subs.discard(channel)
+
                 elif data.get('type') == 'plugin_message':
                     # Forward plugin WebSocket message to plugin handler
                     if plugin_manager:
@@ -5761,6 +5781,7 @@ async def websocket_handler(websocket):
         if plugin_manager:
             await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
+        plugin_subscriptions.pop(websocket, None)
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
@@ -5907,6 +5928,7 @@ if __name__ == '__main__':
         if PLUGINS_AVAILABLE:
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
+            plugin_manager._plugin_subscriptions = plugin_subscriptions
 
         # Mapper loop with runtime restart support
         _watchdog_started = False

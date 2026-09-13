@@ -51,6 +51,7 @@ class PluginManager:
 
         # Reference to connected_clients set — set from meshpulse after init
         self._connected_clients = None
+        self._plugin_subscriptions = None   # {websocket: {channel, ...}}, owned by the WS server
 
         # Active radio interface wrapper (set by mapper after connect)
         self._interface = None
@@ -602,7 +603,16 @@ class PluginManager:
             'data': data
         }
         if channel:
-            msg['channel'] = f'plugin:{plugin_id}:{channel}'
+            # Documented behaviour: a channel broadcast reaches only the clients
+            # that subscribed to it. Anything else sends one plugin's traffic to
+            # every open browser.
+            full_channel = f'plugin:{plugin_id}:{channel}'
+            msg['channel'] = full_channel
+            subs = self._plugin_subscriptions
+            if subs is not None:
+                clients = [ws for ws in clients if full_channel in subs.get(ws, ())]
+                if not clients:
+                    return
 
         try:
             message_str = json.dumps(msg, ensure_ascii=False)

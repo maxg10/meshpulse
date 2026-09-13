@@ -1,6 +1,16 @@
 # Changelog
 
 ## v2.7.2
+- Fix: `subscribe_plugin` is handled instead of logged as an unknown message.
+  The plugin API documents that `broadcast_ws(channel=...)` reaches only the
+  clients subscribed to that channel, but the backend had nowhere to record a
+  subscription — it answered "Unknown message type" and sent every channel
+  message to every open browser. Subscriptions are now tracked per connection
+  and dropped when it closes, `unsubscribe_plugin` is understood, and a channel
+  broadcast goes only to its subscribers. A broadcast with no channel still
+  reaches everyone, as before.
+- Fix: Mesh Info's Max range tooltip was written in Polish; all UI text is
+  English.
 - Fix: Updating a plugin no longer wipes its settings and data. `install()`
   removed the plugin directory before unpacking the new package, taking
   `config.json` and any database with it — so a Meshcore update silently cleared

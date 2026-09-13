@@ -80,9 +80,9 @@
         <b>Nodes:</b> <span id="cnt">0</span> | <b>R:</b> <span id="routers">0</span> | <b>C:</b> <span id="clients">0</span><br>
         <b>Direct:</b> <span id="direct">0</span> | <b>Relay:</b> <span id="relay">0</span><br>
         <b>Avg SNR:</b> <span id="avgsnr">-</span> dB <span id="bad-pct" style="color:#ef4444;font-size:11px"></span><br>
-        <b>Max range:</b><span title="Odległość do najdalszego węzła słyszanego bezpośrednio (zero przeskoków), liczona osobno dla każdej sieci od jej własnego węzła. Kształt jak na mapie: ● Meshtastic, ◆ Meshcore." style="cursor:help;color:#9ca3af"> ⓘ</span><br>
+        <b>Max range:</b><span title="Distance to the farthest node heard directly (zero hops), measured per network from that network's own node. Shapes match the map: &#9679; Meshtastic, &#9670; Meshcore." style="cursor:help;color:#9ca3af"> ⓘ</span><br>
         <div id="maxrange-rows">
-          <div id="maxrange-row-MT" class="mr-row"><span class="net-chip"></span><b>MT</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ pokaż)</a></div>
+          <div id="maxrange-row-MT" class="mr-row"><span class="net-chip"></span><b>MT</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ show)</a></div>
         </div>
         <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
@@ -2653,7 +2653,13 @@
                             ws.send(JSON.stringify({type: 'subscribe_plugin', channel: fullCh}));
                         }
                     },
-                    unsubscribe: function(channel) { delete pluginWsCallbacks[prefix + channel]; },
+                    unsubscribe: function(channel) {
+                        var fullCh = prefix + channel;
+                        delete pluginWsCallbacks[fullCh];
+                        if (ws && ws.readyState === WebSocket.OPEN) {
+                            ws.send(JSON.stringify({type: 'unsubscribe_plugin', channel: fullCh}));
+                        }
+                    },
                     send: function(channel, data) {
                         if (ws && ws.readyState === WebSocket.OPEN) {
                             ws.send(JSON.stringify({
