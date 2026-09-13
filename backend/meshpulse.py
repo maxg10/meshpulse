@@ -5440,6 +5440,13 @@ async def websocket_handler(websocket):
                                 'type': 'plugin_installed', **result
                             }, ensure_ascii=False))
 
+                elif data.get('type') == 'list_serial_ports':
+                    await websocket.send(json.dumps({
+                        'type': 'serial_ports',
+                        'ports': list_serial_devices(),
+                        'current': mapper.port if mapper else None,
+                    }, ensure_ascii=False))
+
                 elif data.get('type') == 'subscribe_plugin':
                     # A browser wants one plugin's channel. Recorded per
                     # connection and dropped when the connection goes away.
@@ -5819,9 +5826,10 @@ def plugin_claimed_serial_ports():
     device naive auto-detection would otherwise hand to the mesh interface.
 
     Returns:
-        set: resolved device paths that auto-detection must not pick.
+        dict: {resolved device path: plugin id} — auto-detection must not pick
+            these, and the UI can say who holds each one.
     """
-    claimed = set()
+    claimed = {}
     # Same rule as PluginManager: plugins/ sits next to backend/ in the repo
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     plugins_dir = os.path.join(repo_root, 'plugins')
@@ -5843,9 +5851,59 @@ def plugin_claimed_serial_ports():
             continue
         for value in plugin_config.values():
             if isinstance(value, str) and value.strip().startswith('/dev/'):
-                claimed.add(os.path.realpath(value.strip()))
+                claimed[os.path.realpath(value.strip())] = str(plugin_id)
 
     return claimed
+
+
+def list_serial_devices():
+    """Enumerate serial devices a radio could be attached to.
+
+    Prefers /dev/serial/by-id/ entries: those names survive a reboot, while
+    ttyUSB0/ttyACM0 numbering depends on the order things were plugged in. Each
+    entry says what the device calls itself and whether a plugin already speaks
+    to it, so a user picking a port can see that "this one is the Meshcore
+    radio" rather than finding out by watching two processes fight over it.
+
+    Returns:
+        list: dicts with path, dev, label and claimed_by (plugin id or None),
+            sorted by label.
+    """
+    claimed = plugin_claimed_serial_ports()
+    by_id_dir = '/dev/serial/by-id'
+    devices = {}
+
+    def add(path, label):
+        try:
+            resolved = os.path.realpath(path)
+        except OSError:
+            resolved = path
+        # by-id wins over a bare tty for the same device: it is the stable name
+        if resolved in devices and devices[resolved]['path'].startswith(by_id_dir):
+            return
+        devices[resolved] = {
+            'path': path,
+            'dev': resolved,
+            'label': label,
+            'claimed_by': claimed.get(resolved),
+        }
+
+    try:
+        for name in sorted(os.listdir(by_id_dir)):
+            # usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+            #   -> "Silicon Labs CP2102 USB to UART Bridge Controller 0001"
+            label = re.sub(r'^usb-', '', name)
+            label = re.sub(r'-if\d+.*$', '', label).replace('_', ' ').strip()
+            add(os.path.join(by_id_dir, name), label or name)
+    except OSError:
+        pass        # no by-id on this system (or no USB serial at all)
+
+    for path in ('/dev/ttyUSB0', '/dev/ttyUSB1', '/dev/ttyUSB2',
+                 '/dev/ttyACM0', '/dev/ttyACM1', '/dev/ttyACM2'):
+        if os.path.exists(path):
+            add(path, os.path.basename(path))
+
+    return sorted(devices.values(), key=lambda d: d['label'].lower())
 
 
 def run_websocket_server_thread():

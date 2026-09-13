@@ -1,6 +1,15 @@
 # Changelog
 
 ## v2.7.2
+- Feature: Serial ports are picked from a list instead of typed from memory.
+  A new `list_serial_ports` WebSocket message enumerates `/dev/serial/by-id/`
+  entries (falling back to ttyUSB/ttyACM where by-id is absent), each with the
+  name the device reports for itself and the plugin already using it, if any.
+  Plugin config gained a `device` field type that renders this as a dropdown:
+  devices claimed by another plugin are shown as taken and cannot be selected,
+  and a configured path that is currently unplugged stays in the list marked
+  "not present" rather than silently disappearing. The Meshcore plugin uses it
+  (1.2.0); on an older core the field degrades to the plain text box it was.
 - Fix: `subscribe_plugin` is handled instead of logged as an unknown message.
   The plugin API documents that `broadcast_ws(channel=...)` reaches only the
   clients subscribed to that channel, but the backend had nowhere to record a
