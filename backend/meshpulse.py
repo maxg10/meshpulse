@@ -1003,6 +1003,39 @@ class ListenBasedMapper:
         
         return R * c
     
+    def notify_plugins_connected(self):
+        """Tell plugins the radio link is up and usable.
+
+        on_connect has been part of the documented plugin API all along but was
+        never dispatched, so a plugin that needs the radio had no choice but to
+        do its setup in on_enable — which runs while the interface is still
+        connecting. MQTT Proxy failed there on every cold start, reading a
+        tracker config that did not exist yet and reporting it as a user error.
+
+        Dispatched after set_interface(), so get_tracker_config() works by the
+        time a plugin's hook runs. Fires again after each reconnect: a plugin
+        that lost the radio gets to set itself up once it is back.
+        """
+        if not plugin_manager:
+            return
+        try:
+            plugin_manager.dispatch_hook_sync('on_connect', {
+                'connection_type': self.connection_type,
+                'host_or_port': self.host or self.port or '',
+                'local_node_id': self.local_node_id,
+            })
+        except Exception as e:
+            print(f"[PLUGINS] on_connect dispatch error: {e}")
+
+    def notify_plugins_disconnected(self, reason):
+        """Tell plugins the radio link is gone. Counterpart of on_connect."""
+        if not plugin_manager:
+            return
+        try:
+            plugin_manager.dispatch_hook_sync('on_disconnect', {'reason': reason})
+        except Exception as e:
+            print(f"[PLUGINS] on_disconnect dispatch error: {e}")
+
     def get_max_distance(self):
         """Find maximum distance to directly reachable node (hops=0)"""
         if not self.local_node_id or self.local_node_id not in self.nodes:
@@ -3488,6 +3521,7 @@ class ListenBasedMapper:
                 print(f"[SERIAL] Connected successfully")
                 if plugin_manager:
                     plugin_manager.set_interface(serial_iface)
+                    self.notify_plugins_connected()
                 self._last_radio_packet_time = time.time()
 
                 # Backfill names in stats DB from loaded nodes
@@ -3586,6 +3620,7 @@ class ListenBasedMapper:
                         pass
                 try:
                     asyncio.run(self.broadcast_connection_status('disconnected', 'Serial disconnected — reconnecting...'))
+                    self.notify_plugins_disconnected('Serial disconnected')
                 except Exception:
                     pass
                 self._serial_iface = None
@@ -3729,6 +3764,7 @@ class ListenBasedMapper:
                 print(f"[TCP] Connected to {tcp_host}:{tcp_port}")
                 if plugin_manager:
                     plugin_manager.set_interface(tcp_iface)
+                    self.notify_plugins_connected()
                 self._last_radio_packet_time = time.time()
 
                 # Read own tracker position from NodeDB at startup
@@ -3892,6 +3928,7 @@ class ListenBasedMapper:
                         pass
                 try:
                     asyncio.run(self.broadcast_connection_status('disconnected', 'TCP disconnected — reconnecting...'))
+                    self.notify_plugins_disconnected('TCP disconnected')
                 except Exception:
                     pass
 

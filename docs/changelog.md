@@ -1,6 +1,15 @@
 # Changelog
 
 ## v2.7.2
+- Fix: `on_connect` and `on_disconnect` are actually dispatched. Both have been
+  in the documented plugin API since the hook system landed, but nothing ever
+  called them, so a plugin needing the radio had to do its work in `on_enable` —
+  which runs while the interface is still connecting. MQTT Proxy hit this on
+  every cold start, roughly five seconds before the tracker was up, and reported
+  it as "Make sure tracker is connected". `on_connect` now fires after
+  `set_interface()` (so `get_tracker_config()` works inside the hook) and again
+  after each reconnect; `on_disconnect` fires when the link drops. A plugin
+  raising inside either hook cannot break the connection loop.
 - Fix: Serial auto-detection picked `/dev/ttyUSB0` purely because it is first in
   the candidate list — no check of what the device is, or whether anything else
   is already using it. With a Meshcore companion on USB and the Meshtastic
