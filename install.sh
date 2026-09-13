@@ -160,6 +160,26 @@ sudo cp frontend/stats.html /var/www/html/meshpulse/
 sudo cp frontend/config.html /var/www/html/meshpulse/
 sudo cp frontend/messages.html /var/www/html/meshpulse/
 
+# Cache-bust the stylesheet by its own content. A hand-maintained version in the
+# query string is only correct while someone remembers to bump it — ours sat at
+# 2.6.1 through four releases, so browsers kept serving an old stylesheet with
+# new markup. The hash changes exactly when styles.css changes, and never
+# otherwise, so returning visitors re-download it only when there is something
+# to re-download. Stamped into the served copies, never into the repo, so
+# `git status` stays clean and `git reset --hard` has nothing to undo.
+if command -v md5sum > /dev/null 2>&1; then
+    ASSET_HASH=$(md5sum frontend/styles.css | cut -c1-12)
+elif command -v md5 > /dev/null 2>&1; then          # macOS
+    ASSET_HASH=$(md5 -q frontend/styles.css | cut -c1-12)
+else
+    ASSET_HASH=$(date +%s)                          # no hasher: fall back to "always fresh"
+fi
+for f in index.html stats.html config.html messages.html; do
+    sudo sed -i "s/styles\.css?v=__ASSET_HASH__/styles.css?v=$ASSET_HASH/g" \
+        "/var/www/html/meshpulse/$f"
+done
+echo "🧹 Stylesheet cache key: $ASSET_HASH"
+
 # Sync plugin frontend assets to web root so lighttpd can serve them
 if [ -d "$PLUGIN_DIR" ]; then
     echo "[INSTALL] Syncing plugin assets to web root..."

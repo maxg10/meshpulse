@@ -1,6 +1,14 @@
 # Changelog
 
 ## v2.7.2
+- Fix: The stylesheet cache key is derived from the file, not maintained by hand.
+  `styles.css?v=2.6.1-2` was written into four HTML files and had to be bumped
+  manually; it stayed at 2.6.1 across four releases, so browsers paired new
+  markup with an old stylesheet. The HTML now carries a `__ASSET_HASH__`
+  placeholder that install.sh and the Docker entrypoint replace with a hash of
+  styles.css when copying to the web root — it changes exactly when the file
+  changes, and never otherwise. The repo keeps the placeholder, so nothing has to
+  be committed on deploy and `git reset --hard` has nothing to undo.
 - Fix: A `/dev/serial/by-id/` path stretched the Mesh Info panel across the map.
   The panel is now width-capped, and the connection line shows the device name
   with the full path in its tooltip. It also no longer prints "(Auto)" next to
