@@ -82,7 +82,10 @@
   genuine node near the equator (Quito, Libreville) is unaffected. Nodes saved
   before this fix are re-checked when `nodes.json` is loaded, so a bogus position
   already on disk is stripped at the next restart instead of surviving on the map
-  until its TTL expires.
+  until its TTL expires. The NodeDB backfill — which replays whatever the
+  tracker's own node database remembers, on every connect — checks positions too;
+  without that it walked the rejected coordinates straight back in after each
+  restart.
 - Feature: Network reach, a second metric next to Max range. Max range stays a
   radio measurement (`hops == 0`) and, with real data, applies only to
   Meshtastic: Meshcore's companion API cannot say whether an advert arrived

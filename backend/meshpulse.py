@@ -2668,7 +2668,12 @@ class ListenBasedMapper:
                 lat = pos.get('latitude')
                 lon = pos.get('longitude')
                 alt = pos.get('altitude', 0)
-                has_pos = lat is not None and lon is not None
+                # The tracker's NodeDB remembers whatever a node once broadcast,
+                # bogus coordinates included, and replays it on every connect —
+                # so a position rejected on the packet path walks back in here
+                # unless it is checked again.
+                has_pos = (lat is not None and lon is not None
+                           and not is_placeholder_position(lat, lon))
 
                 dm = raw.get('deviceMetrics', {})
                 battery = dm.get('batteryLevel')
