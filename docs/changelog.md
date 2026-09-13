@@ -1,6 +1,15 @@
 # Changelog
 
 ## v2.7.2
+- Fix: Updating a plugin no longer wipes its settings and data. `install()`
+  removed the plugin directory before unpacking the new package, taking
+  `config.json` and any database with it — so a Meshcore update silently cleared
+  the configured device path ("Not configured — set the serial device path") and
+  a BBS update would have taken the board database. The package format was
+  already built for this (build.sh ships neither file, specifically to avoid
+  clobbering user settings); only the install side was missing. Runtime state is
+  now moved aside and restored around the replacement, and a package that does
+  ship its own config keeps precedence.
 - Fix: `config.json` is no longer served to the web. It lives in the web root
   because that is where the backend keeps its state, but it is storage, not a
   public asset — the frontend never fetches it (settings travel over the
