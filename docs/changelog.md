@@ -72,6 +72,17 @@
   prints which file is in use, warns when a `config.json` sits in the repo root
   where nothing will read it, and reports a malformed config as an error instead
   of quietly ignoring your settings. `config.json.example` says where it belongs.
+- Feature: Network reach, a second metric next to Max range. Max range stays a
+  radio measurement (`hops == 0`) and, with real data, applies only to
+  Meshtastic: Meshcore's companion API cannot say whether an advert arrived
+  directly — an advertisement event carries a public key and nothing else, and
+  a contact's `out_path_len` describes an outbound route that only exists once
+  you have talked to that node (on a listening-only companion it is -1 for every
+  contact). Network reach answers the question that data can answer — how far
+  the network extends, through any number of repeaters — under a name that does
+  not claim to be antenna performance. Shown per network, and only where it
+  differs from Max range, so the same figure never appears twice under two
+  names. MQTT-sourced nodes are excluded from both.
 - Feature: Per-network Max range in Mesh Info. The panel now shows one row per
   network, each measured from that network's OWN local node — Meshtastic from
   the tracker (`hops == 0`, MQTT excluded), Meshcore from the companion node

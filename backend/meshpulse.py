@@ -1145,6 +1145,70 @@ class ListenBasedMapper:
             return None, None
         return round(max_dist, 2), farthest_id
 
+    def get_network_reach_for_net(self, net):
+        """Distance to the farthest node of a network that is known at all.
+
+        Deliberately not a radio measurement: it counts nodes reached through any
+        number of repeaters. Meshcore needs this because its companion API cannot
+        report whether an advert arrived directly — every contact looks the same —
+        so the honest thing to show is how far the network extends, under a name
+        that does not claim otherwise. MQTT-sourced nodes stay excluded: those
+        arrive over the internet and would measure nothing about the mesh.
+
+        Returns:
+            tuple: (km, node_id) or (None, None).
+        """
+        local_id = self.local_node_id_for_net(net)
+        if not local_id or local_id not in self.nodes:
+            return None, None
+
+        local = self.nodes[local_id]
+        local_lat, local_lon = local.get('lat'), local.get('lon')
+        if not local_lat or not local_lon:
+            return None, None
+
+        max_dist = 0
+        farthest_id = None
+
+        for node_id, node in self.nodes.items():
+            if node_id == local_id or self.net_of(node) != net:
+                continue
+            if node.get('via_mqtt', False):
+                continue
+
+            lat, lon = node.get('lat'), node.get('lon')
+            if not lat or not lon:
+                continue
+
+            dist = self.calculate_distance(local_lat, local_lon, lat, lon)
+            if dist > max_dist:
+                max_dist = dist
+                farthest_id = node_id
+
+        if not farthest_id:
+            return None, None
+        return round(max_dist, 2), farthest_id
+
+    def _net_entry(self, net, dist, farthest_id):
+        """Shape one per-network row for the UI."""
+        farthest = self.nodes.get(farthest_id) or {}
+        return {
+            'label': self.NET_LABELS.get(net, net),
+            'km': dist,
+            'node_id': farthest_id,
+            'node_name': farthest.get('name') or farthest_id,
+            'from_id': self.local_node_id_for_net(net),
+        }
+
+    def get_network_reach_by_net(self):
+        """Per-network reach — farthest known node, any number of hops."""
+        result = {}
+        for net in sorted({self.net_of(n) for n in self.nodes.values()}):
+            dist, farthest_id = self.get_network_reach_for_net(net)
+            if dist is not None:
+                result[net] = self._net_entry(net, dist, farthest_id)
+        return result
+
     def get_max_distance_by_net(self):
         """Per-network max range for the Mesh Info panel. Only networks that have
         a positioned local node AND at least one direct neighbour show up."""
@@ -1153,14 +1217,7 @@ class ListenBasedMapper:
             dist, farthest_id = self.get_max_distance_for_net(net)
             if dist is None:
                 continue
-            farthest = self.nodes.get(farthest_id) or {}
-            result[net] = {
-                'label': self.NET_LABELS.get(net, net),
-                'km': dist,
-                'node_id': farthest_id,
-                'node_name': farthest.get('name') or farthest_id,
-                'from_id': self.local_node_id_for_net(net),
-            }
+            result[net] = self._net_entry(net, dist, farthest_id)
         return result
 
     def load_existing_nodes(self):
@@ -3239,6 +3296,7 @@ class ListenBasedMapper:
             'max_distance_km': max_dist,
             'farthest_node': farthest_id,
             'max_distance_by_net': self.get_max_distance_by_net(),
+            'network_reach_by_net': self.get_network_reach_by_net(),
             'relay_nodes': relay_nodes,
             'timestamp': int(time.time())
         })
@@ -3424,6 +3482,7 @@ class ListenBasedMapper:
                 'max_distance_km': max_dist,
                 'farthest_node': farthest_id,
                 'max_distance_by_net': self.get_max_distance_by_net(),
+                'network_reach_by_net': self.get_network_reach_by_net(),
                 'tracker': getattr(self, 'tracker_info', {}),
                 'nodes': nodes_list,
                 'nodes_no_pos': nodes_no_pos_list,

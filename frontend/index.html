@@ -84,6 +84,10 @@
         <div id="maxrange-rows">
           <div id="maxrange-row-MT" class="mr-row"><span class="net-chip"></span><b>MT</b> <span id="maxrange">-</span> km <a href="#" id="maxrange-link" style="font-size:11px;display:none;">(→ show)</a></div>
         </div>
+        <div id="reach-block" style="display:none">
+        <b>Network reach:</b><span title="Distance to the farthest node this network knows about, through any number of repeaters. Unlike Max range this is not a radio measurement — Meshcore's companion API cannot tell a direct advert from a relayed one." style="cursor:help;color:#9ca3af"> &#9432;</span><br>
+        <div id="reach-rows"></div>
+        </div>
         <b>Far signal:</b> <span id="far-signal">-</span><br>
         <hr style="margin:5px 0">
         <small><b>Tracker:</b> <span id="tracker-model">-</span></small><br>
@@ -305,6 +309,7 @@
         let maxDistanceKm = null;
         let farthestNode = null;
         let maxDistanceByNet = {};
+        let networkReachByNet = {};
         let mapReady = false;
         let initialFetchDone = false;
         let directLines = [];
@@ -533,7 +538,9 @@
                             maxDistanceKm = data.max_distance_km;
                             farthestNode = data.farthest_node;
                             maxDistanceByNet = data.max_distance_by_net || {};
+                            networkReachByNet = data.network_reach_by_net || {};
                             renderNetRangeRows();
+                            renderNetReachRows();
                             document.getElementById('maxrange').textContent = maxDistanceKm || '-';
                             const maxLink = document.getElementById('maxrange-link');
                             if (farthestNode && markers[farthestNode]) {
@@ -823,6 +830,7 @@
                     maxDistanceKm = d.max_distance_km;
                     farthestNode = d.farthest_node;
                     maxDistanceByNet = d.max_distance_by_net || {};
+                    networkReachByNet = d.network_reach_by_net || {};
 
                     if (d.neighbor_graph) {
                         neighborData = {};
@@ -2134,6 +2142,7 @@
                 maxLink.style.display = 'none';
             }
             renderNetRangeRows();
+            renderNetReachRows();
 
             // Update timestamp on every display refresh
             document.getElementById('upd').textContent = new Date().toLocaleTimeString('pl-PL');
@@ -2157,6 +2166,50 @@
             // Trailing serial numbers add length without telling the reader much
             name = name.replace(/\s+[0-9A-F]{8,}$/i, '');
             return name.trim() || String(path);
+        }
+
+        // Network reach: farthest known node per network, any number of hops.
+        // Shown only where it says something Max range does not — same node in
+        // both means the farthest node is also a direct neighbour, and printing
+        // the identical figure twice under two names would just look like a bug.
+        function renderNetReachRows() {
+            const block = document.getElementById('reach-block');
+            const rows = document.getElementById('reach-rows');
+            if (!block || !rows) return;
+            const reach = networkReachByNet || {};
+            const direct = maxDistanceByNet || {};
+            const netVisible = net => {
+                const cb = document.getElementById(net === 'MT' ? 'showNetMT' : 'showNetMC');
+                return !cb || cb.checked;
+            };
+
+            let html = '';
+            Object.keys(reach).sort().forEach(net => {
+                const info = reach[net] || {};
+                if (!netVisible(net)) return;
+                if (direct[net] && direct[net].node_id === info.node_id) return;
+                const name = String(info.node_name || info.node_id || '').substring(0, 15);
+                const chip = net === 'MT' ? '<span class="net-chip"></span>'
+                                          : '<span class="net-chip other"></span>';
+                html += '<div class="mr-row" data-reach-net="' + escHtml(net) + '">' + chip +
+                    '<b>' + escHtml(net) + '</b> ' + escHtml(String(info.km != null ? info.km : '-')) + ' km ' +
+                    (markers[info.node_id] ? '<a href="#" style="font-size:11px">(\u2192 ' + escHtml(name) + ')</a>' : '') +
+                    '</div>';
+            });
+            rows.innerHTML = html;
+            block.style.display = html ? '' : 'none';
+
+            rows.querySelectorAll('a').forEach(link => {
+                const net = link.parentElement.getAttribute('data-reach-net');
+                const info = reach[net] || {};
+                link.onclick = function(e) {
+                    e.preventDefault();
+                    const m = markers[info.node_id];
+                    if (!m) return;
+                    map.setView(m.getLatLng(), 14);
+                    m.openPopup();
+                };
+            });
         }
 
         function renderNetRangeRows() {
