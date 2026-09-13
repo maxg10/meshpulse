@@ -13,6 +13,15 @@
   The panel is now width-capped, and the connection line shows the device name
   with the full path in its tooltip. It also no longer prints "(Auto)" next to
   an explicitly configured port, which claimed the opposite of the truth.
+- Feature: The main connection picks its device from the same list. Mesh Info's
+  Connection section showed the configured port as text with a hardcoded
+  "(Auto)" beside it and offered no way to change it — switching radios meant
+  editing config.json by hand and restarting. It is now a dropdown of the
+  devices the machine has, with Auto-detect as the first entry; choosing one
+  switches the connection the same way the USB/TCP selector already did.
+  Devices an enabled plugin has configured are listed but not selectable, and a
+  configured device that is currently unplugged stays selected and marked "not
+  present" so a rescan cannot silently reset it to auto-detect.
 - Feature: Serial ports are picked from a list instead of typed from memory.
   A new `list_serial_ports` WebSocket message enumerates `/dev/serial/by-id/`
   entries (falling back to ttyUSB/ttyACM where by-id is absent), each with the

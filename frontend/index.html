@@ -100,7 +100,12 @@
             <option value="tcp">TCP</option>
         </select>
         <span id="connection-status" style="color:#eab308;" title="Unknown">●</span></small><br>
-        <div id="serial-info"><small><span id="serial-port" title="">-</span></small></div>
+        <div id="serial-info"><small>
+            <select id="serial-port-select" onchange="connectSerial()" title=""
+                style="max-width:190px;font-size:11px;vertical-align:middle"></select>
+            <a href="#" onclick="refreshSerialPorts();return false;" title="Rescan devices"
+               style="font-size:11px;text-decoration:none">&#8635;</a>
+        </small></div>
         <div id="tcp-info" style="display:none;">
             <input type="text" id="tcp-host" placeholder="192.168.1.100:4403" size="18" style="width:20ch">
             <button onclick="connectTCP()">Connect</button>
@@ -411,6 +416,8 @@
                     console.log('[WS] Connected!');
                     updateWSStatus('connected');
                     isUsingWebSocket = true;
+                    // Populate the Connection device dropdown as soon as we can talk
+                    ws.send(JSON.stringify({type: 'list_serial_ports'}));
 
                     // Stop polling when WebSocket connects
                     if (pollingInterval) {
@@ -533,6 +540,10 @@
                                     }
                                 }
                             }
+                        } else if (data.type === 'serial_ports') {
+                            serialPorts = data.ports || [];
+                            serialPortsLoaded = true;
+                            renderSerialPortSelect(data.current || (trackerInfo && trackerInfo.port) || '');
                         } else if (data.type === 'stats_update') {
                             console.log('[WS] Stats update:', data.max_distance_km, 'km to', data.farthest_node);
                             maxDistanceKm = data.max_distance_km;
@@ -1448,6 +1459,51 @@
             };
         }
         
+        // Devices the backend can see, from list_serial_ports.
+        var serialPorts = [];
+        var serialPortsLoaded = false;
+
+        function refreshSerialPorts() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({type: 'list_serial_ports'}));
+            }
+        }
+
+        // Connection → device dropdown. Built from what the machine actually has,
+        // because the alternative is typing a 60-character by-id path by hand and
+        // finding out it was wrong only from the logs. A device another plugin has
+        // configured is listed but not selectable: two readers on one port means
+        // neither gets a usable reply.
+        function renderSerialPortSelect(currentPort) {
+            const sel = document.getElementById('serial-port-select');
+            if (!sel) return;
+            const current = currentPort || '';
+            let html = '<option value=""' + (current ? '' : ' selected') + '>Auto-detect</option>';
+            let seen = false;
+            serialPorts.forEach(pt => {
+                const taken = !!pt.claimed_by;
+                const isCurrent = pt.path === current;
+                if (isCurrent) seen = true;
+                const suffix = taken ? ' — in use by ' + pt.claimed_by : '';
+                html += '<option value="' + escHtml(pt.path) + '"' +
+                    (isCurrent ? ' selected' : '') +
+                    (taken && !isCurrent ? ' disabled' : '') + '>' +
+                    escHtml(deviceLabel(pt.path) + ' (' + pt.dev.replace(/^\/dev\//, '') + ')' + suffix) +
+                    '</option>';
+            });
+            // Keep a configured-but-absent device in the list: rescanning with the
+            // radio unplugged must not quietly reset the setting to auto-detect.
+            if (current && !seen) {
+                html += '<option value="' + escHtml(current) + '" selected>' +
+                    escHtml(deviceLabel(current)) + ' (not present)</option>';
+            }
+            if (!serialPortsLoaded && !current) {
+                html = '<option value="">Auto-detect</option>';
+            }
+            sel.innerHTML = html;
+            sel.title = current || 'No port configured — auto-detecting';
+        }
+
         function connectSerial() {
             const keepData = document.getElementById('keep-previous-data').checked;
             const msgEl = document.getElementById('connection-message');
@@ -1464,7 +1520,11 @@
 
             updateConnectionStatus('connecting');
             msgEl.textContent = 'Switching to USB...';
-            ws.send(JSON.stringify({type: 'connect', connection_type: 'serial', keep_data: keepData}));
+            const sel = document.getElementById('serial-port-select');
+            ws.send(JSON.stringify({
+                type: 'connect', connection_type: 'serial', keep_data: keepData,
+                port: sel ? sel.value : ''
+            }));
 
             if (!keepData) {
                 allNodes = [];
@@ -1992,9 +2052,7 @@
                 // interesting half is the device name. Show that, keep the full
                 // path in the tooltip. "(Auto)" used to be printed next to an
                 // explicitly configured port, which said the opposite of the truth.
-                var portEl = document.getElementById('serial-port');
-                portEl.textContent = trackerInfo.port ? deviceLabel(trackerInfo.port) : 'Auto-detect';
-                portEl.title = trackerInfo.port || 'No port configured — auto-detecting';
+                renderSerialPortSelect(trackerInfo.port);
                 if (trackerInfo.host) {
                     document.getElementById('tcp-host').value = trackerInfo.host;
                 }

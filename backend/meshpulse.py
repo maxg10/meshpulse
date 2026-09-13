@@ -4616,8 +4616,23 @@ async def handle_connection_change(data, websocket):
 
     print(f"[WS] Connection change: {connection_type} {host or ''}")
 
-    # Determine port for serial
+    # Determine port for serial. The UI may name one explicitly (picked from
+    # list_serial_ports); an empty value means "auto-detect", which is how this
+    # always behaved. Anything else is rejected rather than written to config,
+    # where a bad value would be re-read on every start.
     port = mapper.port if (mapper and connection_type == 'serial') else None
+    if connection_type == 'serial' and 'port' in data:
+        requested = (data.get('port') or '').strip()
+        if not requested:
+            port = None                      # explicit "auto-detect"
+        elif requested.startswith('/dev/'):
+            port = requested
+        else:
+            await websocket.send(json.dumps({
+                'type': 'connection_status', 'status': 'failed',
+                'message': f"Invalid serial device '{requested}'"
+            }, ensure_ascii=False))
+            return
 
     # Save config
     save_config(connection_type, host=host or None, port=port)
