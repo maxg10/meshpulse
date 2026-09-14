@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # MeshPulse
 # Copyright (C) 2025-2026 Mariusz Gieparda (MG Group — mg-group.ltd)
 #
@@ -14,9 +15,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-#!/usr/bin/env python3
-#ver 2.3.0
-#Max Gieparda (c)2026
 """
 MeshPulse - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
@@ -93,7 +91,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.7.2'
+MAPPER_VERSION = '2.7.3'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
