@@ -27,6 +27,13 @@ body{font-family:Arial,sans-serif}
 }
 .leaflet-top{margin-top:44px}
 .topnav-logo{color:#f9fafb;font-weight:600;font-size:14px;font-family:Arial,sans-serif;white-space:nowrap}
+/* The wordmark links to the project site; the version chip opens the
+   release notes and the About block. Padding grows the tap target
+   without changing the 44px bar height — negative margin absorbs it. */
+.topnav-logo-link{color:inherit;text-decoration:none}
+.topnav-logo-link:hover{text-decoration:underline}
+.version-chip{cursor:pointer;padding:8px 6px;margin:-8px -2px;border-radius:4px}
+.version-chip:hover{opacity:1 !important;background:rgba(255,255,255,0.1)}
 .topnav-status{
     display:flex;align-items:center;gap:6px;
     font-size:12px;color:#9ca3af;font-family:Arial,sans-serif;
@@ -450,7 +457,7 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         overflow: hidden;
         text-overflow: ellipsis;
     }
-    .topnav-logo span { display: none; } /* hide version string */
+    .topnav-logo .version-page { display: none; } /* no room for the page name; the version itself stays tappable */
     .topnav-status {
         grid-column: 2;
         grid-row: 1;

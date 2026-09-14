@@ -169,7 +169,7 @@
 </head>
 <body>
 <nav id="topnav">
-    <div class="topnav-logo">📶 MeshPulse <span id="mapper-version-span" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.? — Stats</span></div>
+    <div class="topnav-logo"><a href="https://meshpulse.app" target="_blank" rel="noopener" class="topnav-logo-link">📶 MeshPulse</a> <span id="mapper-version-span" class="version-chip" title="What&#39;s new in this version" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.?<span class="version-page"> — Stats</span></span></div>
     <div class="topnav-status">
         <span class="ws-dot ws-disconnected" id="ws-dot"></span>
         <span id="ws-label">Connecting...</span>
@@ -778,8 +778,7 @@ function connectWS() {
                 const firstTime = !CURRENT_VERSION;
                 localStorage.setItem('mesh-mapper-version', d.mapper_version);
                 CURRENT_VERSION = d.mapper_version;
-                const verEl = document.getElementById('mapper-version-span');
-                if (verEl) verEl.textContent = 'v' + d.mapper_version + ' — Stats';
+                setVersionLabel(d.mapper_version, 'Stats');
                 if (firstTime) checkForUpdates();
             }
         }
@@ -1573,38 +1572,186 @@ function isNewerVersion(latest, current) {
     return false;
 }
 
+// ── Project identity, release notes, update banner ─────────────────
+// One modal serves both the "update available" banner and the version
+// chip in the top bar, so there is a single place that says what this
+// build is, who wrote it, and where the project lives.
+
+const MESHPULSE_SITE = 'https://meshpulse.app';
+const MESHPULSE_REPO = 'https://github.com/maxg10/meshpulse';
+
+// The chip reads "v2.7.2 — Map". The number always shows; the page name
+// is dropped on phones, where the bar has no room (see .version-page).
+function setVersionLabel(version, page) {
+    const el = document.getElementById('mapper-version-span');
+    if (!el) return;
+    el.textContent = 'v' + version;
+    const pageEl = document.createElement('span');
+    pageEl.className = 'version-page';
+    pageEl.textContent = ' — ' + page;
+    el.appendChild(pageEl);
+}
+
+// Release notes always end with install instructions (## Updating,
+// ## Docker, ## Fresh Install). Those belong on GitHub, not in a
+// "what's new" dialog.
+function trimReleaseNotes(body) {
+    if (!body) return '';
+    const cut = body.search(/^##[ \t]+Updating\b/m);
+    return (cut === -1 ? body : body.slice(0, cut)).trim();
+}
+
+function aboutBlockHtml(version) {
+    const link = 'color:#1d4ed8;text-decoration:none';
+    return '<div style="margin-top:18px;padding-top:14px;border-top:1px solid #e5e7eb;' +
+        'font-size:11px;color:#6b7280;line-height:1.7">' +
+        '<div><b style="color:#374151">MeshPulse</b>' + (version ? ' v' + escHtml(version) : '') +
+        ' · GPL-3.0 · © 2025–2026 Mariusz &quot;Max&quot; Gieparda (MG Group)</div>' +
+        '<div style="margin-top:6px;display:flex;gap:14px;flex-wrap:wrap">' +
+        '<a href="' + MESHPULSE_SITE + '" target="_blank" rel="noopener" style="' + link + '">🌐 meshpulse.app</a>' +
+        '<a href="' + MESHPULSE_SITE + '/plugins" target="_blank" rel="noopener" style="' + link + '">🧩 Plugin store</a>' +
+        '<a href="' + MESHPULSE_REPO + '" target="_blank" rel="noopener" style="' + link + '">🐙 GitHub</a>' +
+        '</div></div>';
+}
+
+function closeReleaseModal() {
+    const m = document.getElementById('release-modal');
+    if (m) m.remove();
+}
+
+function setReleaseModalBody(modal, html) {
+    const el = modal ? modal.querySelector('[data-role="body"]') : null;
+    if (el) el.innerHTML = html;
+}
+
+function releaseNoteHtml(text) {
+    return '<div style="font-size:12px;color:#6b7280;line-height:1.6">' + escHtml(text) + '</div>';
+}
+
+function releaseBodyHtml(text) {
+    return '<pre style="font-size:12px;color:#374151;white-space:pre-wrap;' +
+        'font-family:Arial,sans-serif;line-height:1.6;margin:0">' + escHtml(text) + '</pre>';
+}
+
+// opts: {title, version, bodyHtml, url}
+function showReleaseModal(opts) {
+    closeReleaseModal();
+    const o = opts || {};
+    const modal = document.createElement('div');
+    modal.id = 'release-modal';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);' +
+        'display:flex;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;';
+    modal.innerHTML =
+        '<div style="background:white;border-radius:10px;padding:24px;max-width:560px;width:100%;' +
+            'max-height:80vh;overflow-y:auto;box-sizing:border-box;font-family:Arial,sans-serif">' +
+            '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px">' +
+                '<h2 style="font-size:16px;color:#1f2937;margin:0">' + escHtml(o.title || 'MeshPulse') + '</h2>' +
+                '<span data-close="1" style="cursor:pointer;font-size:20px;color:#6b7280;line-height:1">✕</span>' +
+            '</div>' +
+            '<div data-role="body"></div>' +
+            aboutBlockHtml(o.version) +
+            '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">' +
+                '<a data-role="gh" href="' + escHtml(o.url || (MESHPULSE_REPO + '/releases')) + '" ' +
+                    'target="_blank" rel="noopener" style="background:#1d4ed8;color:white;padding:8px 16px;' +
+                    'border-radius:6px;text-decoration:none;font-size:13px;font-weight:bold">View on GitHub →</a>' +
+                '<button data-close="1" style="background:#f3f4f6;color:#374151;border:none;padding:8px 16px;' +
+                    'border-radius:6px;cursor:pointer;font-size:13px">Close</button>' +
+            '</div>' +
+        '</div>';
+    setReleaseModalBody(modal, o.bodyHtml || '');
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function (e) {
+        if (e.target === modal || (e.target.getAttribute && e.target.getAttribute('data-close'))) closeReleaseModal();
+    });
+    document.addEventListener('keydown', function onEsc(e) {
+        if (e.key === 'Escape') { closeReleaseModal(); document.removeEventListener('keydown', onEsc); }
+    });
+    return modal;
+}
+
+function fillReleaseNotes(modal, data) {
+    setReleaseModalBody(modal, data.body ? releaseBodyHtml(data.body)
+                                         : releaseNoteHtml('This release has no notes.'));
+    const gh = modal.querySelector('[data-role="gh"]');
+    if (gh && data.url) gh.href = data.url;
+}
+
+// Clicking the version chip: what is running here, and what changed in it.
+async function openReleaseNotes() {
+    const ver = CURRENT_VERSION;
+    const modal = showReleaseModal({
+        title: ver ? "📋 What's new in v" + ver : '📋 About MeshPulse',
+        version: ver,
+        bodyHtml: releaseNoteHtml('Loading release notes…'),
+        url: MESHPULSE_REPO + '/releases'
+    });
+    if (!ver) {
+        setReleaseModalBody(modal, releaseNoteHtml('The backend has not reported a version yet.'));
+        return;
+    }
+    const cacheKey = 'mesh-mapper-notes-v' + ver;
+    try {
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) { fillReleaseNotes(modal, JSON.parse(cached)); return; }
+    } catch (e) { /* storage disabled — just fetch */ }
+    try {
+        const resp = await fetch('https://api.github.com/repos/maxg10/meshpulse/releases/tags/v' +
+            encodeURIComponent(ver), { headers: { 'Accept': 'application/vnd.github.v3+json' } });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const rel = await resp.json();
+        const data = { body: trimReleaseNotes(rel.body), url: rel.html_url || (MESHPULSE_REPO + '/releases') };
+        try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch (e) { /* not fatal */ }
+        fillReleaseNotes(modal, data);
+    } catch (e) {
+        // An offline Pi is the normal case, not an error: the dialog still
+        // shows who made this and where to find the notes.
+        setReleaseModalBody(modal, releaseNoteHtml(
+            'Release notes need an internet connection — they are always on GitHub.'));
+    }
+}
+
 function showUpdateBanner(version, name, body, url) {
     const banner = document.createElement('div');
     banner.id = 'update-banner';
-    banner.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;background:#1d4ed8;color:white;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.4);font-size:13px;max-width:320px;cursor:pointer;font-family:Arial,sans-serif;';
-    banner.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <b>🚀 Update available: v${escHtml(version)}</b>
-            <span onclick="document.getElementById('update-banner').remove()" style="cursor:pointer;opacity:0.7;margin-left:12px;font-size:16px">✕</span>
-        </div>
-        <div style="font-size:11px;opacity:0.9;margin-bottom:8px">${escHtml(name)}</div>
-        <div style="display:flex;gap:8px">
-            <button onclick="document.getElementById('update-modal').style.display='flex'" style="background:white;color:#1d4ed8;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold">📋 What's new</button>
-            <a href="${escHtml(url)}" target="_blank" style="background:rgba(255,255,255,0.2);color:white;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:12px">GitHub →</a>
-        </div>`;
+    banner.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;background:#1d4ed8;' +
+        'color:white;padding:12px 16px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.4);' +
+        'font-size:13px;max-width:320px;font-family:Arial,sans-serif;box-sizing:border-box;';
+    banner.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">' +
+            '<b>🚀 Update available: v' + escHtml(version) + '</b>' +
+            '<span data-role="dismiss" style="cursor:pointer;opacity:0.7;margin-left:12px;font-size:16px">✕</span>' +
+        '</div>' +
+        '<div style="font-size:11px;opacity:0.9;margin-bottom:8px">' + escHtml(name || '') + '</div>' +
+        '<div style="display:flex;gap:8px">' +
+            '<button data-role="notes" style="background:white;color:#1d4ed8;border:none;padding:4px 10px;' +
+                'border-radius:4px;cursor:pointer;font-size:12px;font-weight:bold">📋 What&#39;s new</button>' +
+            '<a href="' + escHtml(url) + '" target="_blank" rel="noopener" style="background:rgba(255,255,255,0.2);' +
+                'color:white;padding:4px 10px;border-radius:4px;text-decoration:none;font-size:12px">GitHub →</a>' +
+        '</div>';
     document.body.appendChild(banner);
-    const modal = document.createElement('div');
-    modal.id = 'update-modal';
-    modal.style.cssText = 'display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);align-items:center;justify-content:center;';
-    modal.innerHTML = `
-        <div style="background:white;border-radius:10px;padding:24px;max-width:560px;width:90%;max-height:80vh;overflow-y:auto">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-                <h2 style="font-size:16px;color:#1f2937">🚀 ${escHtml(name)}</h2>
-                <span onclick="document.getElementById('update-modal').style.display='none'" style="cursor:pointer;font-size:20px;color:#6b7280">✕</span>
-            </div>
-            <pre style="font-size:12px;color:#374151;white-space:pre-wrap;font-family:Arial,sans-serif;line-height:1.6">${escHtml(body)}</pre>
-            <div style="margin-top:16px;display:flex;gap:8px">
-                <a href="${escHtml(url)}" target="_blank" style="background:#1d4ed8;color:white;padding:8px 16px;border-radius:6px;text-decoration:none;font-size:13px;font-weight:bold">View on GitHub →</a>
-                <button onclick="document.getElementById('update-modal').style.display='none'" style="background:#f3f4f6;color:#374151;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;font-size:13px">Close</button>
-            </div>
-        </div>`;
-    document.body.appendChild(modal);
-    modal.addEventListener('click', e => { if (e.target === modal) modal.style.display = 'none'; });
+    banner.querySelector('[data-role="dismiss"]').addEventListener('click', function () { banner.remove(); });
+    banner.querySelector('[data-role="notes"]').addEventListener('click', function () {
+        showReleaseModal({
+            title: '🚀 ' + (name || ('v' + version)),
+            version: version,
+            bodyHtml: releaseBodyHtml(trimReleaseNotes(body)),
+            url: url
+        });
+    });
+}
+
+function wireVersionChip() {
+    const el = document.getElementById('mapper-version-span');
+    if (!el || el._notesWired) return;
+    el._notesWired = true;
+    el.classList.add('version-chip');
+    el.title = "What's new in this version";
+    el.addEventListener('click', openReleaseNotes);
+}
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireVersionChip);
+} else {
+    wireVersionChip();
 }
 
 // ── Radio History Widgets ─────────────────────────────────────────

@@ -16,7 +16,6 @@
 
 #!/usr/bin/env python3
 #ver 2.3.0
-#Max Gieparda (c)2026
 """
 MeshPulse - Listen Mode with TTL + WebSocket
 Works on slow Raspberry Pi Model B+
