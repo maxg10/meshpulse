@@ -60,6 +60,12 @@
         .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 12px; }
         .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
         .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+        /* A grid item's automatic minimum size is its content's min-content
+           width. A Chart.js canvas reports 300px, so even a single 1fr track
+           refused to shrink below 300 + 28px of card padding, and the card
+           hung 24px off the right edge of a 320px phone. */
+        .grid-2 > *, .grid-3 > *, .grid-4 > * { min-width: 0; }
+        .card canvas { max-width: 100%; }
         .full-width { margin-bottom: 12px; }
         @media (max-width: 900px) {
             .grid-4 { grid-template-columns: repeat(2, 1fr); }
@@ -67,6 +73,10 @@
         }
         @media (max-width: 600px) {
             .grid-4, .grid-2, .grid-3 { grid-template-columns: 1fr; }
+            /* A data table has a min-content width of its own — the Most Active
+               Nodes table is 343px wide and used to drag the whole document
+               sideways on a 320px phone. The card scrolls it instead. */
+            .card { overflow-x: auto; }
         }
 
         /* Stat numbers */
@@ -1580,7 +1590,7 @@ function isNewerVersion(latest, current) {
 const MESHPULSE_SITE = 'https://meshpulse.app';
 const MESHPULSE_REPO = 'https://github.com/maxg10/meshpulse';
 
-// The chip reads "v2.7.2 — Map". The number always shows; the page name
+// The chip reads "<version> — <page>". The number always shows; the page name
 // is dropped on phones, where the bar has no room (see .version-page).
 function setVersionLabel(version, page) {
     const el = document.getElementById('mapper-version-span');
@@ -1628,9 +1638,19 @@ function releaseNoteHtml(text) {
     return '<div style="font-size:12px;color:#6b7280;line-height:1.6">' + escHtml(text) + '</div>';
 }
 
+function tidyReleaseText(text) {
+    // The notes are Markdown, the dialog shows plain text: drop the heading
+    // hashes and turn list dashes into bullets. Text in, text out — still
+    // escaped on the way into the DOM, so no renderer and no new surface.
+    return (text || '').split('\n').map(function (line) {
+        return line.replace(/^\s*#{1,6}\s+/, '')
+                   .replace(/^(\s*)[-*]\s+/, '$1\u2022 ');
+    }).join('\n');
+}
+
 function releaseBodyHtml(text) {
     return '<pre style="font-size:12px;color:#374151;white-space:pre-wrap;' +
-        'font-family:Arial,sans-serif;line-height:1.6;margin:0">' + escHtml(text) + '</pre>';
+        'font-family:Arial,sans-serif;line-height:1.6;margin:0">' + escHtml(tidyReleaseText(text)) + '</pre>';
 }
 
 // opts: {title, version, bodyHtml, url}

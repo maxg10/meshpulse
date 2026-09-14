@@ -2645,7 +2645,7 @@
         const MESHPULSE_SITE = 'https://meshpulse.app';
         const MESHPULSE_REPO = 'https://github.com/maxg10/meshpulse';
 
-        // The chip reads "v2.7.2 — Map". The number always shows; the page name
+        // The chip reads "<version> — <page>". The number always shows; the page name
         // is dropped on phones, where the bar has no room (see .version-page).
         function setVersionLabel(version, page) {
             const el = document.getElementById('mapper-version-span');
@@ -2693,9 +2693,19 @@
             return '<div style="font-size:12px;color:#6b7280;line-height:1.6">' + escHtml(text) + '</div>';
         }
 
+        function tidyReleaseText(text) {
+            // The notes are Markdown, the dialog shows plain text: drop the heading
+            // hashes and turn list dashes into bullets. Text in, text out — still
+            // escaped on the way into the DOM, so no renderer and no new surface.
+            return (text || '').split('\n').map(function (line) {
+                return line.replace(/^\s*#{1,6}\s+/, '')
+                           .replace(/^(\s*)[-*]\s+/, '$1\u2022 ');
+            }).join('\n');
+        }
+
         function releaseBodyHtml(text) {
             return '<pre style="font-size:12px;color:#374151;white-space:pre-wrap;' +
-                'font-family:Arial,sans-serif;line-height:1.6;margin:0">' + escHtml(text) + '</pre>';
+                'font-family:Arial,sans-serif;line-height:1.6;margin:0">' + escHtml(tidyReleaseText(text)) + '</pre>';
         }
 
         // opts: {title, version, bodyHtml, url}

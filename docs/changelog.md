@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.7.3
+- Feature: The app says what it is and who made it. The wordmark in the top bar
+  links to meshpulse.app, and the version beside it opens a dialog with the
+  release notes of the version actually running, followed by an About block:
+  version, licence, copyright, and links to the site, the plugin store and the
+  repository. Until now the only way out of the app was a GitHub button that
+  appeared solely while an update was pending, so an installation someone else
+  had set up gave its user no route back to the project.
+- Refactor: `showUpdateBanner()` built a release-notes dialog and threw it away
+  whenever no update happened to be available. That dialog is now a standalone
+  `showReleaseModal()` called by both the banner and the version chip. Notes
+  come from the release tagged with the running version and are cached per
+  version in `sessionStorage`; everything from `## Updating` onwards is dropped,
+  because install instructions belong on GitHub; and the dialog still opens with
+  its About block when the fetch fails, since an offline Pi is the normal case,
+  not an error.
+- Fix: On phones the top bar hid the entire version span to make room, which
+  also hid the new dialog's only entry point. Only the page name is dropped now;
+  the version stays, and is tappable.
+- Fix: Stats dragged the whole document sideways on a 320px phone. A grid item's
+  automatic minimum size is its content's min-content width, so a Chart.js
+  canvas reporting 300px kept even a single `1fr` track from shrinking, and the
+  Most Active Nodes table is 343px wide on its own. Grid children may now
+  shrink, canvases are capped at the card width, and a card scrolls content that
+  really is wider than the screen.
+- Fix: The telemetry notice in Config still said "Meshtastic Mapper" — the last
+  string left over from the rename.
+- Fix: `backend/meshpulse.py` carried its shebang on line 17, below the licence
+  header, where it does nothing, beside a `#ver 2.3.0` comment that stopped
+  being true many releases ago.
+
 ## v2.7.2
 - Fix: The stylesheet cache key is derived from the file, not maintained by hand.
   `styles.css?v=2.6.1-2` was written into four HTML files and had to be bumped
