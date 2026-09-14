@@ -345,6 +345,11 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         position: fixed;
         bottom: 0; left: 0; right: 0; top: auto;
         width: 100%;
+        /* There is no global box-sizing reset in this file, so without this the
+           12px side padding is ADDED to width:100% — the drawer's border box ends
+           up 100vw + 24px wide and its right edge, along with the floated close
+           button sitting against it, hangs off the screen. */
+        box-sizing: border-box;
         max-height: 60vh;
         overflow-y: auto;
         border-radius: 16px 16px 0 0;
