@@ -275,7 +275,12 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
         z-index: 1;
     }
     #topnav { position: fixed; top: 0; left: 0; right: 0; z-index: 1001; }
-    .leaflet-top.leaflet-left { top: 8px; }
+    /* The search bar is fixed at 80px and about 33px tall, and the map starts at
+       72px, so the zoom control has to start 52px into the map to clear it.
+       This used to work by accident: .leaflet-top carried a 44px margin meant
+       for the desktop top bar, which the map's own offset already covered. That
+       double count was removed in 2.8.0 and took this clearance with it. */
+    .leaflet-top.leaflet-left { top: 52px; }
     #search-bar { top: 80px; }
 
     /* MeshInfo bottom drawer */

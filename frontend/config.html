@@ -1918,6 +1918,10 @@ function connectWS() {
                 loadPluginsList();
             } else {
                 showAlert('❌ ' + (d.error || 'Unknown error'), 'error');
+                // Re-render, or the button that started this keeps saying
+                // "Enabling..." for the rest of the session and the plugin looks
+                // like it is still working on it.
+                loadPluginsList();
             }
         } else if (d.type === 'plugin_installed') {
             if (d.success) {
