@@ -1,5 +1,42 @@
 # Changelog
 
+## v2.8.0
+- Feature: Map panels can be moved. `api.panels.register()` now injects a drag
+  grip and the core keeps owning placement: on desktop dragging the grip floats
+  a panel anywhere on the map, clamped so at least 48px of it stays reachable
+  and never under the top bar; in the mobile drawer the same grip reorders the
+  list instead, because a panel dragged off a 390px screen is a panel you cannot
+  get back. That order applies to the desktop column too. Positions and order
+  live in localStorage per panel, double-clicking a grip returns one panel to
+  the column, and a Reset layout button appears once anything has moved. One
+  pointer stream through setPointerCapture, so mouse, touch and pen take the
+  same path, and `touch-action: none` on the grip stops the map panning and the
+  drawer scrolling underneath the gesture.
+- Fix: The plugin panel host overlapped the Leaflet zoom control on every
+  desktop width. It was pinned at `top: 125px` "below the zoom control (which
+  occupies ~54-114px)"; the control actually occupied 98-163px, because the 44px
+  top bar was subtracted twice — `#map` already carries `margin-top: 44px` and
+  `.leaflet-top` added another 44px inside the map. The stray offset is gone and
+  the host no longer guesses: the top-left control stack is measured at runtime
+  and published as `--panel-top`, re-measured on resize and through a
+  ResizeObserver, so a plugin that adds its own control to that corner pushes
+  the panels down by itself.
+- Feature: `api.links` — plugins can finally see which node hears which. The
+  core has held the mesh's edges all along (neighbour reports, plus everything
+  heard at zero hops) and drawn lines with them, but never handed them over.
+  `getAll()` returns an undirected edge list, each pair once and id-ordered,
+  with `kind` and the reported SNR; `onUpdate()` fires when a neighbour report
+  changes the picture.
+- Fix: The release-notes dialog showed Markdown as literal characters —
+  `**bold**` with the asterisks and backticks around code. Heading hashes, bold
+  markers, inline backticks and fence lines are stripped now, and a link keeps
+  its words. Italics are deliberately left alone: a single asterisk is too easy
+  to confuse with one in prose.
+- Fix: `#map` was `100vh` tall with a 44px top margin — 44px more than the
+  window — so the map page always had a little vertical scroll. The top bar is
+  part of the viewport, so it is subtracted. Phones already overrode both values
+  and are unaffected.
+
 ## v2.7.3
 - Feature: The app says what it is and who made it. The wordmark in the top bar
   links to meshpulse.app, and the version beside it opens a dialog with the
