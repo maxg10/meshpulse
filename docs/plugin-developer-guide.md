@@ -370,6 +370,15 @@ empty — say so in your UI rather than drawing an empty graph. And RF is not
 always symmetric: A may hear B while B never hears A. The edge list flattens
 that, so treat it as a strong hint about topology, not a proof.
 
+**The edge list is Meshtastic-only, and deliberately so.** Neighbour reports are
+a Meshtastic feature, and a Meshcore node never appears as a `direct` link even
+when its hop field reads zero: Meshcore reports `out_path_len`, where zero means
+an established outbound path rather than zero radio hops, so treating it as
+"heard directly" would invent links that are not there. Nodes heard via MQTT are
+left out of `direct` for the same reason — that packet reached somebody else's
+radio, not this one. Meshcore nodes stay on the map and in `api.nodes`; they are
+simply not claimed to be RF neighbours of anything.
+
 **The core owns placement — do not position your panel.** From 2.8.0 `register()`
 injects a drag grip as the panel's first child and manages the panel's position:
 on desktop the user can drag it anywhere on the map, in the mobile drawer the
