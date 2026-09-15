@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.8.1
+- Fix: On phones the zoom control ended up underneath the search bar. 2.8.0
+  removed a `.leaflet-top` margin that double-counted the desktop top bar — and
+  that margin was also, by accident, what kept the zoom buttons clear of the
+  search field on mobile. The clearance is now stated on purpose in the mobile
+  media query rather than inherited from a bug.
+- Fix: A plugin whose `enable` failed left its button saying "Enabling..." for
+  the rest of the session. The error was shown, but the list was only re-rendered
+  on success, so the plugin looked like it was still working on it.
+
 ## v2.8.0
 - Feature: Map panels can be moved. `api.panels.register()` now injects a drag
   grip and the core keeps owning placement: on desktop dragging the grip floats
