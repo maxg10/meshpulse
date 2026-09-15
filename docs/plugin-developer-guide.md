@@ -346,6 +346,40 @@ else api.map.removeControl('my-panel');
 **Always keep the fallback guard.** Users are not all on the newest core, and a plugin
 that assumes `api.panels` exists renders nothing at all on 2.6.0 and older.
 
+### `api.links` (2.8.0+)
+
+The map has always known which node hears which; until 2.8.0 it kept that to
+itself. `api.links.getAll()` returns the mesh as an edge list:
+
+```js
+[{from: '!aabbccdd', to: '!11223344', kind: 'neighbor', snr: -6.5}, ...]
+```
+
+- Undirected. Each pair appears **once**, with `from`/`to` ordered by id, so the
+  same pair always looks the same to you.
+- `kind: 'neighbor'` comes from a NEIGHBORINFO report between two nodes;
+  `kind: 'direct'` is a node this mapper's own radio heard with zero hops.
+- `snr` is whatever was reported, or `null`.
+
+`api.links.onUpdate(cb)` fires when a neighbour report changes the picture, with
+the reporting node's id. One callback per plugin, like `nodes.onUpdate`.
+
+Two things worth knowing before you build on it. NEIGHBORINFO is **off by
+default** in the Meshtastic firmware, so on many meshes this list is short or
+empty — say so in your UI rather than drawing an empty graph. And RF is not
+always symmetric: A may hear B while B never hears A. The edge list flattens
+that, so treat it as a strong hint about topology, not a proof.
+
+**The core owns placement — do not position your panel.** From 2.8.0 `register()`
+injects a drag grip as the panel's first child and manages the panel's position:
+on desktop the user can drag it anywhere on the map, in the mobile drawer the
+same grip reorders the list, and both are remembered per panel. A panel that
+sets its own `position`, `top`/`left` or `margin` fights that and will end up in
+the wrong place. Style the *inside* of your panel; leave the outside to the core.
+
+A plugin may register several panels; each gets its own identity
+(`data-panel-key`), so their positions are remembered separately.
+
 `api.map.addControl()` is *not* deprecated — it stays the escape hatch for real Leaflet
 controls and for older cores. Cores from 2.6.1 on also adopt panels added through
 `addControl()` into the mobile drawer automatically (matched on `.leaflet-plugin-control`),

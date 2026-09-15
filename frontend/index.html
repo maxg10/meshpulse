@@ -334,6 +334,7 @@
         var pluginLayers = {};
         var pluginControls = {};
         var pluginNodeCallbacks = {};
+        var pluginLinkCallbacks = {};
         var pluginExpireCallbacks = {};
         var pluginMessageCallbacks = {};
         var pluginFilterCallbacks = {};
@@ -627,6 +628,10 @@
                             if (document.getElementById('show-neighbor-links').checked) {
                                 updateNeighborLinks();
                             }
+                            Object.keys(pluginLinkCallbacks).forEach(function(key) {
+                                try { pluginLinkCallbacks[key](data.from_id); }
+                                catch(e) { console.error('[PLUGINS] link callback error:', e); }
+                            });
                         } else if (data.type === 'connection_status') {
                             console.log('[WS] Connection status:', data.status, data.message);
                             window._lastUpdateTime = Date.now();
@@ -2444,11 +2449,245 @@
 
         function isMobileView() { return window.innerWidth <= 768; }
 
+        // ── Panel layout: drag on the map, reorder in the drawer ───────────
+        // A panel belongs to its plugin; its placement has always belonged to the core.
+        // The core injects a grip into every registered panel: on desktop dragging it
+        // floats the panel anywhere, in the mobile drawer the same grip reorders the
+        // list. One pointer stream, so mouse, touch and pen take the same code path.
+        const PANEL_LAYOUT_KEY = 'mesh-mapper-panel-layout';
+        const PANEL_EDGE_KEEP = 48;   // px of a floating panel that must stay reachable
+        const PANEL_TOP_KEEP = 48;    // never let one hide behind the top bar
+        let panelLayout = loadPanelLayout();
+        let panelKeySeq = {};
+        let panelRegistrationOrder = [];
+
+        function loadPanelLayout() {
+            try {
+                const v = JSON.parse(localStorage.getItem(PANEL_LAYOUT_KEY) || 'null');
+                if (v && typeof v === 'object') {
+                    return {order: Array.isArray(v.order) ? v.order : [], pos: v.pos || {}};
+                }
+            } catch (e) { /* private mode, or hand-edited JSON — start clean */ }
+            return {order: [], pos: {}};
+        }
+
+        function savePanelLayout() {
+            try { localStorage.setItem(PANEL_LAYOUT_KEY, JSON.stringify(panelLayout)); } catch (e) { /* not fatal */ }
+            updatePanelResetButton();
+        }
+
+        // Reparenting with appendChild tears the subtree out and re-inserts it, which
+        // restarts CSS animations and closes popovers. moveBefore() moves atomically.
+        // Safari does not have it yet, so it stays a progressive enhancement.
+        function movePanelInto(parent, el, before) {
+            const ref = before || null;
+            if (typeof parent.moveBefore === 'function' && el.isConnected) {
+                try { parent.moveBefore(el, ref); return; } catch (e) { /* fall through */ }
+            }
+            parent.insertBefore(el, ref);
+        }
+
+        function panelHost() { return document.getElementById('plugin-panels'); }
+
+        function hostedPanels() {
+            const host = panelHost();
+            return host ? Array.prototype.slice.call(host.querySelectorAll(':scope > .plugin-panel')) : [];
+        }
+
+        function panelByKey(key) {
+            return hostedPanels().filter(function (p) { return p.dataset.panelKey === key; })[0];
+        }
+
+        // A plugin may register more than one panel, so the owner id alone is not a key.
+        function panelKeyFor(el, pluginId) {
+            if (!el.dataset.panelKey) {
+                panelKeySeq[pluginId] = (panelKeySeq[pluginId] || 0) + 1;
+                el.dataset.panelKey = pluginId + '#' + panelKeySeq[pluginId];
+                panelRegistrationOrder.push(el.dataset.panelKey);
+            }
+            return el.dataset.panelKey;
+        }
+
+        function attachPanelGrip(el) {
+            if (el.querySelector(':scope > .panel-grip')) return;
+            const grip = document.createElement('div');
+            grip.className = 'panel-grip';
+            grip.textContent = '⠿';
+            grip.title = 'Drag to move · double-click to put it back';
+            grip.setAttribute('role', 'button');
+            grip.setAttribute('aria-label', 'Move panel');
+            el.insertBefore(grip, el.firstChild);
+            grip.addEventListener('pointerdown', onPanelGripDown);
+            grip.addEventListener('dblclick', function (e) { e.preventDefault(); releasePanel(el); });
+            // A panel is not a map: clicks and wheels inside it must not reach Leaflet.
+            if (window.L && L.DomEvent) L.DomEvent.disableClickPropagation(el);
+        }
+
+        function clampPanelPosition(el, left, top) {
+            const r = el.getBoundingClientRect();
+            return {
+                left: Math.round(Math.min(Math.max(left, PANEL_EDGE_KEEP - r.width), window.innerWidth - PANEL_EDGE_KEEP)),
+                top: Math.round(Math.min(Math.max(top, PANEL_TOP_KEEP), window.innerHeight - PANEL_EDGE_KEEP))
+            };
+        }
+
+        function floatPanel(el, left, top) {
+            const p = clampPanelPosition(el, left, top);
+            el.classList.add('panel-floating');
+            el.style.left = p.left + 'px';
+            el.style.top = p.top + 'px';
+            panelLayout.pos[el.dataset.panelKey] = p;
+            savePanelLayout();
+        }
+
+        // Back into the column, and forget the saved spot.
+        function releasePanel(el) {
+            el.classList.remove('panel-floating');
+            el.style.left = '';
+            el.style.top = '';
+            delete panelLayout.pos[el.dataset.panelKey];
+            savePanelLayout();
+        }
+
+        function onPanelGripDown(e) {
+            if (e.button) return;                 // primary button, touch or pen only
+            const panel = e.currentTarget.closest('.plugin-panel');
+            if (!panel) return;
+            e.preventDefault();
+            e.stopPropagation();                  // the map must not pan out from under us
+            try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+            if (isMobileView()) startPanelReorder(panel, e);
+            else startPanelDrag(panel, e);
+        }
+
+        function startPanelDrag(panel, e) {
+            const grip = e.currentTarget;
+            const start = panel.getBoundingClientRect();
+            const originX = e.clientX, originY = e.clientY;
+            let dx = 0, dy = 0, frame = 0, moved = false;
+            panel.classList.add('panel-dragging');
+
+            function onMove(ev) {
+                dx = ev.clientX - originX;
+                dy = ev.clientY - originY;
+                if (!moved && Math.abs(dx) + Math.abs(dy) > 3) moved = true;
+                // Move on the compositor while the pointer is down; commit to left/top once.
+                if (!frame) frame = requestAnimationFrame(function () {
+                    frame = 0;
+                    panel.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
+                });
+            }
+            function onEnd() {
+                grip.removeEventListener('pointermove', onMove);
+                grip.removeEventListener('pointerup', onEnd);
+                grip.removeEventListener('pointercancel', onEnd);
+                if (frame) cancelAnimationFrame(frame);
+                panel.classList.remove('panel-dragging');
+                panel.style.transform = '';
+                if (moved) floatPanel(panel, start.left + dx, start.top + dy);
+            }
+            grip.addEventListener('pointermove', onMove);
+            grip.addEventListener('pointerup', onEnd);
+            grip.addEventListener('pointercancel', onEnd);
+        }
+
+        // In the drawer a panel has nowhere to float to, and a panel dragged off a
+        // 390px screen is a panel you cannot get back. So the same grip changes the
+        // order instead — and that order is what the desktop column uses as well.
+        function startPanelReorder(panel, e) {
+            const grip = e.currentTarget;
+            const host = panel.parentElement;
+            panel.classList.add('panel-reordering');
+
+            function onMove(ev) {
+                const others = hostedPanels().filter(function (p) { return p !== panel; });
+                for (let i = 0; i < others.length; i++) {
+                    const r = others[i].getBoundingClientRect();
+                    const middle = r.top + r.height / 2;
+                    const panelIsAfter = !!(others[i].compareDocumentPosition(panel) & Node.DOCUMENT_POSITION_FOLLOWING);
+                    if (ev.clientY < middle && panelIsAfter) { movePanelInto(host, panel, others[i]); break; }
+                    if (ev.clientY > middle && !panelIsAfter) { movePanelInto(host, panel, others[i].nextElementSibling); break; }
+                }
+            }
+            function onEnd() {
+                grip.removeEventListener('pointermove', onMove);
+                grip.removeEventListener('pointerup', onEnd);
+                grip.removeEventListener('pointercancel', onEnd);
+                panel.classList.remove('panel-reordering');
+                panelLayout.order = hostedPanels().map(function (p) { return p.dataset.panelKey; });
+                savePanelLayout();
+            }
+            grip.addEventListener('pointermove', onMove);
+            grip.addEventListener('pointerup', onEnd);
+            grip.addEventListener('pointercancel', onEnd);
+        }
+
+        function applyPanelLayout() {
+            const host = panelHost();
+            if (!host) return;
+            const mobile = isMobileView();
+            if (panelLayout.order.length) {
+                // Walk the saved order backwards, pushing each panel to the front.
+                panelLayout.order.slice().reverse().forEach(function (key) {
+                    const el = panelByKey(key);
+                    if (el && host.firstElementChild !== el) movePanelInto(host, el, host.firstElementChild);
+                });
+            }
+            hostedPanels().forEach(function (el) {
+                const pos = panelLayout.pos[el.dataset.panelKey];
+                if (pos && !mobile) {
+                    // Clamp on the way out, not in storage: a window made small and then
+                    // large again should give the panel its original spot back.
+                    const p = clampPanelPosition(el, pos.left, pos.top);
+                    el.classList.add('panel-floating');
+                    el.style.left = p.left + 'px';
+                    el.style.top = p.top + 'px';
+                } else {
+                    el.classList.remove('panel-floating');
+                    el.style.left = '';
+                    el.style.top = '';
+                }
+            });
+            updatePanelResetButton();
+        }
+
+        // One way out, shown only once something has actually been moved.
+        function updatePanelResetButton() {
+            const host = panelHost();
+            if (!host) return;
+            let btn = host.querySelector(':scope > .panel-reset');
+            const touched = panelLayout.order.length > 0 || Object.keys(panelLayout.pos).length > 0;
+            if (!touched) { if (btn) btn.remove(); return; }
+            if (!btn) {
+                btn = document.createElement('button');
+                btn.className = 'panel-reset';
+                btn.type = 'button';
+                btn.textContent = '⤺ Reset layout';
+                btn.addEventListener('click', resetPanelLayout);
+            }
+            host.appendChild(btn);           // always last, in the column and in the drawer
+        }
+
+        function resetPanelLayout() {
+            panelLayout = {order: [], pos: {}};
+            savePanelLayout();
+            const host = panelHost();
+            if (host) {
+                panelRegistrationOrder.forEach(function (key) {
+                    const el = panelByKey(key);
+                    if (el) movePanelInto(host, el, null);     // re-append in registration order
+                });
+            }
+            applyPanelLayout();
+        }
+
+        window.addEventListener('resize', applyPanelLayout);
+
         function adoptLoosePanels(host) {
             document.querySelectorAll(PLUGIN_PANEL_SELECTOR).forEach(function(el) {
                 if (el.closest('#plugin-panels')) return;   // already hosted
                 adoptedPanels.push({el: el, parent: el.parentElement, next: el.nextElementSibling});
-                host.appendChild(el);
+                movePanelInto(host, el, null);
             });
         }
 
@@ -2456,8 +2695,8 @@
             adoptedPanels.forEach(function(rec) {
                 // Owner removed it while adopted (e.g. plugin disabled) — leave it gone.
                 if (!rec.el.parentElement || !rec.parent) return;
-                if (rec.next && rec.next.parentElement === rec.parent) rec.parent.insertBefore(rec.el, rec.next);
-                else rec.parent.appendChild(rec.el);
+                movePanelInto(rec.parent, rec.el,
+                    (rec.next && rec.next.parentElement === rec.parent) ? rec.next : null);
             });
             adoptedPanels = [];
         }
@@ -2470,6 +2709,23 @@
             fab.classList.toggle('has-panels', host.children.length > 0);
         }
 
+        // The panel host sits under Leaflet's top-left control stack. Measure that
+        // stack instead of hardcoding its height: a plugin can add its own control
+        // there through the addControl fallback, and the map's offset has already
+        // been miscounted once (a 44px navbar applied twice).
+        function syncPanelTopOffset() {
+            const corner = document.querySelector('.leaflet-top.leaflet-left');
+            const host = document.getElementById('plugin-panels');
+            if (!corner || !host || host.closest('#plugin-drawer')) return;
+            let bottom = 0;
+            corner.querySelectorAll(':scope > *').forEach(function(el) {
+                const r = el.getBoundingClientRect();
+                if (r.height) bottom = Math.max(bottom, r.bottom);
+            });
+            if (!bottom) bottom = corner.getBoundingClientRect().top;
+            document.documentElement.style.setProperty('--panel-top', Math.round(bottom + 10) + 'px');
+        }
+
         function syncPluginPanelLayout() {
             const host = document.getElementById('plugin-panels');
             const drawer = document.getElementById('plugin-drawer');
@@ -2477,19 +2733,30 @@
             syncingPanels = true;
             try {
                 if (isMobileView()) {
-                    if (host.parentElement !== drawer) drawer.appendChild(host);
+                    if (host.parentElement !== drawer) movePanelInto(drawer, host, null);
                     adoptLoosePanels(host);
                 } else {
                     releaseAdoptedPanels();
-                    if (host.parentElement !== document.body) document.body.appendChild(host);
+                    if (host.parentElement !== document.body) movePanelInto(document.body, host, null);
                     closeLayersDrawer();
                 }
                 updateLayersFabVisibility();
+                syncPanelTopOffset();
+                applyPanelLayout();
             } finally {
                 // Released on a macrotask so our own mutations don't re-trigger the observer.
                 setTimeout(function() { syncingPanels = false; }, 0);
             }
         }
+
+        // Controls can be added long after load (a plugin enabled at runtime), so
+        // watch the corner rather than measuring once.
+        (function watchPanelTopOffset() {
+            const corner = document.querySelector('.leaflet-top.leaflet-left');
+            if (corner && window.ResizeObserver) new ResizeObserver(syncPanelTopOffset).observe(corner);
+            window.addEventListener('resize', syncPanelTopOffset);
+            syncPanelTopOffset();
+        })();
 
         function schedulePanelSync() {
             clearTimeout(panelSyncTimer);
@@ -2697,10 +2964,15 @@
             // The notes are Markdown, the dialog shows plain text: drop the heading
             // hashes and turn list dashes into bullets. Text in, text out — still
             // escaped on the way into the DOM, so no renderer and no new surface.
-            return (text || '').split('\n').map(function (line) {
-                return line.replace(/^\s*#{1,6}\s+/, '')
-                           .replace(/^(\s*)[-*]\s+/, '$1\u2022 ');
-            }).join('\n');
+            return (text || '').split('\n')
+                .filter(function (line) { return !/^\s*```/.test(line); })          // fence markers
+                .map(function (line) {
+                    return line.replace(/^\s*#{1,6}\s+/, '')                        // heading hashes
+                               .replace(/^(\s*)[-*]\s+/, '$1\u2022 ')               // list marker
+                               .replace(/\*\*([^*]+)\*\*/g, '$1')                   // bold
+                               .replace(/`([^`]+)`/g, '$1')                        // inline code
+                               .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');          // link, keep the words
+                }).join('\n');
         }
 
         function releaseBodyHtml(text) {
@@ -2879,9 +3151,12 @@
                         if (!el) return el;
                         el.classList.add('plugin-panel');
                         el.dataset.pluginPanelOwner = pluginId;
+                        panelKeyFor(el, pluginId);
+                        attachPanelGrip(el);
                         var host = document.getElementById('plugin-panels');
-                        if (host && el.parentElement !== host) host.appendChild(el);
+                        if (host && el.parentElement !== host) movePanelInto(host, el, null);
                         syncPluginPanelLayout();
+                        applyPanelLayout();
                         return el;
                     },
                     unregister: function(el) {
@@ -2917,6 +3192,37 @@
                     // Called whenever the visible set may have changed, with that set
                     // as its argument. One callback per plugin, like onUpdate.
                     onFilterChange: function(cb) { pluginFilterCallbacks[prefix] = cb; }
+                },
+                // The core has always known which node hears which; it just never told
+                // plugins. Edges come from NEIGHBORINFO reports plus the zero-hop nodes
+                // this mapper's own radio hears directly.
+                links: {
+                    // [{from, to, kind, snr}] — undirected, each pair once, ids ordered
+                    // so the same pair always looks the same to the caller.
+                    getAll: function() {
+                        var out = [], seen = {};
+                        function push(a, b, kind, snr) {
+                            if (!a || !b || a === b) return;
+                            var lo = a < b ? a : b, hi = a < b ? b : a, key = lo + '|' + hi;
+                            if (seen[key]) return;
+                            seen[key] = true;
+                            out.push({from: lo, to: hi, kind: kind, snr: (snr === undefined ? null : snr)});
+                        }
+                        Object.keys(neighborData).forEach(function(fromId) {
+                            (neighborData[fromId] || []).forEach(function(nb) {
+                                if (nb && nb.id) push(fromId, nb.id, 'neighbor', nb.snr);
+                            });
+                        });
+                        var trackerId = trackerInfo && trackerInfo.node_id;
+                        if (trackerId) {
+                            allNodes.forEach(function(n) {
+                                if (n.hops === 0) push(trackerId, n.id, 'direct', n.snr);
+                            });
+                        }
+                        return out;
+                    },
+                    // Fired when a neighbour report changes the picture. One per plugin.
+                    onUpdate: function(cb) { pluginLinkCallbacks[prefix] = cb; }
                 },
                 messages: {
                     getAll: function(ch) { return []; },
@@ -3139,6 +3445,7 @@
                 if (key.indexOf(prefix) === 0) { try { map.removeControl(pluginControls[key]); } catch(e) {} delete pluginControls[key]; }
             });
             Object.keys(pluginNodeCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginNodeCallbacks[key]; });
+            Object.keys(pluginLinkCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginLinkCallbacks[key]; });
             Object.keys(pluginExpireCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginExpireCallbacks[key]; });
             Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
             Object.keys(pluginFilterCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginFilterCallbacks[key]; });
