@@ -1,6 +1,9 @@
 # MeshPulse — Plugin Architecture
 
-**Status:** Foundation implemented in v2.2.0 (Phase 1).
+**Status:** Live since v2.2.0; this document tracks the current core (2.8.3).
+It covers the **backend** side — lifecycle, hooks and the methods a plugin calls.
+For the **frontend** API (`api.panels`, `api.links`, `api.nodes`, `api.ws`) and a
+worked example, see [the plugin developer guide](plugin-developer-guide.md).
 
 ## Overview
 
@@ -45,16 +48,35 @@ mapper/
   "permissions": ["mesh_receive", "mesh_send"],
   "backend": {
     "entry_point": "backend/main.py",
-    "requirements": "requirements.txt"
+    "requirements": "backend/requirements.txt"
   },
   "frontend": {
-    "tab": { "label": "BBS", "icon": "💬", "page": "static/bbs.html" }
+    "pages": [{ "id": "bbs", "title": "BBS", "icon": "💾", "path": "frontend/index.html" }],
+    "js": "frontend/js/plugin.js",
+    "css": "frontend/css/plugin.css"
   },
+  "websocket_channels": ["updates"],
   "config": {
-    "max_messages": { "type": "int", "default": 100, "label": "Max stored messages" }
+    "max_messages": { "type": "number", "default": 100, "min": 1, "max": 1000,
+                      "description": "Max stored messages" }
   }
 }
 ```
+
+**`backend` is an object, never a string.** The manager reads
+`backend['requirements']` and `backend['entry_point']`; a bare `"backend":
+"backend/main.py"` raises inside `enable()` before the plugin's own code runs.
+Omit `requirements` entirely when the plugin needs nothing beyond the standard
+library — an empty requirements.txt makes the core run `pip` on every enable.
+
+**`frontend` takes `pages` / `js` / `css`.** A `tab` key appears in no version of
+the core and is silently ignored. `pages[]` entries add a nav item; `js` and `css`
+are loaded into the map page.
+
+**Config field types the UI renders:** `boolean`, `number` (with optional
+`min`/`max`), `string`, `select` (with `options`), and `device` — a dropdown of
+the machine's serial devices, with ports claimed by other plugins shown as taken.
+There is no `int`.
 
 ## Available Hooks
 
@@ -70,7 +92,10 @@ mapper/
 | `on_mqtt_proxy(topic, data)` | MQTT proxy message from device |
 | `on_connect(info)` | Mapper connected to radio |
 | `on_disconnect(reason)` | Mapper disconnected |
-| `on_node_expire(info)` | Node TTL expired |
+| `on_node_expire(info)` | Node TTL expired — **declared but never dispatched by the core yet** |
+| `on_config_update(new_config)` | User saved this plugin's settings |
+| `on_ws_message(data, channel)` | Browser sent a message on a plugin channel |
+| `on_ws_request(data, channel, reply)` | Same, with an async `reply()` that answers only the client that asked |
 | `on_ws_client_connect(info)` | Browser connected |
 | `on_ws_client_disconnect(info)` | Browser disconnected |
 
@@ -95,6 +120,7 @@ Plugins can call these methods via `self.method_name()` in backend code:
 | `get_messages()` | Get recent messages |
 | `get_config()` | Get plugin config dict |
 | `save_config()` | Save plugin config to disk |
+| `register_api_route(method, path, handler)` | **Declared, not implemented** — there is no HTTP server in the backend; use a WebSocket channel instead |
 
 ## MQTT Client Proxy Support
 
