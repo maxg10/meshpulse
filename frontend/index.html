@@ -3219,6 +3219,12 @@
                         var trackerId = trackerInfo && trackerInfo.node_id;
                         if (trackerId) {
                             allNodes.forEach(function(n) {
+                                // Mirror the core's own direct-neighbour test. 'hops' is
+                                // Meshtastic's; Meshcore reports out_path_len, where zero
+                                // means an established outbound path, not zero radio hops —
+                                // so a Meshcore node is never a direct link here. And a node
+                                // heard via MQTT was heard by somebody else's radio.
+                                if ((n.net || 'MT') !== 'MT' || n.via_mqtt) return;
                                 if (n.hops === 0) push(trackerId, n.id, 'direct', n.snr);
                             });
                         }

@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.8.3
+- Fix: `api.links` invented direct links. Its test for "heard by our own radio"
+  was a bare `hops === 0`, with no check of which network the node belongs to or
+  whether the packet arrived over MQTT — while the core's own test, a few hundred
+  lines away, has always branched on both. Meshcore reports `out_path_len`, where
+  zero means an established outbound path rather than zero radio hops, so a
+  Meshcore contact could enter a plugin's graph as a direct RF neighbour of the
+  local node; a Meshtastic node heard through MQTT could do the same, although
+  that packet reached somebody else's radio. The edge list is Meshtastic-only and
+  MQTT-free now, and the developer guide says so.
+
 ## v2.8.2
 - Fix: `api.nodes.getTracker()` returned `null` to every plugin that ever called
   it. It read `window._trackerNodeId`, a global nothing in the codebase assigns;

@@ -4,7 +4,7 @@ Instructions for AI coding agents working on MeshPulse. `CLAUDE.md` is a symlink
 to this file — one document, two names, so the two cannot drift apart.
 
 **Author:** Mariusz "Max" Gieparda | mgieparda@yahoo.com | github.com/maxg10
-**License:** GPL-3.0 · **Current version:** v2.8.2
+**License:** GPL-3.0 · **Current version:** v2.8.3
 
 ## What this is
 
