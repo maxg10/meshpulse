@@ -1642,10 +1642,15 @@ function tidyReleaseText(text) {
     // The notes are Markdown, the dialog shows plain text: drop the heading
     // hashes and turn list dashes into bullets. Text in, text out — still
     // escaped on the way into the DOM, so no renderer and no new surface.
-    return (text || '').split('\n').map(function (line) {
-        return line.replace(/^\s*#{1,6}\s+/, '')
-                   .replace(/^(\s*)[-*]\s+/, '$1\u2022 ');
-    }).join('\n');
+    return (text || '').split('\n')
+        .filter(function (line) { return !/^\s*```/.test(line); })          // fence markers
+        .map(function (line) {
+            return line.replace(/^\s*#{1,6}\s+/, '')                        // heading hashes
+                       .replace(/^(\s*)[-*]\s+/, '$1\u2022 ')               // list marker
+                       .replace(/\*\*([^*]+)\*\*/g, '$1')                   // bold
+                       .replace(/`([^`]+)`/g, '$1')                        // inline code
+                       .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '$1');          // link, keep the words
+        }).join('\n');
 }
 
 function releaseBodyHtml(text) {

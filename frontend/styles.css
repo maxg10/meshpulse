@@ -52,7 +52,10 @@ body{font-family:Arial,sans-serif}
     padding:1px 5px;border-radius:10px;margin-left:4px;
     vertical-align:middle;font-weight:normal;
 }
-#map{height:100vh;width:100%;margin-top:44px}
+/* 100vh plus a 44px top margin is 44px taller than the window, which gave the
+   map page a permanent vertical scroll. The bar is part of the viewport, so
+   subtract it. (Phones override both below: dvh, and a 72px two-row bar.) */
+#map{height:calc(100vh - 44px);width:100%;margin-top:44px}
 #stats{position:fixed;top:54px;right:10px;background:rgba(255,255,255,.95);
        padding:12px;border-radius:6px;z-index:1000;font-size:13px;
        box-shadow:0 2px 8px rgba(0,0,0,.3);min-width:200px;
