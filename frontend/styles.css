@@ -25,7 +25,6 @@ body{font-family:Arial,sans-serif}
     align-items:center;
     padding:0 16px;box-shadow:0 2px 8px rgba(0,0,0,0.4);
 }
-.leaflet-top{margin-top:44px}
 .topnav-logo{color:#f9fafb;font-weight:600;font-size:14px;font-family:Arial,sans-serif;white-space:nowrap}
 /* The wordmark links to the project site; the version chip opens the
    release notes and the About block. Padding grows the tap target
@@ -542,12 +541,51 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
     pointer-events: auto;
 }
 
-/* Plugin panel host — top-left on desktop, below the Leaflet zoom control
-   (which occupies ~54-114px) so the two never overlap. #stats is top-right,
-   so there is no collision there either. */
+/* Drag handle the core injects into every registered panel. touch-action:none
+   claims the pointer stream for us: without it the browser pans the map on a
+   phone and scrolls the drawer before a single pointermove arrives. */
+.panel-grip {
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    text-align: center;
+    letter-spacing: 3px;
+    font-size: 12px;
+    line-height: 1;
+    color: #9ca3af;
+    padding: 5px 6px 6px;
+    margin: -4px -4px 4px;
+    border-radius: 6px 6px 0 0;
+}
+.panel-grip:hover { color: #f3f4f6; background: rgba(148,163,184,0.18); }
+.plugin-panel.panel-dragging { opacity: 0.92; }
+.plugin-panel.panel-dragging .panel-grip { cursor: grabbing; background: rgba(148,163,184,0.25); }
+/* A dragged panel leaves the column and takes its own spot; the rest close up. */
+.plugin-panel.panel-floating { position: fixed; margin: 0; z-index: 1000; }
+.plugin-panel.panel-reordering { outline: 2px dashed #3b82f6; outline-offset: 2px; opacity: 0.9; }
+.panel-reset {
+    align-self: flex-start;
+    pointer-events: auto;
+    background: rgba(31,41,55,0.92);
+    color: #e5e7eb;
+    border: 1px solid rgba(148,163,184,0.35);
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-family: Arial, sans-serif;
+    cursor: pointer;
+}
+.panel-reset:hover { background: rgba(55,65,81,0.95); }
+
+/* Plugin panel host — top-left on desktop, below the Leaflet top-left control
+   stack. Its height is measured at runtime (syncPanelTopOffset) rather than
+   written down here: a plugin can add its own control to that corner, and a
+   hardcoded number has already been wrong once. The fallback only applies if
+   the script never runs. #stats is top-right, so no collision there. */
 #plugin-panels {
     position: fixed;
-    top: 125px;
+    top: var(--panel-top, 125px);
     left: 10px;
     z-index: 800;
     display: flex;
@@ -564,4 +602,11 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
    unscoped rule here would win on source order and hide the drawer on mobile too. */
 @media (min-width: 769px) {
     #plugin-drawer { display: none; }
+}
+
+/* Phones: the grip is the only thing you aim at with a thumb, so give it a
+   real target, and let the reset button span the drawer. */
+@media (max-width: 768px) {
+    .panel-grip { padding: 11px 6px; font-size: 15px; margin: -6px -6px 4px; }
+    .panel-reset { align-self: stretch; text-align: center; padding: 10px; font-size: 12px; }
 }
