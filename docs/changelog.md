@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.8.2
+- Fix: `api.nodes.getTracker()` returned `null` to every plugin that ever called
+  it. It read `window._trackerNodeId`, a global nothing in the codebase assigns;
+  the tracker's id actually arrives on the connection status message and lives in
+  `trackerInfo`. It reads that now, keeping the global as an override. A plugin
+  asking "which node is this mapper's own radio" was quietly told "none", and
+  anything built on the answer silently fell back to a guess.
+
 ## v2.8.1
 - Fix: On phones the zoom control ended up underneath the search bar. 2.8.0
   removed a `.leaflet-top` margin that double-counted the desktop top bar — and

@@ -3173,8 +3173,11 @@
                         return n ? JSON.parse(JSON.stringify(n)) : null;
                     },
                     getTracker: function() {
-                        if (window._trackerNodeId) { return this.get(window._trackerNodeId); }
-                        return null;
+                        // window._trackerNodeId was read here and assigned nowhere, so this
+                        // returned null to every plugin that ever asked. The connection
+                        // status message is what actually carries the id.
+                        var id = window._trackerNodeId || (trackerInfo && trackerInfo.node_id);
+                        return id ? this.get(id) : null;
                     },
                     getNoPosition: function() {
                         try { return JSON.parse(JSON.stringify(allNodesNoGps)); } catch(e) { return []; }
