@@ -27,6 +27,14 @@
   Network, Bluetooth, device role, licensed mode, power saving. The guards are
   a policy table in the backend, meant to be opened up as remote configuration
   grows towards full coverage.
+- New: Remote admin writes can be armed from the GUI for a limited time.
+  Config > 🛠 Remote Admin arms them for 15, 30, 60 or 120 minutes, after which
+  they switch off by themselves; "Disarm now" ends it early. The Admin window
+  shows a banner with the countdown, and Edit only appears while armed. Arm and
+  disarm are recorded in `admin_audit` with the client address, and the tab
+  lists the last ten admin actions. Arming lives in memory, so a restart
+  disarms. `remote_admin_write: true` in `config.json` still enables writes
+  permanently.
 - New: Public key store (`node_keys` in `stats.db`). Every key seen in NodeInfo
   packets or in the radio's NodeDB is kept, because the radio holds 80 nodes and
   drops keys constantly in a city mesh. Before an admin request, a dropped key is

@@ -626,6 +626,8 @@
                             handleRemoteAdminSetResult(data.data);
                         } else if (data.type === 'remote_admin_reboot_result') {
                             handleRemoteAdminRebootResult(data.data);
+                        } else if (data.type === 'remote_admin_state') {
+                            handleRemoteAdminState(data.data);
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
@@ -1344,7 +1346,8 @@
                             ' · each section is one encrypted round trip over the mesh</div></div>' +
                         '<span data-close="1" style="cursor:pointer;font-size:20px;color:#6b7280;line-height:1">✕</span>' +
                     '</div>' +
-                    '<div data-role="sections" style="display:flex;flex-wrap:wrap;gap:4px;margin:12px 0 10px"></div>' +
+                    '<div data-role="arm" style="margin-top:10px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>' +
+                    '<div data-role="sections" style="display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 10px"></div>' +
                     '<div data-role="body" style="flex:1 1 auto;min-height:90px;overflow:auto;border:1px solid #e5e7eb;' +
                         'border-radius:6px;padding:10px;font-size:12px;color:#1f2937">' +
                         '<div style="color:#6b7280">Pick a section. The first request may take a little longer if your ' +
@@ -1368,6 +1371,60 @@
             });
             document.addEventListener('keydown', raOnEsc);
             raLog('Remote admin for ' + _ra.name + ' (' + nodeId + ').');
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'remote_admin_state' }));
+        }
+
+        // Writes are armed for a limited time (or permanently in config.json).
+        // The banner shows which, with a live countdown and a way out.
+        function handleRemoteAdminState(st) {
+            if (!_ra || !st) return;
+            _ra.arm = st;
+            _ra.armEnds = st.armed ? Date.now() + st.remaining * 1000 : 0;
+            const was = _ra.writeEnabled;
+            _ra.writeEnabled = !!st.enabled;
+            raArmBanner();
+            if (_ra.armTimer) clearInterval(_ra.armTimer);
+            if (st.armed && !st.permanent) _ra.armTimer = setInterval(raArmBanner, 1000);
+            if (was !== _ra.writeEnabled && _ra.section && _ra.cache[_ra.section] && !_ra.edit && !_ra.verify) {
+                raRender(_ra.cache[_ra.section]);
+            }
+            raMarkActive();
+        }
+
+        function raArmBanner() {
+            const box = raQ('arm');
+            if (!box || !_ra || !_ra.arm) return;
+            const st = _ra.arm;
+            box.innerHTML = '';
+            const send = (type, extra) => {
+                if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
+            };
+            if (st.permanent) {
+                box.appendChild(raEl('span', 'color:#92400e', '✏️ Writes enabled permanently (remote_admin_write in config.json)'));
+                return;
+            }
+            const left = _ra.armEnds ? Math.max(0, Math.round((_ra.armEnds - Date.now()) / 1000)) : 0;
+            if (left > 0) {
+                box.appendChild(raEl('span', 'color:#166534;font-weight:bold', '✏️ Writes armed · ' +
+                    Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ' left'));
+                const off = raEl('button', RA_BTN, 'Disarm now');
+                off.type = 'button';
+                off.addEventListener('click', () => { raLog('→ disarm writes'); send('remote_admin_disarm'); });
+                box.appendChild(off);
+            } else {
+                if (_ra.armTimer) { clearInterval(_ra.armTimer); _ra.armTimer = null; }
+                if (_ra.writeEnabled) {   // the window just ran out
+                    _ra.writeEnabled = false;
+                    raLog('writes disarmed: the armed window has ended', '#fcd34d');
+                    if (_ra.section && _ra.cache[_ra.section] && !_ra.edit && !_ra.verify) raRender(_ra.cache[_ra.section]);
+                    raMarkActive();
+                }
+                box.appendChild(raEl('span', 'color:#6b7280', 'Read-only.'));
+                const on = raEl('button', RA_BTN, 'Arm writes for 60 min');
+                on.type = 'button';
+                on.addEventListener('click', () => { raLog('→ arm writes for 60 min'); send('remote_admin_arm', { minutes: 60 }); });
+                box.appendChild(on);
+            }
         }
 
         function raOnEsc(e) { if (e.key === 'Escape') closeRemoteAdmin(); }
@@ -1377,6 +1434,7 @@
             if (m) m.remove();
             document.removeEventListener('keydown', raOnEsc);
             if (_ra && _ra.verifyTimer) clearInterval(_ra.verifyTimer);
+            if (_ra && _ra.armTimer) clearInterval(_ra.armTimer);
             _ra = null;
         }
 
@@ -1460,7 +1518,7 @@
             if (res.ok) {
                 raLog('← ' + res.section + ' OK in ' + res.rtt + ' s', '#86efac');
                 _ra.cache[res.section] = res;
-                if (res.write_enabled) _ra.writeEnabled = true;
+                if (res.write_enabled && !_ra.arm) _ra.writeEnabled = true;
             } else {
                 raLog('← ' + res.section + ' ' + res.error + (res.rtt ? ' in ' + res.rtt + ' s' : ''), '#fca5a5');
             }
@@ -1541,14 +1599,15 @@
             if (!res.ok) { raShowError(res); return; }
             body.innerHTML = '';
             const head = raEl('div', 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px');
-            if (res.write_enabled && res.section_writable && !_ra.edit && !marks) {
+            const canWrite = _ra.arm ? !!_ra.writeEnabled : !!res.write_enabled;
+            if (canWrite && res.section_writable && !_ra.edit && !marks) {
                 const b = raEl('button', RA_BTN, '✏️ Edit');
                 b.type = 'button';
                 b.addEventListener('click', () => { _ra.edit = true; raMarkActive(); raRender(res); });
                 head.appendChild(b);
-            } else if (!res.write_enabled) {
+            } else if (!canWrite) {
                 head.appendChild(raEl('span', 'color:#9ca3af;font-size:11px',
-                    'Read-only: writing is switched off on this mapper (remote_admin_write in config.json).'));
+                    'Read-only: arm writes above to edit.'));
             } else if (!res.section_writable) {
                 head.appendChild(raEl('span', 'color:#92400e;font-size:11px', '🔒 ' + (res.section_reason || 'Not writable.')));
             }

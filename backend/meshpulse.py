@@ -755,6 +755,17 @@ class StatsDB:
             finally:
                 conn.close()
 
+    def recent_admin_actions(self, limit=10):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                rows = conn.execute('SELECT ts, dest, action, section, changes, outcome FROM admin_audit '
+                                    'ORDER BY id DESC LIMIT ?', (int(limit),)).fetchall()
+            finally:
+                conn.close()
+        return [{'ts': r[0], 'dest': r[1], 'action': r[2], 'section': r[3], 'changes': r[4], 'outcome': r[5]}
+                for r in rows]
+
     def get_public_key(self, node_id):
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
@@ -3097,6 +3108,58 @@ class ListenBasedMapper:
         n = self.nodes.get(node_id) or self.nodes_no_position.get(node_id) or {}
         return (n.get('name') or self.known_names.get(node_id) or node_id)[:39]
 
+    # Writes are allowed when config.json says so permanently, or for a limited time
+    # after someone arms them from the Config page. Shared by every mapper instance
+    # (the mapper object is rebuilt on reconnect; an armed window must survive that).
+    REMOTE_ADMIN_ARM = {'until': 0.0, 'by': None}
+    REMOTE_ADMIN_ARM_MINUTES = (15, 30, 60, 120)
+
+    def remote_admin_write_enabled(self):
+        return bool(self.config.get('remote_admin_write', False)) or time.time() < self.REMOTE_ADMIN_ARM['until']
+
+    def remote_admin_state(self):
+        now = time.time()
+        until = self.REMOTE_ADMIN_ARM['until']
+        try:
+            recent = self.stats_db.recent_admin_actions(10)
+        except Exception:
+            recent = []
+        return {
+            'permanent': bool(self.config.get('remote_admin_write', False)),
+            'armed': until > now,
+            'armed_until': int(until) if until > now else 0,
+            'remaining': max(0, int(until - now)),
+            'armed_by': self.REMOTE_ADMIN_ARM['by'] if until > now else None,
+            'enabled': self.remote_admin_write_enabled(),
+            'minutes_options': list(self.REMOTE_ADMIN_ARM_MINUTES),
+            'recent': recent,
+        }
+
+    def remote_admin_arm(self, minutes, client):
+        minutes = int(minutes) if str(minutes).isdigit() else 60
+        if minutes not in self.REMOTE_ADMIN_ARM_MINUTES:
+            minutes = 60
+        self.REMOTE_ADMIN_ARM['until'] = time.time() + minutes * 60
+        self.REMOTE_ADMIN_ARM['by'] = client
+        try:
+            self.stats_db.log_admin_action('-', 'arm', None, json.dumps({'minutes': minutes, 'client': client}), 'armed')
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] remote writes armed for {minutes} min by {client}")
+        return self.remote_admin_state()
+
+    def remote_admin_disarm(self, client):
+        was = self.REMOTE_ADMIN_ARM['until'] > time.time()
+        self.REMOTE_ADMIN_ARM['until'] = 0.0
+        self.REMOTE_ADMIN_ARM['by'] = None
+        if was:
+            try:
+                self.stats_db.log_admin_action('-', 'disarm', None, json.dumps({'client': client}), 'disarmed')
+            except Exception as e:
+                print(f"[ADMIN] audit log failed: {e}")
+            print(f"[ADMIN] remote writes disarmed by {client}")
+        return self.remote_admin_state()
+
     # Sections that may be written remotely, and why the others may not (yet).
     # Full remote configuration is the goal; these guards are a policy layer, so
     # opening a section or field later is a one-line change here, not a rewrite.
@@ -3286,7 +3349,7 @@ class ListenBasedMapper:
         values = MessageToDict(body, preserving_proto_field_name=True)
         if 'private_key' in values:  # never let a private key reach a browser
             values['private_key'] = '(hidden)'
-        write_enabled = bool(self.config.get('remote_admin_write', False))
+        write_enabled = self.remote_admin_write_enabled()
         result.update(ok=True, values=values, schema=self._ra_schema(section, body),
                       write_enabled=write_enabled,
                       section_writable=section in self.REMOTE_ADMIN_WRITABLE,
@@ -3361,10 +3424,10 @@ class ListenBasedMapper:
         from meshtastic.protobuf import admin_pb2
         steps = []
         result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
-        if not self.config.get('remote_admin_write', False):
+        if not self.remote_admin_write_enabled():
             result['error'] = 'WRITE_DISABLED'
-            result['hint'] = ('Remote writing is switched off on this mapper. Set "remote_admin_write": true '
-                              'in /var/www/html/meshpulse/config.json and restart the service.')
+            result['hint'] = ('Remote writing is not armed. Arm it for a limited time in Config > Remote admin, '
+                              'or set "remote_admin_write": true in /var/www/html/meshpulse/config.json.')
             return result
         if section not in self.REMOTE_ADMIN_WRITABLE:
             result['error'] = 'SECTION_LOCKED'
@@ -3416,9 +3479,9 @@ class ListenBasedMapper:
         from meshtastic.protobuf import admin_pb2
         steps = []
         result = {'dest': dest, 'ok': False, 'steps': steps}
-        if not self.config.get('remote_admin_write', False):
+        if not self.remote_admin_write_enabled():
             result['error'] = 'WRITE_DISABLED'
-            result['hint'] = 'Remote writing is switched off on this mapper (remote_admin_write in config.json).'
+            result['hint'] = 'Remote writing is not armed (Config > Remote admin, or remote_admin_write in config.json).'
             return result
         iface = self._ra_prepare(dest, 'metadata', result)
         if iface is None:
@@ -6611,6 +6674,17 @@ async def websocket_handler(websocket):
                     else:
                         res = {'dest': dest, 'section': section, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
                     await websocket.send(safe_json({'type': 'remote_admin_set_result', 'data': res}))
+                elif data.get('type') in ('remote_admin_state', 'remote_admin_arm', 'remote_admin_disarm'):
+                    who = f"{client_addr[0]}" if client_addr else 'unknown'
+                    if not mapper:
+                        state = {'enabled': False, 'permanent': False, 'armed': False, 'remaining': 0, 'recent': []}
+                    elif data['type'] == 'remote_admin_arm':
+                        state = await asyncio.to_thread(mapper.remote_admin_arm, data.get('minutes', 60), who)
+                    elif data['type'] == 'remote_admin_disarm':
+                        state = await asyncio.to_thread(mapper.remote_admin_disarm, who)
+                    else:
+                        state = await asyncio.to_thread(mapper.remote_admin_state)
+                    await websocket.send(safe_json({'type': 'remote_admin_state', 'data': state}))
                 elif data.get('type') == 'remote_admin_reboot':
                     dest = str(data.get('node_id', '')).strip().lower()
                     if mapper:
