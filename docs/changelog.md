@@ -16,6 +16,17 @@
   node info with the target to get it. Private keys are never sent to the browser.
   Nothing is written to the remote node yet. New WebSocket request
   `remote_admin_get`.
+- New: Remote admin can write. ✏️ Edit turns a section into a form generated
+  from the firmware's own protobuf definitions (types, enum options, defaults);
+  Review shows old → new for every changed field, Apply sends the whole section
+  back with the session key from a fresh read, and 20 s later MeshPulse reads it
+  again and marks each field ✓ or ✗. Reboot is a two-click button. Writing is
+  off unless `remote_admin_write: true` is set in `config.json`, every write is
+  recorded in `admin_audit` in `stats.db`, and fields that could cut a node off
+  the mesh are locked with the reason shown: LoRa radio parameters, Security,
+  Network, Bluetooth, device role, licensed mode, power saving. The guards are
+  a policy table in the backend, meant to be opened up as remote configuration
+  grows towards full coverage.
 - New: Public key store (`node_keys` in `stats.db`). Every key seen in NodeInfo
   packets or in the radio's NodeDB is kept, because the radio holds 80 nodes and
   drops keys constantly in a city mesh. Before an admin request, a dropped key is

@@ -475,6 +475,17 @@ class StatsDB:
                 via_mqtt INTEGER NOT NULL DEFAULT 0,
                 changes INTEGER NOT NULL DEFAULT 0
             )''')
+            # Every remote admin write: who was changed, what, and whether it took
+            c.execute('''CREATE TABLE IF NOT EXISTS admin_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                dest TEXT NOT NULL,
+                action TEXT NOT NULL,
+                section TEXT,
+                changes TEXT,
+                outcome TEXT,
+                rtt REAL
+            )''')
             # One row per (hour, portnum): a port the mapper starts logging later is a
             # new row, not a schema migration.
             c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly_port (
@@ -731,6 +742,16 @@ class StatsDB:
                     outcome = 'changed'
                 conn.commit()
                 return outcome
+            finally:
+                conn.close()
+
+    def log_admin_action(self, dest, action, section, changes, outcome, rtt=None):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                conn.execute('INSERT INTO admin_audit (ts, dest, action, section, changes, outcome, rtt) '
+                             'VALUES (?,?,?,?,?,?,?)', (int(time.time()), dest, action, section, changes, outcome, rtt))
+                conn.commit()
             finally:
                 conn.close()
 
@@ -1110,6 +1131,7 @@ def load_config():
     config.setdefault('coverage_max_range_km', 50)
     config.setdefault('plugin_store_url', 'https://meshpulse.app/plugins/plugins.json')
     config.setdefault('stats_retention_days', StatsDB.DEFAULT_RETENTION_DAYS)
+    config.setdefault('remote_admin_write', False)
     return config
 
 
@@ -2974,7 +2996,6 @@ class ListenBasedMapper:
         'ADMIN_PUBLIC_KEY_UNAUTHORIZED': "The node answered, but your tracker's public key is not one of its admin keys. "
                                          "Add it on that node under Security > Admin Key (up to three keys).",
         'NOT_AUTHORIZED': "The node refused the request: your tracker is not authorised to administer it.",
-        'ADMIN_BAD_SESSION_KEY': "The admin session expired. Read any section again to get a fresh one.",
         'PKI_FAILED': "Your tracker could not encrypt for this node: it does not hold the node's public key.",
         'PKI_UNKNOWN_PUBKEY': "The node does not know your tracker's public key yet.",
         'NO_RESPONSE': "The request was delivered, but nothing answered it.",
@@ -2983,6 +3004,7 @@ class ListenBasedMapper:
         'NO_CHANNEL': "The node is not on a channel your tracker can use for admin.",
         'TOO_LARGE': "The answer did not fit in one packet.",
         'PKI_SEND_FAIL_PUBLIC_KEY': "Your radio does not hold this node's public key, so it refused to encrypt for it.",
+        'ADMIN_BAD_SESSION_KEY': "The node rejected the write: the session key from the read had expired. Try again.",
     }
 
     def _remember_key(self, node_id, public_key_b64, via_mqtt=False):
@@ -3008,7 +3030,7 @@ class ListenBasedMapper:
         return None
 
     @staticmethod
-    def _send_and_wait(iface, payload, dest, port, timeout, **kw):
+    def _send_and_wait(iface, payload, dest, port, timeout, want_response=True, **kw):
         """sendData with onResponse, without the library's blocking waitForAckNak,
         which fights the listener on serial. Returns (rtt_seconds, packet) or (None, None)."""
         done, box = threading.Event(), {}
@@ -3018,7 +3040,7 @@ class ListenBasedMapper:
             done.set()
 
         t0 = time.time()
-        iface.sendData(payload, dest, portNum=port, wantResponse=True, onResponse=_on_response, **kw)
+        iface.sendData(payload, dest, portNum=port, wantResponse=want_response, onResponse=_on_response, **kw)
         if not done.wait(timeout):
             return None, None
         return box['t'] - t0, box['p']
@@ -3075,29 +3097,182 @@ class ListenBasedMapper:
         n = self.nodes.get(node_id) or self.nodes_no_position.get(node_id) or {}
         return (n.get('name') or self.known_names.get(node_id) or node_id)[:39]
 
-    def remote_admin_get(self, dest, section, timeout=45):
-        """Read one config section from a remote node over PKC admin. Read-only."""
-        from google.protobuf.json_format import MessageToDict
-        from meshtastic.protobuf import admin_pb2
+    # Sections that may be written remotely, and why the others may not (yet).
+    # Full remote configuration is the goal; these guards are a policy layer, so
+    # opening a section or field later is a one-line change here, not a rewrite.
+    REMOTE_ADMIN_WRITABLE = {'owner', 'device', 'position', 'power', 'display', 'telemetry',
+                             'neighborinfo', 'range_test', 'store_forward'}
+    REMOTE_ADMIN_GUARDED_SECTIONS = {
+        'lora': 'Radio parameters. A wrong region, preset or channel cuts the node off the mesh, '
+                'and only a cable brings it back.',
+        'security': 'Keys and admin settings. One wrong value locks remote admin out for good.',
+        'network': 'Network settings can take away the interfaces you would use to rescue the node.',
+        'bluetooth': 'Bluetooth settings can take away the interfaces you would use to rescue the node.',
+        'mqtt': 'Not writable yet.',
+        'metadata': 'Read-only by nature.',
+    }
+    REMOTE_ADMIN_GUARDED_FIELDS = {
+        'device.role': 'The role decides how the node relays. Not remotely yet.',
+        'owner.is_licensed': 'Licensed (ham) mode switches encryption off, PKC included: remote admin would stop working.',
+        'power.is_power_saving': 'A sleeping node may stop answering admin requests.',
+    }
+    REMOTE_ADMIN_OWNER_EDITABLE = {'long_name', 'short_name', 'is_unmessagable'}
+    # field name of the section inside Config / ModuleConfig
+    REMOTE_ADMIN_ONEOF = {
+        'device': 'device', 'position': 'position', 'power': 'power', 'network': 'network',
+        'display': 'display', 'lora': 'lora', 'bluetooth': 'bluetooth', 'security': 'security',
+        'mqtt': 'mqtt', 'telemetry': 'telemetry', 'neighborinfo': 'neighbor_info',
+        'store_forward': 'store_forward', 'range_test': 'range_test',
+    }
 
-        steps = []
-        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
-        if section not in self.REMOTE_ADMIN_SECTIONS:
+    def _ra_prepare(self, dest, section, result):
+        """Validate the request and return the live interface, or None with result filled."""
+        if section is not None and section not in self.REMOTE_ADMIN_SECTIONS:
             result['error'] = 'UNKNOWN_SECTION'
-            return result
+            return None
         if not dest or not re.fullmatch(r'![0-9a-f]{8}', dest):
             result['error'] = 'BAD_NODE_ID'
-            return result
+            return None
         iface = self._mesh_iface()
         if iface is None:
             result['error'] = 'NOT_CONNECTED'
             result['hint'] = 'MeshPulse is not connected to its radio right now.'
-            return result
+            return None
         if not hasattr(self, '_remote_admin_lock'):
             self._remote_admin_lock = threading.Lock()
             self._remote_admin_sessions = {}
         result['tracker_public_key'] = base64.b64encode(iface.localNode.localConfig.security.public_key).decode()
+        return iface
 
+    def _ra_send(self, iface, dest, msg, timeout, steps, result, expect_reply=True):
+        """One PKC admin round trip. With expect_reply the answer is an admin message;
+        without it (set_*, reboot) the node only acknowledges, so the ACK is the answer.
+        Returns the reply packet, or None with result['error'] filled."""
+        kw = dict(wantAck=True, pkiEncrypted=True, channelIndex=iface.localNode._getAdminChannelIndex())
+        if not expect_reply:
+            kw.update(want_response=False, onResponseAckPermitted=True)
+        rtt, packet = self._send_and_wait(iface, msg, dest, portnums_pb2.PortNum.ADMIN_APP, timeout, **kw)
+        if packet is None:
+            result['error'] = 'TIMEOUT'
+            result['hint'] = f'No answer within {timeout} s. The node may be out of reach, asleep or busy.'
+            steps.append(result['hint'])
+            return None
+        result['rtt'] = round(rtt, 2)
+        decoded = packet.get('decoded', {})
+        if 'routing' in decoded:
+            reason = decoded['routing'].get('errorReason', 'NONE')
+            if reason == 'NONE' and not expect_reply:
+                steps.append(f'Acknowledged in {rtt:.1f} s')
+                return packet
+            result['error'] = reason
+            result['hint'] = self.REMOTE_ADMIN_HINTS.get(reason, '')
+            steps.append(f'{reason} after {rtt:.1f} s')
+            return None
+        return packet
+
+    def _ra_read(self, iface, dest, section, timeout, steps, result):
+        """Read one section. Returns its protobuf message (Config.XConfig, ModuleConfig.X,
+        User or DeviceMetadata), or None with result filled. Remembers the session key."""
+        from meshtastic.protobuf import admin_pb2
+        field, enum_name, value = self.REMOTE_ADMIN_SECTIONS[section]
+        msg = admin_pb2.AdminMessage()
+        if enum_name is None:
+            setattr(msg, field, True)
+        else:
+            setattr(msg, field, getattr(admin_pb2.AdminMessage, enum_name).Value(value))
+        steps.append(f'Sent {field} ({section})')
+        packet = self._ra_send(iface, dest, msg, timeout, steps, result)
+        if packet is None:
+            return None
+        raw = packet.get('decoded', {}).get('admin', {}).get('raw')
+        if raw is None:
+            result['error'] = 'UNEXPECTED_REPLY'
+            return None
+        if raw.session_passkey:
+            self._remote_admin_sessions[dest] = (raw.session_passkey, time.time())
+        which = raw.WhichOneof('payload_variant')
+        body = getattr(raw, which)
+        if which in ('get_config_response', 'get_module_config_response'):
+            body = getattr(body, body.WhichOneof('payload_variant'))
+        result['reply'] = which
+        steps.append(f'Answered in {result["rtt"]:.1f} s')
+        return body
+
+    def _ra_schema(self, section, body):
+        """Every scalar field of the section with its type, enum options, current value
+        (defaults included, which MessageToDict would drop) and whether it may be written."""
+        from google.protobuf.descriptor import FieldDescriptor as FD
+        ints = {FD.TYPE_INT32, FD.TYPE_INT64, FD.TYPE_UINT32, FD.TYPE_UINT64, FD.TYPE_SINT32,
+                FD.TYPE_SINT64, FD.TYPE_FIXED32, FD.TYPE_FIXED64, FD.TYPE_SFIXED32, FD.TYPE_SFIXED64}
+        unsigned = {FD.TYPE_UINT32, FD.TYPE_UINT64, FD.TYPE_FIXED32, FD.TYPE_FIXED64}
+        section_ok = section in self.REMOTE_ADMIN_WRITABLE
+        out = []
+
+        def walk(msg, prefix):
+            for f in msg.DESCRIPTOR.fields:
+                if f.GetOptions().deprecated:
+                    continue
+                path = prefix + f.name
+                repeated = getattr(f, 'is_repeated', None)
+                if repeated is None:
+                    repeated = f.label == FD.LABEL_REPEATED
+                if f.type == FD.TYPE_MESSAGE and not repeated:
+                    walk(getattr(msg, f.name), path + '.')
+                    continue
+                v = getattr(msg, f.name)
+                e = {'path': path}
+                if repeated:
+                    e['type'] = 'list'
+                    e['value'] = [base64.b64encode(x).decode() if isinstance(x, bytes) else str(x) for x in v]
+                elif f.type == FD.TYPE_BYTES:
+                    e['type'], e['value'] = 'bytes', base64.b64encode(v).decode()
+                elif f.type == FD.TYPE_ENUM:
+                    e['type'] = 'enum'
+                    e['options'] = [ev.name for ev in f.enum_type.values]
+                    ev = f.enum_type.values_by_number.get(v)
+                    e['value'] = ev.name if ev else str(v)
+                elif f.type == FD.TYPE_BOOL:
+                    e['type'], e['value'] = 'bool', bool(v)
+                elif f.type in (FD.TYPE_FLOAT, FD.TYPE_DOUBLE):
+                    e['type'], e['value'] = 'float', round(float(v), 6)
+                elif f.type in ints:
+                    e['type'], e['value'] = 'int', int(v)
+                    if f.type in unsigned:
+                        e['min'] = 0
+                elif f.type == FD.TYPE_STRING:
+                    e['type'], e['value'] = 'string', v
+                else:
+                    continue
+                full = f'{section}.{path}'
+                if path == 'private_key':
+                    e['value'] = '(hidden)'
+                if not section_ok:
+                    e['editable'], e['reason'] = False, self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section, 'Not writable.')
+                elif full in self.REMOTE_ADMIN_GUARDED_FIELDS:
+                    e['editable'], e['reason'] = False, self.REMOTE_ADMIN_GUARDED_FIELDS[full]
+                elif section == 'owner' and path not in self.REMOTE_ADMIN_OWNER_EDITABLE:
+                    e['editable'], e['reason'] = False, 'Identity field, set by the firmware.'
+                elif e['type'] in ('list', 'bytes'):
+                    e['editable'], e['reason'] = False, 'Lists and binary fields are not editable yet.'
+                else:
+                    e['editable'] = True
+                if section == 'owner' and path == 'long_name':
+                    e['max_bytes'] = 39
+                elif section == 'owner' and path == 'short_name':
+                    e['max_bytes'] = 4
+                out.append(e)
+
+        walk(body, '')
+        return out
+
+    def remote_admin_get(self, dest, section, timeout=45):
+        """Read one config section from a remote node over PKC admin."""
+        from google.protobuf.json_format import MessageToDict
+        steps = []
+        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
+        iface = self._ra_prepare(dest, section, result)
+        if iface is None:
+            return result
         with self._remote_admin_lock:  # one admin conversation at a time
             if not self._ensure_remote_pubkey(iface, dest, steps):
                 result['error'] = 'PKI_UNKNOWN_PUBKEY'
@@ -3105,45 +3280,172 @@ class ListenBasedMapper:
                                   "node info request. It is stored automatically the next time the node broadcasts "
                                   "its node info (every few hours); try again after that.")
                 return result
-            field, enum_name, value = self.REMOTE_ADMIN_SECTIONS[section]
-            msg = admin_pb2.AdminMessage()
-            if enum_name is None:
-                setattr(msg, field, True)
-            else:
-                setattr(msg, field, getattr(admin_pb2.AdminMessage, enum_name).Value(value))
-            steps.append(f'Sent {field} ({section})')
-            rtt, packet = self._send_and_wait(iface, msg, dest, portnums_pb2.PortNum.ADMIN_APP, timeout,
-                                              wantAck=True, pkiEncrypted=True,
-                                              channelIndex=iface.localNode._getAdminChannelIndex())
-            if packet is None:
-                result['error'] = 'TIMEOUT'
-                result['hint'] = f'No answer within {timeout} s. The node may be out of reach, asleep or busy.'
-                steps.append(result['hint'])
+            body = self._ra_read(iface, dest, section, timeout, steps, result)
+            if body is None:
                 return result
-            result['rtt'] = round(rtt, 2)
-            decoded = packet.get('decoded', {})
-            if 'routing' in decoded:
-                reason = decoded['routing'].get('errorReason', 'UNKNOWN')
-                result['error'] = reason
-                result['hint'] = self.REMOTE_ADMIN_HINTS.get(reason, '')
-                steps.append(f'{reason} after {rtt:.1f} s')
-                return result
-            raw = decoded.get('admin', {}).get('raw')
-            if raw is None:
-                result['error'] = 'UNEXPECTED_REPLY'
-                return result
-            if raw.session_passkey:
-                self._remote_admin_sessions[dest] = (raw.session_passkey, time.time())
-            which = raw.WhichOneof('payload_variant')
-            body = getattr(raw, which)
-            if which in ('get_config_response', 'get_module_config_response'):
-                body = getattr(body, body.WhichOneof('payload_variant'))
-            values = MessageToDict(body, preserving_proto_field_name=True)
-            if 'private_key' in values:  # never let a private key reach a browser
-                values['private_key'] = '(hidden)'
-            result.update(ok=True, values=values, reply=which)
-            steps.append(f'Answered in {rtt:.1f} s')
+        values = MessageToDict(body, preserving_proto_field_name=True)
+        if 'private_key' in values:  # never let a private key reach a browser
+            values['private_key'] = '(hidden)'
+        write_enabled = bool(self.config.get('remote_admin_write', False))
+        result.update(ok=True, values=values, schema=self._ra_schema(section, body),
+                      write_enabled=write_enabled,
+                      section_writable=section in self.REMOTE_ADMIN_WRITABLE,
+                      section_reason=self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section))
+        return result
+
+    def _ra_apply_changes(self, section, body, changes):
+        """Apply {path: value} to a copy of the section. Returns (new_body, diff, error)."""
+        schema = {e['path']: e for e in self._ra_schema(section, body)}
+        new = type(body)()
+        new.CopyFrom(body)
+        diff = []
+        if not isinstance(changes, dict) or not changes:
+            return None, None, 'No changes given.'
+        for path, value in changes.items():
+            e = schema.get(path)
+            if e is None:
+                return None, None, f'Unknown field: {path}'
+            if not e.get('editable'):
+                return None, None, f'{path} is locked: {e.get("reason", "")}'
+            try:
+                if e['type'] == 'bool':
+                    if not isinstance(value, bool):
+                        raise ValueError('expected true or false')
+                    new_v = value
+                elif e['type'] == 'int':
+                    if isinstance(value, bool) or float(value) != int(float(value)):
+                        raise ValueError('expected a whole number')
+                    new_v = int(float(value))
+                    if e.get('min') is not None and new_v < e['min']:
+                        raise ValueError(f'must be at least {e["min"]}')
+                elif e['type'] == 'float':
+                    new_v = float(value)
+                elif e['type'] == 'string':
+                    new_v = str(value)
+                    if e.get('max_bytes') and len(new_v.encode('utf-8')) > e['max_bytes']:
+                        raise ValueError(f'at most {e["max_bytes"]} bytes')
+                    if path in ('long_name', 'short_name') and not new_v.strip():
+                        raise ValueError('cannot be empty')
+                elif e['type'] == 'enum':
+                    if value not in e['options']:
+                        raise ValueError('not one of ' + ', '.join(e['options']))
+                    new_v = value
+                else:
+                    raise ValueError('not editable')
+            except (TypeError, ValueError) as err:
+                return None, None, f'{path}: {err}'
+            parent = new
+            parts = path.split('.')
+            for p in parts[:-1]:
+                parent = getattr(parent, p)
+            leaf = parts[-1]
+            try:
+                if e['type'] == 'enum':
+                    fd = parent.DESCRIPTOR.fields_by_name[leaf]
+                    setattr(parent, leaf, fd.enum_type.values_by_name[new_v].number)
+                else:
+                    setattr(parent, leaf, new_v)
+            except (TypeError, ValueError) as err:   # e.g. out of range for uint32
+                return None, None, f'{path}: {err}'
+            if new_v != e['value']:
+                diff.append({'path': path, 'old': e['value'], 'new': new_v})
+        if not diff:
+            return None, None, 'Nothing changed.'
+        return new, diff, None
+
+    def remote_admin_set(self, dest, section, changes, timeout=45):
+        """Write changed fields of one section to a remote node. Reads the section first
+        (current values plus a fresh session key), applies only the given fields, sends
+        the whole section back. The caller verifies by reading again after the node has
+        had time to restart."""
+        from meshtastic.protobuf import admin_pb2
+        steps = []
+        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
+        if not self.config.get('remote_admin_write', False):
+            result['error'] = 'WRITE_DISABLED'
+            result['hint'] = ('Remote writing is switched off on this mapper. Set "remote_admin_write": true '
+                              'in /var/www/html/meshpulse/config.json and restart the service.')
             return result
+        if section not in self.REMOTE_ADMIN_WRITABLE:
+            result['error'] = 'SECTION_LOCKED'
+            result['hint'] = self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section, 'This section is not writable.')
+            return result
+        iface = self._ra_prepare(dest, section, result)
+        if iface is None:
+            return result
+        with self._remote_admin_lock:
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                return result
+            body = self._ra_read(iface, dest, section, timeout, steps, result)
+            if body is None:
+                return result
+            new_body, diff, err = self._ra_apply_changes(section, body, changes)
+            if err:
+                result['error'], result['hint'] = 'INVALID_CHANGE', err
+                steps.append(err)
+                return result
+            passkey = self._remote_admin_sessions.get(dest, (b'', 0))[0]
+            msg = admin_pb2.AdminMessage()
+            if section == 'owner':
+                msg.set_owner.CopyFrom(new_body)
+                what = 'set_owner'
+            elif self.REMOTE_ADMIN_SECTIONS[section][0] == 'get_config_request':
+                getattr(msg.set_config, self.REMOTE_ADMIN_ONEOF[section]).CopyFrom(new_body)
+                what = 'set_config'
+            else:
+                getattr(msg.set_module_config, self.REMOTE_ADMIN_ONEOF[section]).CopyFrom(new_body)
+                what = 'set_module_config'
+            if passkey:
+                msg.session_passkey = passkey
+            steps.append(f'Sent {what} ({section}): ' + ', '.join(f"{d['path']} {d['old']} -> {d['new']}" for d in diff))
+            packet = self._ra_send(iface, dest, msg, timeout, steps, result, expect_reply=False)
+        outcome = 'applied' if packet is not None else result.get('error', 'FAILED')
+        try:
+            self.stats_db.log_admin_action(dest, 'set', section, json.dumps(diff), outcome, result.get('rtt'))
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] set {section} on {dest}: {outcome} " + json.dumps(diff))
+        if packet is None:
+            return result
+        result.update(ok=True, diff=diff)
+        return result
+
+    def remote_admin_reboot(self, dest, seconds=5, timeout=45):
+        """Ask a remote node to reboot. Needs a session key, so it reads metadata first."""
+        from meshtastic.protobuf import admin_pb2
+        steps = []
+        result = {'dest': dest, 'ok': False, 'steps': steps}
+        if not self.config.get('remote_admin_write', False):
+            result['error'] = 'WRITE_DISABLED'
+            result['hint'] = 'Remote writing is switched off on this mapper (remote_admin_write in config.json).'
+            return result
+        iface = self._ra_prepare(dest, 'metadata', result)
+        if iface is None:
+            return result
+        seconds = max(1, min(60, int(seconds or 5)))
+        with self._remote_admin_lock:
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                return result
+            if self._ra_read(iface, dest, 'metadata', timeout, steps, result) is None:
+                return result
+            msg = admin_pb2.AdminMessage()
+            msg.reboot_seconds = seconds
+            passkey = self._remote_admin_sessions.get(dest, (b'', 0))[0]
+            if passkey:
+                msg.session_passkey = passkey
+            steps.append(f'Sent reboot_seconds={seconds}')
+            packet = self._ra_send(iface, dest, msg, timeout, steps, result, expect_reply=False)
+        outcome = 'applied' if packet is not None else result.get('error', 'FAILED')
+        try:
+            self.stats_db.log_admin_action(dest, 'reboot', None, json.dumps({'seconds': seconds}), outcome, result.get('rtt'))
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] reboot {dest} in {seconds} s: {outcome}")
+        if packet is not None:
+            result.update(ok=True, seconds=seconds)
+        return result
 
     # Ports whose Python API parsers call log_packet_to_stats themselves.
     # Every other packet is counted once, at the router, by _log_unparsed_packet.
@@ -6297,6 +6599,29 @@ async def websocket_handler(websocket):
                     print(f"[ADMIN] get {section} from {dest}: {'OK' if res.get('ok') else res.get('error')}"
                           f"{' in %.1f s' % res['rtt'] if res.get('rtt') else ''}")
                     await websocket.send(safe_json({'type': 'remote_admin_result', 'data': res}))
+                elif data.get('type') == 'remote_admin_set':
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    section = str(data.get('section', ''))
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_set, dest, section, data.get('changes'))
+                        except Exception as e:
+                            print(f"[ADMIN] set {dest} {section}: {e}")
+                            res = {'dest': dest, 'section': section, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'section': section, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    await websocket.send(safe_json({'type': 'remote_admin_set_result', 'data': res}))
+                elif data.get('type') == 'remote_admin_reboot':
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_reboot, dest, data.get('seconds', 5))
+                        except Exception as e:
+                            print(f"[ADMIN] reboot {dest}: {e}")
+                            res = {'dest': dest, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    await websocket.send(safe_json({'type': 'remote_admin_reboot_result', 'data': res}))
                 elif data.get('type') == 'ping_device':
                     try:
                         is_connected = False
