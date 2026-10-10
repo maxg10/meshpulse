@@ -27,6 +27,17 @@
 - Fix: TELEMETRY and TEXT packets were logged with `via_mqtt` hardcoded to false
   and no hops or SNR. MQTT telemetry counted as radio traffic and could raise
   "too frequent telemetry" anomalies against nodes that are not even in range.
+- New: Traffic History card at the top of Stats, with 24h / 7d / 30d / 1y ranges
+  from the hourly rollup. It sets what MeshPulse logged (RF and MQTT) against
+  what the node's radio actually heard (firmware counters, duplicates removed),
+  and charts channel utilisation (average and peak), duplicate and bad-CRC
+  rates, and the packet type mix, with range totals on top and a CSV export.
+  Hours with no data stay gaps; days with fewer than 24 recorded hours are drawn
+  lighter and starred. Served by a new WebSocket request, `get_traffic_history`,
+  which reads only the rollup, a few hundred rows at most, never the raw tables.
+- Fix: `install.sh` reported "web server NOT FOUND" when run over ssh. lighttpd
+  and apache2 live in `/usr/sbin`, which is not on a non-login shell's PATH on
+  Debian, so the check failed although the server was running.
 - Fix: A packet that arrived with its hop limit used up was logged with unknown
   hops: protobuf leaves zero-valued fields out of the dict, so `hopLimit` was
   missing and the hop count was dropped, for exactly the packets that travelled

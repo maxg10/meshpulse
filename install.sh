@@ -85,6 +85,10 @@ else
 fi
 
 # Check web server (lighttpd or apache2)
+# Both binaries live in /usr/sbin, which a non-login shell (ssh host './install.sh',
+# cron, CI) does not have on its PATH on Debian: the server is running, yet the
+# check reported it missing and the install stopped.
+export PATH="$PATH:/usr/sbin:/sbin"
 if command -v lighttpd &> /dev/null; then
     LIGHTTPD_VER=$(lighttpd -v 2>&1 | head -1 | awk '{print $1}')
     echo -e "${GREEN}✅ lighttpd - OK ($LIGHTTPD_VER)${NC}"

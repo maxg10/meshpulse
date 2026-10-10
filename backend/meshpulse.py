@@ -693,6 +693,66 @@ class StatsDB:
                 hour = (nxt // 3600) * 3600
         return written
 
+    # range key -> (span in seconds, bucket in seconds)
+    HISTORY_RANGES = {
+        '24h': (86400, 3600),
+        '7d': (7 * 86400, 3600),
+        '30d': (30 * 86400, 86400),
+        '1y': (365 * 86400, 86400),
+    }
+
+    def get_traffic_history(self, range_key='7d', now=None):
+        """Rollup rows for the Stats history charts.
+
+        24h and 7d come back per hour, 30d and 1y per local calendar day. Only
+        complete hours exist in the rollup, so the newest bucket is the last full
+        hour. Daily rows aggregate the hourly ones: counters are summed, channel
+        utilisation is averaged weighted by radio samples, and `senders` becomes
+        the busiest hour of the day (distinct senders do not add up across hours).
+        """
+        if range_key not in self.HISTORY_RANGES:
+            range_key = '7d'
+        span, bucket = self.HISTORY_RANGES[range_key]
+        now = int(time.time() if now is None else now)
+        since = (now // 3600) * 3600 - span
+        key = 'hour_ts' if bucket == 3600 else "date(hour_ts, 'unixepoch', 'localtime')"
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(f'''SELECT {key} AS bucket_key, MIN(hour_ts) AS ts,
+                        COUNT(*) AS hours,
+                        SUM(pkts_rf) AS pkts_rf, SUM(pkts_mqtt) AS pkts_mqtt,
+                        MAX(senders) AS senders,
+                        SUM(radio_rx) AS radio_rx, SUM(radio_dupe) AS radio_dupe,
+                        SUM(radio_bad) AS radio_bad, SUM(radio_tx) AS radio_tx,
+                        SUM(radio_relay) AS radio_relay,
+                        SUM(cu_avg * samples) / NULLIF(SUM(CASE WHEN cu_avg IS NOT NULL THEN samples END), 0) AS cu_avg,
+                        MAX(cu_max) AS cu_max,
+                        SUM(air_tx_avg * samples) / NULLIF(SUM(CASE WHEN air_tx_avg IS NOT NULL THEN samples END), 0) AS air_tx_avg,
+                        MAX(nodes_online) AS nodes_online,
+                        SUM(avg_snr * pkts_rf) / NULLIF(SUM(CASE WHEN avg_snr IS NOT NULL THEN pkts_rf END), 0) AS avg_snr
+                    FROM traffic_hourly WHERE hour_ts >= ?
+                    GROUP BY bucket_key ORDER BY ts''', (since,)).fetchall()
+                ports = conn.execute('''SELECT portnum, SUM(rf) AS rf, SUM(mqtt) AS mqtt
+                    FROM traffic_hourly_port WHERE hour_ts >= ?
+                    GROUP BY portnum ORDER BY SUM(rf + mqtt) DESC''', (since,)).fetchall()
+                first_ts = conn.execute('SELECT MIN(hour_ts) FROM traffic_hourly').fetchone()[0]
+            finally:
+                conn.close()
+        return {
+            'range': range_key,
+            'bucket': bucket,
+            'since': since,
+            'now': now,
+            'first_ts': first_ts,
+            'retention_days': self.retention_days,
+            # Floats rounded: a year of daily rows goes over the WebSocket as is.
+            'rows': [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in dict(r).items()}
+                     for r in rows],
+            'ports': [dict(r) for r in ports],
+        }
+
     def clear_node_packets(self, node_id):
         """Delete all packet history for a specific node from stats.db."""
         with self.lock:
@@ -4994,6 +5054,19 @@ async def websocket_handler(websocket):
                         t.start()
                     else:
                         await websocket.send(safe_json({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'get_traffic_history':
+                    # Reads only the hourly rollup (a few hundred rows at most), off the
+                    # event loop: the StatsDB lock can be held by the minute summary.
+                    range_key = str(data.get('range', '7d'))
+                    if mapper:
+                        try:
+                            hist = await asyncio.to_thread(mapper.stats_db.get_traffic_history, range_key)
+                        except Exception as e:
+                            print(f"[STATS] Traffic history error: {e}")
+                            hist = {'range': range_key, 'rows': [], 'ports': [], 'error': str(e)}
+                    else:
+                        hist = {'range': range_key, 'rows': [], 'ports': []}
+                    await websocket.send(safe_json({'type': 'traffic_history', 'data': hist}))
                 elif data.get('type') == 'get_config':
                     if mapper:
                         try:
