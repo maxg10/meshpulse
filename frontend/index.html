@@ -620,6 +620,14 @@
                                     body.innerHTML = '<div id="traceroute-loading">🔄 Restarting listener...</div>';
                                 }
                             }
+                        } else if (data.type === 'remote_admin_result') {
+                            handleRemoteAdminResult(data.data);
+                        } else if (data.type === 'remote_admin_set_result') {
+                            handleRemoteAdminSetResult(data.data);
+                        } else if (data.type === 'remote_admin_reboot_result') {
+                            handleRemoteAdminRebootResult(data.data);
+                        } else if (data.type === 'remote_admin_state') {
+                            handleRemoteAdminState(data.data);
                         } else if (data.type === 'traceroute_result') {
                             console.log('[WS] Traceroute result for:', data.node_id);
                             handleTracerouteResult(data);
@@ -1294,6 +1302,477 @@
             const btns = document.querySelectorAll(`button[onclick*="${nodeId}"]`);
             btns.forEach(b => { if (b.textContent.includes('POS')) { b.textContent = '⏳ POS'; b.disabled = true; } });
             setTimeout(() => updateDisplay(), 3000);
+        }
+
+        // ── Remote admin ─────────────────────────────────────────────────
+        // One encrypted admin round trip per section, through MeshPulse's own
+        // radio. The window shows the answer; the console under it shows every
+        // request, every step and how long the mesh took. Writing is off unless
+        // the mapper's config.json says remote_admin_write: true, and fields that
+        // could cut a node off the mesh are locked by the backend.
+        const RA_SECTIONS = [
+            ['owner', 'Owner'], ['metadata', 'Firmware'], ['device', 'Device'], ['lora', 'LoRa'],
+            ['position', 'Position'], ['power', 'Power'], ['network', 'Network'], ['display', 'Display'],
+            ['bluetooth', 'Bluetooth'], ['security', 'Security'], ['mqtt', 'MQTT'], ['telemetry', 'Telemetry'],
+            ['neighborinfo', 'Neighbor info'], ['store_forward', 'Store & Forward'], ['range_test', 'Range test']
+        ];
+        const RA_VERIFY_DELAY_S = 20;      // a node restarts after most config writes
+        let _ra = null;   // {id, name, section, cache, pending, edit, writeEnabled, verify, inputs}
+
+        function raEl(tag, css, text) {
+            const e = document.createElement(tag);
+            if (css) e.style.cssText = css;
+            if (text != null) e.textContent = text;
+            return e;
+        }
+        const RA_BTN = 'font-size:11px;padding:3px 9px;border:1px solid #d1d5db;border-radius:4px;background:#f9fafb;color:#374151;cursor:pointer';
+        const RA_BTN_DARK = 'font-size:11px;padding:4px 12px;border:1px solid #1d4ed8;border-radius:4px;background:#1d4ed8;color:white;cursor:pointer;font-weight:bold';
+
+        function openRemoteAdmin(nodeId, name) {
+            closeRemoteAdmin();
+            _ra = { id: nodeId, name: name || nodeId, section: null, cache: {}, pending: null, edit: false,
+                    writeEnabled: false, verify: null, inputs: {} };
+            const modal = document.createElement('div');
+            modal.id = 'remote-admin-modal';
+            modal.style.cssText = 'position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.6);' +
+                'display:flex;align-items:center;justify-content:center;padding:12px;box-sizing:border-box;';
+            modal.innerHTML =
+                '<div style="background:white;border-radius:10px;padding:18px;max-width:720px;width:100%;max-height:90vh;' +
+                    'display:flex;flex-direction:column;box-sizing:border-box;font-family:Arial,sans-serif;min-height:0">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px">' +
+                        '<div style="min-width:0"><h2 style="font-size:16px;color:#1f2937;margin:0;overflow-wrap:anywhere">🛠 Remote admin · ' +
+                            escHtml(_ra.name) + '</h2>' +
+                        '<div data-role="sub" style="font-size:11px;color:#6b7280;margin-top:3px">' + escHtml(nodeId) +
+                            ' · each section is one encrypted round trip over the mesh</div></div>' +
+                        '<span data-close="1" style="cursor:pointer;font-size:20px;color:#6b7280;line-height:1">✕</span>' +
+                    '</div>' +
+                    '<div data-role="arm" style="margin-top:10px;font-size:11px;display:flex;align-items:center;gap:8px;flex-wrap:wrap"></div>' +
+                    '<div data-role="sections" style="display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 10px"></div>' +
+                    '<div data-role="body" style="flex:1 1 auto;min-height:90px;overflow:auto;border:1px solid #e5e7eb;' +
+                        'border-radius:6px;padding:10px;font-size:12px;color:#1f2937">' +
+                        '<div style="color:#6b7280">Pick a section. The first request may take a little longer if your ' +
+                        'radio first has to be given this node\'s public key.</div></div>' +
+                    '<div data-role="console" style="margin-top:10px;background:#111827;color:#d1d5db;border-radius:6px;' +
+                        'padding:8px 10px;font:11px/1.45 ui-monospace,Menlo,Consolas,monospace;height:110px;overflow:auto;' +
+                        'white-space:pre-wrap;flex:0 0 auto"></div>' +
+                    '<div data-role="footer" style="display:none;margin-top:8px;justify-content:flex-end;gap:6px"></div>' +
+                '</div>';
+            const bar = modal.querySelector('[data-role="sections"]');
+            RA_SECTIONS.forEach(([key, label]) => {
+                const b = raEl('button', RA_BTN, label);
+                b.type = 'button';
+                b.dataset.section = key;
+                b.addEventListener('click', () => raLoadSection(key));
+                bar.appendChild(b);
+            });
+            document.body.appendChild(modal);
+            modal.addEventListener('click', e => {
+                if (e.target === modal || (e.target.getAttribute && e.target.getAttribute('data-close'))) closeRemoteAdmin();
+            });
+            document.addEventListener('keydown', raOnEsc);
+            raLog('Remote admin for ' + _ra.name + ' (' + nodeId + ').');
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'remote_admin_state' }));
+        }
+
+        // Writes are armed for a limited time (or permanently in config.json).
+        // The banner shows which, with a live countdown and a way out.
+        function handleRemoteAdminState(st) {
+            if (!_ra || !st) return;
+            _ra.arm = st;
+            _ra.armEnds = st.armed ? Date.now() + st.remaining * 1000 : 0;
+            const was = _ra.writeEnabled;
+            _ra.writeEnabled = !!st.enabled;
+            raArmBanner();
+            if (_ra.armTimer) clearInterval(_ra.armTimer);
+            if (st.armed && !st.permanent) _ra.armTimer = setInterval(raArmBanner, 1000);
+            if (was !== _ra.writeEnabled && _ra.section && _ra.cache[_ra.section] && !_ra.edit && !_ra.verify) {
+                raRender(_ra.cache[_ra.section]);
+            }
+            raMarkActive();
+        }
+
+        function raArmBanner() {
+            const box = raQ('arm');
+            if (!box || !_ra || !_ra.arm) return;
+            const st = _ra.arm;
+            box.innerHTML = '';
+            const send = (type, extra) => {
+                if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(Object.assign({ type: type }, extra || {})));
+            };
+            if (st.permanent) {
+                box.appendChild(raEl('span', 'color:#92400e', '✏️ Writes enabled permanently (remote_admin_write in config.json)'));
+                return;
+            }
+            const left = _ra.armEnds ? Math.max(0, Math.round((_ra.armEnds - Date.now()) / 1000)) : 0;
+            if (left > 0) {
+                box.appendChild(raEl('span', 'color:#166534;font-weight:bold', '✏️ Writes armed · ' +
+                    Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') + ' left'));
+                const off = raEl('button', RA_BTN, 'Disarm now');
+                off.type = 'button';
+                off.addEventListener('click', () => { raLog('→ disarm writes'); send('remote_admin_disarm'); });
+                box.appendChild(off);
+            } else {
+                if (_ra.armTimer) { clearInterval(_ra.armTimer); _ra.armTimer = null; }
+                if (_ra.writeEnabled) {   // the window just ran out
+                    _ra.writeEnabled = false;
+                    raLog('writes disarmed: the armed window has ended', '#fcd34d');
+                    if (_ra.section && _ra.cache[_ra.section] && !_ra.edit && !_ra.verify) raRender(_ra.cache[_ra.section]);
+                    raMarkActive();
+                }
+                box.appendChild(raEl('span', 'color:#6b7280', 'Read-only.'));
+                const on = raEl('button', RA_BTN, 'Arm writes for 60 min');
+                on.type = 'button';
+                on.addEventListener('click', () => { raLog('→ arm writes for 60 min'); send('remote_admin_arm', { minutes: 60 }); });
+                box.appendChild(on);
+            }
+        }
+
+        function raOnEsc(e) { if (e.key === 'Escape') closeRemoteAdmin(); }
+
+        function closeRemoteAdmin() {
+            const m = document.getElementById('remote-admin-modal');
+            if (m) m.remove();
+            document.removeEventListener('keydown', raOnEsc);
+            if (_ra && _ra.verifyTimer) clearInterval(_ra.verifyTimer);
+            if (_ra && _ra.armTimer) clearInterval(_ra.armTimer);
+            _ra = null;
+        }
+
+        function raQ(role) { return document.querySelector('#remote-admin-modal [data-role="' + role + '"]'); }
+
+        function raLog(text, colour) {
+            const c = raQ('console');
+            if (!c) return;
+            const t = new Date();
+            const line = raEl('div', colour ? 'color:' + colour : '',
+                String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') + ':' +
+                String(t.getSeconds()).padStart(2, '0') + '  ' + text);
+            c.appendChild(line);
+            c.scrollTop = c.scrollHeight;
+        }
+
+        function raMarkActive() {
+            document.querySelectorAll('#remote-admin-modal [data-section]').forEach(b => {
+                const on = _ra && b.dataset.section === _ra.section;
+                b.style.background = on ? '#1f2937' : '#f9fafb';
+                b.style.color = on ? '#f9fafb' : '#374151';
+                b.style.borderColor = on ? '#1f2937' : '#d1d5db';
+                b.disabled = !!(_ra && (_ra.pending || _ra.edit || _ra.verify));
+                b.style.opacity = (b.disabled && !on) ? '0.5' : '1';
+            });
+            raFooter();
+        }
+
+        // Reboot lives in the footer, only where writing is enabled; two clicks, no dialog
+        function raFooter() {
+            const f = raQ('footer');
+            if (!f || !_ra) return;
+            f.style.display = _ra.writeEnabled ? 'flex' : 'none';
+            if (!_ra.writeEnabled || f.childElementCount) {
+                const b = f.querySelector('button');
+                if (b) b.disabled = !!(_ra.pending || _ra.verify);
+                return;
+            }
+            const b = raEl('button', RA_BTN, '⟳ Reboot node');
+            b.type = 'button';
+            b.addEventListener('click', () => {
+                if (b.dataset.armed !== '1') {
+                    b.dataset.armed = '1';
+                    b.textContent = 'Click again to reboot ' + _ra.name;
+                    b.style.borderColor = '#ef4444'; b.style.color = '#b91c1c';
+                    setTimeout(() => { if (b.isConnected) { b.dataset.armed = ''; b.textContent = '⟳ Reboot node'; b.style.borderColor = '#d1d5db'; b.style.color = '#374151'; } }, 4000);
+                    return;
+                }
+                b.dataset.armed = ''; b.textContent = '⟳ Reboot node'; b.style.borderColor = '#d1d5db'; b.style.color = '#374151';
+                if (!ws || ws.readyState !== WebSocket.OPEN) { raLog('WebSocket not connected', '#f87171'); return; }
+                _ra.pending = 'reboot';
+                raMarkActive();
+                raLog('→ reboot in 5 s');
+                ws.send(JSON.stringify({ type: 'remote_admin_reboot', node_id: _ra.id, seconds: 5 }));
+            });
+            f.appendChild(b);
+        }
+
+        function raSend(section) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) { raLog('WebSocket not connected', '#f87171'); return false; }
+            _ra.pending = section;
+            raMarkActive();
+            raLog('→ get ' + section);
+            ws.send(JSON.stringify({ type: 'remote_admin_get', node_id: _ra.id, section: section }));
+            return true;
+        }
+
+        function raLoadSection(section) {
+            if (!_ra || _ra.pending || _ra.edit || _ra.verify) return;
+            _ra.section = section;
+            raMarkActive();
+            if (_ra.cache[section]) { raRender(_ra.cache[section]); return; }
+            const label = (RA_SECTIONS.find(s => s[0] === section) || [section, section])[1];
+            raQ('body').innerHTML = '<div style="color:#6b7280">⏳ Asking ' + escHtml(_ra.name) + ' for ' + escHtml(label) + '…</div>';
+            raSend(section);
+        }
+
+        function handleRemoteAdminResult(res) {
+            if (!_ra || !res || res.dest !== _ra.id) return;
+            (res.steps || []).forEach(s => raLog('   ' + s, '#9ca3af'));
+            if (res.ok) {
+                raLog('← ' + res.section + ' OK in ' + res.rtt + ' s', '#86efac');
+                _ra.cache[res.section] = res;
+                if (res.write_enabled && !_ra.arm) _ra.writeEnabled = true;
+            } else {
+                raLog('← ' + res.section + ' ' + res.error + (res.rtt ? ' in ' + res.rtt + ' s' : ''), '#fca5a5');
+            }
+            if (_ra.pending === res.section) _ra.pending = null;
+            if (_ra.verify && _ra.verify.section === res.section) { raVerify(res); return; }
+            raMarkActive();
+            if (res.section === _ra.section) raRender(res);
+        }
+
+        function raShowError(res) {
+            const body = raQ('body');
+            let html = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:10px;color:#991b1b">' +
+                '<b>' + escHtml(res.error || 'Error') + '</b>' +
+                (res.hint ? '<div style="margin-top:4px;color:#7f1d1d">' + escHtml(res.hint) + '</div>' : '') + '</div>';
+            if (res.error === 'ADMIN_PUBLIC_KEY_UNAUTHORIZED' && res.tracker_public_key) {
+                html += '<div style="margin-top:10px;color:#374151">Your tracker\'s public key, to paste into the node\'s ' +
+                    '<b>Security → Admin Key</b>:</div>' +
+                    '<div style="display:flex;gap:6px;margin-top:4px;align-items:center;flex-wrap:wrap">' +
+                    '<code data-role="key" style="background:#f3f4f6;padding:4px 6px;border-radius:4px;font-size:11px;overflow-wrap:anywhere">' +
+                    escHtml(res.tracker_public_key) + '</code>' +
+                    '<button type="button" data-role="copy" style="' + RA_BTN + '">Copy</button></div>';
+            }
+            body.innerHTML = html;
+            const copy = body.querySelector('[data-role="copy"]');
+            if (copy) copy.addEventListener('click', () => {
+                const done = () => { copy.textContent = 'Copied'; };
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(res.tracker_public_key).then(done, () => raSelectKey(body));
+                } else raSelectKey(body);
+            });
+        }
+
+        function raSelectKey(body) {
+            const code = body.querySelector('[data-role="key"]');
+            if (!code) return;
+            const r = document.createRange();
+            r.selectNodeContents(code);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(r);
+        }
+
+        function raFmt(e) {
+            if (Array.isArray(e.value)) return e.value.length ? e.value.join(', ') : '(empty)';
+            if (e.value === '') return '(empty)';
+            return String(e.value);
+        }
+
+        function raInput(e) {
+            let inp;
+            if (e.type === 'bool') {
+                inp = document.createElement('input'); inp.type = 'checkbox'; inp.checked = !!e.value;
+            } else if (e.type === 'enum') {
+                inp = document.createElement('select');
+                e.options.forEach(o => { const op = document.createElement('option'); op.value = o; op.textContent = o; if (o === e.value) op.selected = true; inp.appendChild(op); });
+            } else {
+                inp = document.createElement('input');
+                inp.type = (e.type === 'int' || e.type === 'float') ? 'number' : 'text';
+                if (e.type === 'int') inp.step = '1';
+                if (e.type === 'float') inp.step = 'any';
+                if (e.min != null) inp.min = e.min;
+                inp.value = e.value;
+            }
+            inp.style.cssText = 'font-size:12px;max-width:100%;box-sizing:border-box' + (inp.type === 'checkbox' ? '' : ';width:100%;padding:2px 4px');
+            return inp;
+        }
+
+        function raValueOf(e, inp) {
+            if (e.type === 'bool') return inp.checked;
+            if (e.type === 'int') return inp.value === '' ? NaN : Number(inp.value);
+            if (e.type === 'float') return inp.value === '' ? NaN : parseFloat(inp.value);
+            return inp.value;
+        }
+
+        function raRender(res, marks) {
+            const body = raQ('body');
+            if (!body || !_ra) return;
+            if (!res.ok) { raShowError(res); return; }
+            body.innerHTML = '';
+            const head = raEl('div', 'display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px');
+            const canWrite = _ra.arm ? !!_ra.writeEnabled : !!res.write_enabled;
+            if (canWrite && res.section_writable && !_ra.edit && !marks) {
+                const b = raEl('button', RA_BTN, '✏️ Edit');
+                b.type = 'button';
+                b.addEventListener('click', () => { _ra.edit = true; raMarkActive(); raRender(res); });
+                head.appendChild(b);
+            } else if (!canWrite) {
+                head.appendChild(raEl('span', 'color:#9ca3af;font-size:11px',
+                    'Read-only: arm writes above to edit.'));
+            } else if (!res.section_writable) {
+                head.appendChild(raEl('span', 'color:#92400e;font-size:11px', '🔒 ' + (res.section_reason || 'Not writable.')));
+            }
+            if (_ra.edit) head.appendChild(raEl('span', 'color:#1d4ed8;font-size:11px;font-weight:bold',
+                'Editing. Locked fields show why they are locked.'));
+            if (head.childElementCount) body.appendChild(head);
+
+            const schema = res.schema || [];
+            const table = raEl('table', 'width:100%;border-collapse:collapse');
+            _ra.inputs = {};
+            schema.forEach(e => {
+                const tr = raEl('tr');
+                const mark = marks && marks[e.path];
+                if (mark) tr.style.background = mark === 'ok' ? '#f0fdf4' : '#fef2f2';
+                const k = raEl('td', 'padding:3px 8px 3px 0;color:#6b7280;vertical-align:top;white-space:nowrap', e.path);
+                const v = raEl('td', 'padding:3px 0;overflow-wrap:anywhere;width:60%');
+                if (_ra.edit && e.editable) {
+                    const inp = raInput(e);
+                    _ra.inputs[e.path] = inp;
+                    v.appendChild(inp);
+                } else {
+                    v.textContent = (mark === 'ok' ? '✓ ' : mark === 'bad' ? '✗ ' : '') + raFmt(e);
+                    if (_ra.edit && !e.editable) {
+                        v.style.color = '#9ca3af';
+                        v.title = e.reason || 'Locked';
+                        v.textContent = '🔒 ' + v.textContent;
+                    }
+                }
+                tr.appendChild(k); tr.appendChild(v);
+                table.appendChild(tr);
+            });
+            body.appendChild(table);
+            if (!schema.length) body.appendChild(raEl('div', 'color:#6b7280', 'No fields in this section.'));
+
+            if (_ra.edit) {
+                const bar = raEl('div', 'display:flex;gap:6px;justify-content:flex-end;margin-top:10px;position:sticky;bottom:0;background:white;padding-top:6px');
+                const cancel = raEl('button', RA_BTN, 'Cancel');
+                cancel.type = 'button';
+                cancel.addEventListener('click', () => { _ra.edit = false; raMarkActive(); raRender(res); });
+                const review = raEl('button', RA_BTN_DARK, 'Review changes');
+                review.type = 'button';
+                review.addEventListener('click', () => raReview(res));
+                bar.appendChild(cancel); bar.appendChild(review);
+                body.appendChild(bar);
+            }
+        }
+
+        function raReview(res) {
+            const changes = {}, diff = [];
+            let bad = null;
+            (res.schema || []).forEach(e => {
+                const inp = _ra.inputs[e.path];
+                if (!inp) return;
+                const nv = raValueOf(e, inp);
+                if ((e.type === 'int' || e.type === 'float') && Number.isNaN(nv)) { bad = e.path + ' needs a number'; return; }
+                if (e.type === 'int' && !Number.isInteger(nv)) { bad = e.path + ' needs a whole number'; return; }
+                if (e.max_bytes && new TextEncoder().encode(nv).length > e.max_bytes) { bad = e.path + ': at most ' + e.max_bytes + ' bytes'; return; }
+                if (nv !== e.value) { changes[e.path] = nv; diff.push([e.path, e.value, nv]); }
+            });
+            const body = raQ('body');
+            const old = body.querySelector('[data-role="review"]');
+            if (old) old.remove();
+            const box = raEl('div', 'margin-top:10px;border:1px solid #bfdbfe;background:#eff6ff;border-radius:6px;padding:10px');
+            box.dataset.role = 'review';
+            if (bad) { box.appendChild(raEl('div', 'color:#b91c1c', bad)); body.appendChild(box); box.scrollIntoView({block: 'nearest'}); return; }
+            if (!diff.length) { box.appendChild(raEl('div', 'color:#374151', 'Nothing changed.')); body.appendChild(box); box.scrollIntoView({block: 'nearest'}); return; }
+            box.appendChild(raEl('div', 'font-weight:bold;color:#1e3a8a;margin-bottom:6px',
+                'Write ' + diff.length + ' change' + (diff.length > 1 ? 's' : '') + ' to ' + _ra.name + ':'));
+            diff.forEach(([p, o, n]) => box.appendChild(raEl('div', 'font-family:ui-monospace,Menlo,monospace;font-size:11px',
+                p + ':  ' + String(o) + '  →  ' + String(n))));
+            box.appendChild(raEl('div', 'color:#6b7280;font-size:11px;margin-top:6px',
+                'The node will probably restart. MeshPulse reads the section again afterwards to check the change took.'));
+            const bar = raEl('div', 'display:flex;gap:6px;justify-content:flex-end;margin-top:8px');
+            const back = raEl('button', RA_BTN, 'Back');
+            back.type = 'button';
+            back.addEventListener('click', () => box.remove());
+            const apply = raEl('button', RA_BTN_DARK, 'Apply to ' + _ra.name);
+            apply.type = 'button';
+            apply.addEventListener('click', () => raApply(res.section, changes, diff));
+            bar.appendChild(back); bar.appendChild(apply);
+            box.appendChild(bar);
+            body.appendChild(box);
+            box.scrollIntoView({block: 'nearest'});
+        }
+
+        function raApply(section, changes, diff) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) { raLog('WebSocket not connected', '#f87171'); return; }
+            _ra.pending = 'set';
+            raMarkActive();
+            raQ('body').querySelectorAll('button,input,select').forEach(x => { x.disabled = true; });
+            raLog('→ set ' + section + ': ' + diff.map(([p, o, n]) => p + ' ' + o + '→' + n).join(', '));
+            ws.send(JSON.stringify({ type: 'remote_admin_set', node_id: _ra.id, section: section, changes: changes }));
+        }
+
+        function handleRemoteAdminSetResult(res) {
+            if (!_ra || !res || res.dest !== _ra.id) return;
+            (res.steps || []).forEach(s => raLog('   ' + s, '#9ca3af'));
+            _ra.pending = null;
+            if (!res.ok) {
+                raLog('← set ' + res.section + ' ' + res.error, '#fca5a5');
+                _ra.edit = false;
+                raMarkActive();
+                raShowError(res);
+                return;
+            }
+            raLog('← set ' + res.section + ' acknowledged in ' + res.rtt + ' s', '#86efac');
+            _ra.edit = false;
+            delete _ra.cache[res.section];
+            _ra.verify = { section: res.section, diff: res.diff || [], tries: 0 };
+            raMarkActive();
+            raCountdown(RA_VERIFY_DELAY_S);
+        }
+
+        function raCountdown(seconds) {
+            let left = seconds;
+            const body = raQ('body');
+            const show = () => { if (body) body.innerHTML = '<div style="color:#374151">✅ Written. Waiting ' + left +
+                ' s for ' + escHtml(_ra.name) + ' to settle (it may be restarting), then reading it back…</div>'; };
+            show();
+            raLog('   verifying in ' + seconds + ' s', '#9ca3af');
+            _ra.verifyTimer = setInterval(() => {
+                if (!_ra) return;
+                left -= 1;
+                if (left > 0) { show(); return; }
+                clearInterval(_ra.verifyTimer);
+                _ra.verifyTimer = null;
+                _ra.verify.tries += 1;
+                raSend(_ra.verify.section);
+            }, 1000);
+        }
+
+        function raVerify(res) {
+            const v = _ra.verify;
+            if (!res.ok) {
+                if (v.tries < 3) { raLog('   node not back yet, trying again in 15 s', '#fcd34d'); raCountdown(15); return; }
+                _ra.verify = null;
+                raMarkActive();
+                raLog('✗ could not read the section back after ' + v.tries + ' tries', '#fca5a5');
+                raShowError(res);
+                return;
+            }
+            const now = {};
+            (res.schema || []).forEach(e => { now[e.path] = e.value; });
+            const marks = {};
+            let okAll = true;
+            v.diff.forEach(d => {
+                const same = String(now[d.path]) === String(d.new);
+                marks[d.path] = same ? 'ok' : 'bad';
+                if (!same) okAll = false;
+                raLog((same ? '✓ ' : '✗ ') + d.path + ' is now ' + now[d.path] + (same ? '' : ' (expected ' + d.new + ')'), same ? '#86efac' : '#fca5a5');
+            });
+            raLog(okAll ? '✓ verified: the node reports the new values' : '✗ the node does not report what was written', okAll ? '#86efac' : '#fca5a5');
+            _ra.verify = null;
+            raMarkActive();
+            raRender(res, marks);
+        }
+
+        function handleRemoteAdminRebootResult(res) {
+            if (!_ra || !res || res.dest !== _ra.id) return;
+            (res.steps || []).forEach(s => raLog('   ' + s, '#9ca3af'));
+            _ra.pending = null;
+            _ra.cache = {};
+            raMarkActive();
+            if (res.ok) raLog('← reboot accepted; ' + _ra.name + ' restarts in ' + res.seconds + ' s', '#86efac');
+            else { raLog('← reboot ' + res.error, '#fca5a5'); raShowError(res); }
         }
 
         function startTraceroute(nodeId) {
@@ -2090,6 +2569,7 @@
                             <button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
                             <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
+                            ${((n.net || 'MT') === 'MT' && !n.via_mqtt && !isOwnTracker(n.id)) ? `<button onclick="openRemoteAdmin('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="background:#f3f4f6;border-color:#d1d5db;color:#374151;" title="Read this node's settings over the mesh">🛠</button>` : ''}
                         </div>
                         ${n.id === expandedNoGpsId ? `<div class="meta" style="margin-top:4px;border-top:1px solid rgba(128,128,128,0.3);padding-top:4px">${nodeExtraInfo(n)}</div>` : ''}
                     </div>`;
@@ -2130,6 +2610,9 @@
                     const tracerouteBtn = !n.via_mqtt
                         ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
                           + `<button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}')">✉️ Message</button>`
+                          + (((n.net || 'MT') === 'MT' && !isOwnTracker(n.id))
+                              ? `<button onclick="openRemoteAdmin('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}')" title="Read and change this node's settings over the mesh (needs your tracker's key as its admin key)">🛠 Admin</button>`
+                              : '')
                         : '';
                     pop = `<div class="node-popup">
                         <b>${escHtml(n.name)}</b><br>

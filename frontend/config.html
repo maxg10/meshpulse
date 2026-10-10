@@ -187,6 +187,7 @@
     <button class="tab" onclick="switchTab('favorites', this)">⭐ Favorites</button>
     <button class="tab" onclick="switchTab('coverage', this)">📡 Coverage</button>
     <button class="tab" onclick="switchTab('plugins', this)">🔌 Plugins</button>
+    <button class="tab" onclick="switchTab('remoteadmin', this)">🛠 Remote Admin</button>
 </div>
 
 <!-- User tab -->
@@ -1164,6 +1165,36 @@
     </div>
 </div>
 
+<!-- Remote admin tab -->
+<div id="tab-remoteadmin" class="tab-content">
+    <div class="card">
+        <div class="card-title">🛠 Remote Admin Writes</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ The map's 🛠 Admin window can change settings of other nodes that list this tracker's public key as one
+            of their admin keys. Reading is always allowed. Writing must be armed, and the arming runs out by itself,
+            so it cannot be left open by mistake. Anyone who can open this page while writes are armed can use them.
+            Every write, arm and disarm is recorded below.
+        </div>
+        <div id="ra-arm-status" style="font-size:13px;margin:6px 0 12px;color:#374151">Loading…</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <select id="ra-arm-minutes" style="font-size:13px;padding:4px">
+                <option value="15">15 minutes</option>
+                <option value="30">30 minutes</option>
+                <option value="60" selected>60 minutes</option>
+                <option value="120">120 minutes</option>
+            </select>
+            <button class="btn btn-primary" id="ra-arm-btn" onclick="raArm()">✏️ Arm writes</button>
+            <button class="btn btn-secondary" id="ra-disarm-btn" onclick="raDisarm()">Disarm now</button>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:#6b7280">To keep writes on permanently, set <code>"remote_admin_write": true</code>
+            in <code>/var/www/html/meshpulse/config.json</code> and restart the service.</div>
+    </div>
+    <div class="card" style="margin-top:12px">
+        <div class="card-title">📜 Recent Remote Admin Actions</div>
+        <div id="ra-audit" style="font-size:12px;color:#374151">No actions yet.</div>
+    </div>
+</div>
+
 <!-- Plugins tab -->
 <div id="tab-plugins" class="tab-content">
     <div class="card">
@@ -1721,6 +1752,7 @@ function connectWS() {
         ws.send(JSON.stringify({type: 'get_config'}));
         ws.send(JSON.stringify({type: 'get_plugins'}));
         ws.send(JSON.stringify({type: 'list_serial_ports'}));
+        if (location.hash === '#remoteadmin') raStateRequest();
         startDeviceHeartbeat();
         // retry handled by global startConfigRetry()
     };
@@ -1739,6 +1771,10 @@ function connectWS() {
             d = JSON.parse(e.data);
         } catch (err) {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
+            return;
+        }
+        if (d.type === 'remote_admin_state') {
+            handleRemoteAdminState(d.data || {});
             return;
         }
         if (d.type === 'serial_ports') {
@@ -2283,6 +2319,62 @@ function switchTab(name, el) {
     if (name === 'favorites') loadFavorites();
     if (name === 'device') loadIgnoredNodes();
     if (name === 'plugins') { loadPluginsList(); if (!_storeLoaded) loadPluginStore(); }
+    if (name === 'remoteadmin') raStateRequest();
+}
+
+// ── Remote admin arming ──────────────────────────────────────────
+let _raState = null, _raEnds = 0, _raTimer = null;
+function raStateRequest() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'remote_admin_state'}));
+}
+function raArm() {
+    const m = parseInt(document.getElementById('ra-arm-minutes').value, 10) || 60;
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'remote_admin_arm', minutes: m}));
+}
+function raDisarm() {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'remote_admin_disarm'}));
+}
+function raRenderState() {
+    const st = _raState;
+    const el = document.getElementById('ra-arm-status');
+    if (!el || !st) return;
+    const left = _raEnds ? Math.max(0, Math.round((_raEnds - Date.now()) / 1000)) : 0;
+    const armBtn = document.getElementById('ra-arm-btn'), offBtn = document.getElementById('ra-disarm-btn');
+    if (st.permanent) {
+        el.innerHTML = '✏️ <b>Writes enabled permanently</b> by <code>remote_admin_write</code> in config.json.';
+    } else if (left > 0) {
+        el.innerHTML = '✏️ <b style="color:#166534">Writes armed</b> · ' + Math.floor(left / 60) + ':' +
+            String(left % 60).padStart(2, '0') + ' left' + (st.armed_by ? ' · armed from ' + escHtml(st.armed_by) : '');
+    } else {
+        el.innerHTML = '🔒 <b>Read-only.</b> Remote nodes can be read but not changed.';
+        if (_raTimer) { clearInterval(_raTimer); _raTimer = null; }
+    }
+    armBtn.disabled = !!st.permanent;
+    offBtn.disabled = !(left > 0);
+    const audit = document.getElementById('ra-audit');
+    const rows = st.recent || [];
+    audit.innerHTML = rows.length ? '<table style="width:100%;border-collapse:collapse">' + rows.map(r => {
+        const t = new Date(r.ts * 1000);
+        let what = r.action + (r.section ? ' ' + r.section : '');
+        try {
+            const c = JSON.parse(r.changes || 'null');
+            if (Array.isArray(c)) what += ': ' + c.map(d => d.path + ' ' + d.old + ' → ' + d.new).join(', ');
+            else if (c && c.minutes) what += ' ' + c.minutes + ' min' + (c.client ? ' from ' + c.client : '');
+            else if (c && c.client) what += ' from ' + c.client;
+        } catch (e) { /* free text */ }
+        const ok = r.outcome === 'applied' || r.outcome === 'armed' || r.outcome === 'disarmed';
+        return '<tr><td style="padding:3px 8px 3px 0;color:#6b7280;white-space:nowrap">' + t.toLocaleString() + '</td>' +
+            '<td style="padding:3px 8px 3px 0;white-space:nowrap">' + escHtml(r.dest === '-' ? '' : r.dest) + '</td>' +
+            '<td style="padding:3px 8px 3px 0;overflow-wrap:anywhere">' + escHtml(what) + '</td>' +
+            '<td style="padding:3px 0;color:' + (ok ? '#166534' : '#b91c1c') + '">' + escHtml(r.outcome || '') + '</td></tr>';
+    }).join('') + '</table>' : 'No actions yet.';
+}
+function handleRemoteAdminState(st) {
+    _raState = st;
+    _raEnds = st.armed ? Date.now() + st.remaining * 1000 : 0;
+    if (_raTimer) clearInterval(_raTimer);
+    if (st.armed && !st.permanent) _raTimer = setInterval(raRenderState, 1000);
+    raRenderState();
 }
 
 // Restore tab from URL hash on load

@@ -1,5 +1,91 @@
 # Changelog
 
+## v2.9.0
+- New: Remote admin, read-only. A 🛠 Admin button in a Meshtastic node's popup
+  (and 🛠 in the No GPS list) opens a window that reads that node's settings over
+  the mesh: owner, firmware, device, LoRa, position, power, network, display,
+  Bluetooth, security, MQTT, telemetry, neighbor info, store & forward and range
+  test. Each section is one PKC-encrypted admin request sent through the live
+  radio connection (no serial release, no CLI subprocess); a console under the
+  window shows every request, step and round-trip time. Measured against a direct
+  neighbour from a Pi 2: 1.2 to 1.5 s per section, against 7 s for the CLI path.
+  The target must list the tracker's public key as one of its admin keys
+  (firmware 2.5+); when it does not, the window says so and shows the key to
+  paste. If the tracker's own NodeDB has dropped the target's public key (it holds
+  80 nodes on a Wio Tracker L1, far fewer than a city mesh), MeshPulse first swaps
+  node info with the target to get it. Private keys are never sent to the browser.
+  Nothing is written to the remote node yet. New WebSocket request
+  `remote_admin_get`.
+- New: Remote admin can write. ✏️ Edit turns a section into a form generated
+  from the firmware's own protobuf definitions (types, enum options, defaults);
+  Review shows old → new for every changed field, Apply sends the whole section
+  back with the session key from a fresh read, and 20 s later MeshPulse reads it
+  again and marks each field ✓ or ✗. Reboot is a two-click button. Writing is
+  off unless `remote_admin_write: true` is set in `config.json`, every write is
+  recorded in `admin_audit` in `stats.db`, and fields that could cut a node off
+  the mesh are locked with the reason shown: LoRa radio parameters, Security,
+  Network, Bluetooth, device role, licensed mode, power saving. The guards are
+  a policy table in the backend, meant to be opened up as remote configuration
+  grows towards full coverage.
+- New: Remote admin writes can be armed from the GUI for a limited time.
+  Config > 🛠 Remote Admin arms them for 15, 30, 60 or 120 minutes, after which
+  they switch off by themselves; "Disarm now" ends it early. The Admin window
+  shows a banner with the countdown, and Edit only appears while armed. Arm and
+  disarm are recorded in `admin_audit` with the client address, and the tab
+  lists the last ten admin actions. Arming lives in memory, so a restart
+  disarms. `remote_admin_write: true` in `config.json` still enables writes
+  permanently.
+- New: Public key store (`node_keys` in `stats.db`). Every key seen in NodeInfo
+  packets or in the radio's NodeDB is kept, because the radio holds 80 nodes and
+  drops keys constantly in a city mesh. Before an admin request, a dropped key is
+  handed back with `add_contact`, which is what the phone apps do before every DM,
+  and which also pins the node so it is not evicted again. Asking the node for its
+  node info is only the last resort: firmware ignores a NodeInfo request from
+  anyone it heard in the last 12 hours. A node announcing a different key than
+  before is logged (`[KEYS]`), the first brick of impersonation detection.
+- New: Hourly traffic rollup in `stats.db`, kept indefinitely. Every complete
+  hour is folded into `traffic_hourly` (RF and MQTT packets, distinct senders,
+  RF-only SNR/RSSI/hops, growth of the node's own firmware counters: received,
+  duplicates, bad CRC, transmitted, relayed, plus channel utilisation) and
+  `traffic_hourly_port` (per portnum). Until now everything older than three days
+  was deleted, so no trend longer than that could ever be shown. The first run
+  backfills from whatever raw data is still there. Firmware counter resets
+  (node reboot) are handled; gaps longer than two hours are dropped, not
+  smeared into a fake spike.
+- New: Raw history retention is configurable, `stats_retention_days` in
+  `config.json`, default 30 days (was a hardcoded 3). The "packets (7 days)" tile
+  and chart now actually have seven days to show.
+- Perf: `packets` index `(from_id)` replaced by `(from_id, portnum, ts)`. The
+  "last relay" subquery of the Stats summary ran in 4.95 s on a Pi 2 with 30 days
+  of traffic, every minute, holding the lock packet logging waits on; 0.47 s now.
+- Perf: Pruning deletes `packets` in bounded chunks, so lowering the retention
+  cannot freeze packet logging for half a minute.
+- New: Every packet the radio hands over is counted, not just four ports. Until
+  now only NODEINFO, POSITION, TELEMETRY and TEXT reached `stats.db`, roughly a
+  third of what the node decoded; ROUTING, TRACEROUTE, NEIGHBORINFO, RANGE_TEST,
+  ADMIN and the rest were invisible, and so was traffic on channels this node has
+  no key for (now `ENCRYPTED`). Expect the Stats totals to jump: the mesh did not
+  get busier, the counter got honest.
+- Fix: TELEMETRY and TEXT packets were logged with `via_mqtt` hardcoded to false
+  and no hops or SNR. MQTT telemetry counted as radio traffic and could raise
+  "too frequent telemetry" anomalies against nodes that are not even in range.
+- New: Traffic History card at the top of Stats, with 24h / 7d / 30d / 1y ranges
+  from the hourly rollup. It sets what MeshPulse logged (RF and MQTT) against
+  what the node's radio actually heard (firmware counters, duplicates removed),
+  and charts channel utilisation (average and peak), duplicate and bad-CRC
+  rates, and the packet type mix, with range totals on top and a CSV export.
+  Hours with no data stay gaps; days with fewer than 24 recorded hours are drawn
+  lighter and starred. Served by a new WebSocket request, `get_traffic_history`,
+  which reads only the rollup, a few hundred rows at most, never the raw tables.
+- Fix: `install.sh` reported "web server NOT FOUND" when run over ssh. lighttpd
+  and apache2 live in `/usr/sbin`, which is not on a non-login shell's PATH on
+  Debian, so the check failed although the server was running.
+- Fix: A packet that arrived with its hop limit used up was logged with unknown
+  hops: protobuf leaves zero-valued fields out of the dict, so `hopLimit` was
+  missing and the hop count was dropped, for exactly the packets that travelled
+  furthest. On Pimesh1, 5 to 8% of RF positions and node infos had no hop count;
+  this was one cause (firmware too old to send `hopStart` is the other).
+
 ## v2.8.3
 - Fix: `api.links` invented direct links. Its test for "heard by our own radio"
   was a bare `hops === 0`, with no check of which network the node belongs to or

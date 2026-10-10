@@ -175,6 +175,32 @@
             border-color: #6b7280;
             color: #e5e7eb;
         }
+
+        /* Traffic history (hourly rollup, kept indefinitely) */
+        .th-head { flex-wrap: wrap; }
+        .th-ranges { display: inline-flex; gap: 4px; margin-left: auto; }
+        .th-range { font-size: 11px; padding: 2px 10px; border: 1px solid #d1d5db; border-radius: 4px;
+                    background: #f9fafb; color: #374151; cursor: pointer; }
+        .th-range:hover { background: #e5e7eb; }
+        .th-range.active { background: #1f2937; border-color: #1f2937; color: #f9fafb; }
+        .th-head .export-btn { margin-left: 0; }
+        .th-tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+                    gap: 8px; margin: 4px 0 14px; }
+        .th-tile { background: #f3f4f6; border-radius: 6px; padding: 8px 10px; min-width: 0; }
+        .th-tile .v { font-size: 20px; font-weight: bold; color: #111827; font-variant-numeric: tabular-nums;
+                      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .th-tile .l { font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.04em; margin-top: 2px; }
+        .th-tile .s { font-size: 11px; color: #6b7280; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .th-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .th-charts > div { min-width: 0; }
+        .th-chart-title { font-size: 11px; font-weight: bold; color: #374151; margin-bottom: 4px; }
+        .th-canvas { position: relative; height: 200px; }
+        .th-empty { color: #6b7280; font-size: 12px; padding: 28px 0; text-align: center; }
+        @media (max-width: 600px) {
+            .th-charts { grid-template-columns: 1fr; }
+            .th-ranges { margin-left: 0; }
+            .th-canvas { height: 180px; }
+        }
     </style>
 </head>
 <body>
@@ -489,6 +515,41 @@
     </div>
 </div>
 
+<!-- Traffic history: hourly rollup in stats.db, kept indefinitely -->
+<div class="card" id="traffic-history" style="margin-bottom:12px">
+    <div class="card-title th-head">
+        📈 Traffic History
+        <span class="info-icon" data-tip="Built from the hourly summary in stats.db, which is kept indefinitely (raw packets only for the retention period). Logged = packets MeshPulse decoded and stored. Heard = unique frames your node's radio received, from its firmware counters with duplicates removed; the difference is traffic MeshPulse could not decode. Only complete hours are shown, and a gap means MeshPulse was not running.">ⓘ</span>
+        <span class="th-ranges" role="group" aria-label="Time range">
+            <button type="button" class="th-range" data-range="24h">24h</button>
+            <button type="button" class="th-range" data-range="7d">7d</button>
+            <button type="button" class="th-range" data-range="30d">30d</button>
+            <button type="button" class="th-range" data-range="1y">1y</button>
+        </span>
+        <button class="export-btn" onclick="exportTrafficHistoryCSV()">📥 Export CSV</button>
+    </div>
+    <div class="data-win" id="th-window">Loading…</div>
+    <div class="th-tiles" id="th-tiles"></div>
+    <div class="th-charts" id="th-charts">
+        <div>
+            <div class="th-chart-title">Packets: logged by MeshPulse vs heard by the radio</div>
+            <div class="th-canvas"><canvas id="th-traffic-chart"></canvas></div>
+        </div>
+        <div>
+            <div class="th-chart-title">Channel utilisation %</div>
+            <div class="th-canvas"><canvas id="th-cu-chart"></canvas></div>
+        </div>
+        <div>
+            <div class="th-chart-title">Radio quality: duplicates and bad CRC %</div>
+            <div class="th-canvas"><canvas id="th-quality-chart"></canvas></div>
+        </div>
+        <div>
+            <div class="th-chart-title">Packet types</div>
+            <div class="th-canvas"><canvas id="th-ports-chart"></canvas></div>
+        </div>
+    </div>
+</div>
+
 <!-- Charts row 1: hourly + 7-day trend -->
 <div class="grid-2">
     <div class="card">
@@ -592,7 +653,7 @@
     </div>
 </div>
 
-<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained 3 days</div>
+<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained <span id="retention-days">30</span> days</div>
 
 <script>
 // ── Global tooltip ──────────────────────────────────────────────
@@ -708,6 +769,7 @@ function connectWS() {
         document.getElementById('ws-label').textContent = 'Connected';
         ws.send(JSON.stringify({type: 'get_stats'}));
         ws.send(JSON.stringify({type: 'get_plugins'}));   // navbar tabs from plugin manifests
+        requestTrafficHistory();
         // Retry after 3s in case backend just restarted and hasn't loaded data yet
         setTimeout(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -762,6 +824,11 @@ function connectWS() {
         }
         if (d.type === 'ignored_node_result') {
             if (!d.success) showAlert('❌ Error ignoring node: ' + d.error, 'error');
+            return;
+        }
+        if (d.type === 'traffic_history') {
+            // A reply to an older range click can arrive after a newer one: drop it.
+            if (d.data && d.data.range === _thRange) renderTrafficHistory(d.data);
             return;
         }
         if (d.type === 'stats_data') {
@@ -930,6 +997,11 @@ function formatLastSeen(ts) {
 // ── Render all ───────────────────────────────────────────────────
 function renderAll(data) {
     window._lastStatsData = data;
+    // Retention is configurable (stats_retention_days); show what the backend uses
+    if (data.retention_days) {
+        const rd = document.getElementById('retention-days');
+        if (rd) rd.textContent = data.retention_days;
+    }
     // Data window
     setDataWindows(data.data_window_minutes || 0);
 
@@ -1777,6 +1849,251 @@ if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', wireVersionChip);
 } else {
     wireVersionChip();
+}
+
+// ── Traffic History (hourly rollup) ──────────────────────────────
+const TH_RANGE_KEY = 'mesh-mapper-traffic-range';
+const TH_RANGES = ['24h', '7d', '30d', '1y'];
+const _thCharts = {};
+let _thRange = '7d';
+let _thData = null;
+try {
+    const saved = localStorage.getItem(TH_RANGE_KEY);
+    if (TH_RANGES.includes(saved)) _thRange = saved;
+} catch (e) { /* storage blocked: default range */ }
+
+function requestTrafficHistory() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: 'get_traffic_history', range: _thRange}));
+    }
+}
+
+function setTrafficRange(range) {
+    if (!TH_RANGES.includes(range)) return;
+    _thRange = range;
+    try { localStorage.setItem(TH_RANGE_KEY, range); } catch (e) { /* not persisted */ }
+    document.querySelectorAll('.th-range').forEach(b => b.classList.toggle('active', b.dataset.range === range));
+    document.getElementById('th-window').textContent = 'Loading…';
+    requestTrafficHistory();
+}
+
+document.querySelectorAll('.th-range').forEach(b => {
+    b.classList.toggle('active', b.dataset.range === _thRange);
+    b.addEventListener('click', () => setTrafficRange(b.dataset.range));
+});
+// The rollup gains one row an hour; five minutes is plenty
+setInterval(requestTrafficHistory, 300000);
+
+function _thDayKey(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
+// The full axis of the range, starting where history starts, with null where
+// the rollup has no row: an outage shows as a gap, not as a quiet hour.
+function _thBuckets(h) {
+    const byKey = {};
+    h.rows.forEach(r => { byKey[String(r.bucket_key)] = r; });
+    const start = Math.max(h.since, h.first_ts || h.since);
+    const out = [];
+    if (h.bucket === 3600) {
+        const last = Math.floor(h.now / 3600) * 3600 - 3600;
+        for (let t = Math.floor(start / 3600) * 3600; t <= last; t += 3600) {
+            const d = new Date(t * 1000);
+            const hh = String(d.getHours()).padStart(2, '0') + ':00';
+            const label = h.range === '24h' ? hh
+                : d.toLocaleDateString(undefined, {weekday: 'short'}) + ' ' + d.getDate() + ' ' + hh;
+            out.push({label, row: byKey[String(t)] || null, partial: false});
+        }
+    } else {
+        const d = new Date(start * 1000);
+        d.setHours(12, 0, 0, 0);
+        const endKey = _thDayKey(new Date(h.now * 1000));
+        while (_thDayKey(d) <= endKey) {
+            const row = byKey[_thDayKey(d)] || null;
+            // A day with fewer than 24 rolled-up hours (today, the first day of
+            // history, a day with an outage) is drawn lighter and starred, so a
+            // short bar is not mistaken for a quiet day.
+            const partial = !!row && row.hours < 24;
+            out.push({
+                label: d.toLocaleDateString(undefined, {month: 'short', day: 'numeric'}) + (partial ? '*' : ''),
+                row, partial
+            });
+            d.setDate(d.getDate() + 1);
+        }
+    }
+    return out;
+}
+
+function _thSum(rows, f) {
+    let s = 0, any = false;
+    rows.forEach(r => { const v = f(r); if (v != null && !isNaN(v)) { s += v; any = true; } });
+    return any ? s : null;
+}
+
+function _thPct(a, b) { return (a != null && b) ? (100 * a / b) : null; }
+
+function _thFmt(n, digits) {
+    if (n == null) return '—';
+    if (digits != null) return n.toFixed(digits);
+    return Math.round(n).toLocaleString();
+}
+
+function _thUnique(r) {
+    return (r && r.radio_rx != null && r.radio_dupe != null) ? Math.max(0, r.radio_rx - r.radio_dupe) : null;
+}
+
+function _thChart(id, config) {
+    if (_thCharts[id]) _thCharts[id].destroy();
+    const base = {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { display: true, labels: { boxWidth: 10, font: { size: 10 }, color: '#374151' } } },
+        scales: {
+            x: { ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 },
+                 grid: { display: false } },
+            y: { beginAtZero: true, ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 5 },
+                 grid: { color: '#e5e7eb' } }
+        }
+    };
+    const opts = Object.assign({}, base, config.options || {});
+    opts.scales = Object.assign({}, base.scales, (config.options || {}).scales || {});
+    _thCharts[id] = new Chart(document.getElementById(id), { type: config.type, data: config.data, options: opts });
+}
+
+function _thTile(value, label, sub) {
+    return '<div class="th-tile"><div class="v">' + escHtml(value) + '</div>' +
+           '<div class="l">' + escHtml(label) + '</div>' +
+           (sub ? '<div class="s" title="' + escHtml(sub) + '">' + escHtml(sub) + '</div>' : '') + '</div>';
+}
+
+function renderTrafficHistory(h) {
+    _thData = h;
+    const win = document.getElementById('th-window');
+    const tiles = document.getElementById('th-tiles');
+    const charts = document.getElementById('th-charts');
+    if (!h || !h.rows || !h.rows.length) {
+        win.textContent = h && h.error
+            ? 'Traffic history unavailable: ' + h.error
+            : 'No complete hour recorded yet. The first one appears a minute after the hour turns.';
+        tiles.innerHTML = '';
+        charts.style.display = 'none';
+        return;
+    }
+    charts.style.display = '';
+
+    const rows = h.rows;
+    const buckets = _thBuckets(h);
+    const labels = buckets.map(b => b.label);
+    const col = f => buckets.map(b => (b.row ? f(b.row) : null));
+    const hourly = h.bucket === 3600;
+    // Scriptable, not an array: the legend asks without a dataIndex and gets the solid colour
+    const shade = (solid, light) => (ctx => (ctx.dataIndex != null && buckets[ctx.dataIndex] && buckets[ctx.dataIndex].partial ? light : solid));
+    const pointR = buckets.length <= 40 ? 2 : 0;
+    const tension = hourly ? 0.25 : 0;
+    const anyPartial = buckets.some(b => b.partial);
+
+    const first = new Date((h.first_ts || rows[0].ts) * 1000);
+    win.textContent = (hourly ? 'Per hour' : 'Per day') + ' · ' +
+        rows.reduce((n, r) => n + (r.hours || 0), 0).toLocaleString() + ' complete hours · history since ' +
+        first.toLocaleDateString(undefined, {day: 'numeric', month: 'short', year: 'numeric'}) +
+        ' · raw packets kept ' + (h.retention_days || '?') + ' days, this summary indefinitely' +
+        (anyPartial ? ' · * partial day' : '');
+
+    // Range totals
+    const rf = _thSum(rows, r => r.pkts_rf), mqtt = _thSum(rows, r => r.pkts_mqtt);
+    const rx = _thSum(rows, r => r.radio_rx), dupe = _thSum(rows, r => r.radio_dupe);
+    const bad = _thSum(rows, r => r.radio_bad), relay = _thSum(rows, r => r.radio_relay);
+    const unique = (rx != null && dupe != null) ? Math.max(0, rx - dupe) : null;
+    const hoursWithRadio = rows.reduce((n, r) => n + (r.radio_rx != null ? (r.hours || 1) : 0), 0);
+    let cuW = 0, cuN = 0, cuPeak = null, peakSenders = null;
+    rows.forEach(r => {
+        if (r.cu_avg != null) { cuW += r.cu_avg * (r.hours || 1); cuN += (r.hours || 1); }
+        if (r.cu_max != null) cuPeak = Math.max(cuPeak == null ? 0 : cuPeak, r.cu_max);
+        if (r.senders != null) peakSenders = Math.max(peakSenders == null ? 0 : peakSenders, r.senders);
+    });
+    const logged = (rf || 0) + (mqtt || 0);
+    tiles.innerHTML = [
+        _thTile(_thFmt(logged), 'Packets logged', 'RF ' + _thFmt(rf) + ' · MQTT ' + _thFmt(mqtt)),
+        _thTile(_thFmt(unique), 'Heard by radio', unique ? 'MeshPulse logged ' + _thFmt(_thPct(rf, unique), 0) + '% of it' : 'no radio counters yet'),
+        _thTile(_thFmt(_thPct(dupe, rx), 1) + '%', 'Duplicates', 'same packet via several relays'),
+        _thTile(_thFmt(_thPct(bad, (rx || 0) + (bad || 0)), 1) + '%', 'Bad CRC', 'collisions or weak signal'),
+        _thTile(_thFmt(cuN ? cuW / cuN : null, 1) + '%', 'Channel util', 'peak ' + _thFmt(cuPeak, 1) + '%'),
+        _thTile(_thFmt(relay), 'Relayed by node', hoursWithRadio ? '~' + _thFmt(relay / hoursWithRadio) + ' per hour' : ''),
+        _thTile(_thFmt(peakSenders), 'Active nodes', 'busiest hour')
+    ].join('');
+
+    _thChart('th-traffic-chart', {
+        type: 'bar',
+        data: { labels, datasets: [
+            { type: 'line', label: 'Heard by radio', data: col(_thUnique), stack: 'heard',
+              borderColor: '#8b5cf6', backgroundColor: 'rgba(139,92,246,0.15)', borderWidth: 1.5,
+              pointRadius: pointR, tension, order: 0 },
+            { label: 'Logged RF', data: col(r => r.pkts_rf), stack: 'logged', _solid: '#22c55e',
+              backgroundColor: shade('#22c55e', 'rgba(34,197,94,0.35)'), order: 1 },
+            { label: 'Logged MQTT', data: col(r => r.pkts_mqtt), stack: 'logged', _solid: '#3b82f6',
+              backgroundColor: shade('#3b82f6', 'rgba(59,130,246,0.35)'), order: 1 }
+        ]},
+        options: {
+            // The legend samples the first bar, which may be a pale partial day
+            plugins: { legend: { display: true, labels: { boxWidth: 10, font: { size: 10 }, color: '#374151',
+                generateLabels: chart => Chart.defaults.plugins.legend.labels.generateLabels(chart).map(l => {
+                    const ds = chart.data.datasets[l.datasetIndex];
+                    if (ds && ds._solid) { l.fillStyle = ds._solid; l.strokeStyle = ds._solid; }
+                    return l;
+                }) } } },
+            scales: { x: { stacked: true, ticks: { color: '#6b7280', font: { size: 9 }, maxRotation: 0, autoSkip: true, maxTicksLimit: 8 }, grid: { display: false } },
+                             y: { stacked: true, beginAtZero: true, ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 5 }, grid: { color: '#e5e7eb' } } } }
+    });
+
+    _thChart('th-cu-chart', {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'Average', data: col(r => r.cu_avg), borderColor: '#f59e0b', backgroundColor: 'rgba(245,158,11,0.15)',
+              fill: true, borderWidth: 1.5, pointRadius: pointR, tension },
+            { label: 'Peak', data: col(r => r.cu_max), borderColor: '#ef4444', borderDash: [4, 3],
+              borderWidth: 1, pointRadius: pointR, tension }
+        ]},
+        options: { scales: { y: { beginAtZero: true, suggestedMax: 10, ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 5, callback: v => v + '%' }, grid: { color: '#e5e7eb' } } } }
+    });
+
+    _thChart('th-quality-chart', {
+        type: 'line',
+        data: { labels, datasets: [
+            { label: 'Duplicates %', data: col(r => _thPct(r.radio_dupe, r.radio_rx)), borderColor: '#eab308',
+              borderWidth: 1.5, pointRadius: pointR, tension },
+            { label: 'Bad CRC %', data: col(r => _thPct(r.radio_bad, (r.radio_rx || 0) + (r.radio_bad || 0))),
+              borderColor: '#ef4444', borderWidth: 1.5, pointRadius: pointR, tension }
+        ]},
+        options: { scales: { y: { beginAtZero: true, suggestedMax: 50, ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 5, callback: v => v + '%' }, grid: { color: '#e5e7eb' } } } }
+    });
+
+    const ports = (h.ports || []).slice(0, 10);
+    _thChart('th-ports-chart', {
+        type: 'bar',
+        data: { labels: ports.map(p => String(p.portnum).replace(/_APP$/, '')), datasets: [
+            { label: 'RF', data: ports.map(p => p.rf), backgroundColor: '#22c55e', stack: 'p' },
+            { label: 'MQTT', data: ports.map(p => p.mqtt), backgroundColor: '#3b82f6', stack: 'p' }
+        ]},
+        options: { indexAxis: 'y',
+                   scales: { x: { stacked: true, beginAtZero: true, ticks: { color: '#6b7280', font: { size: 9 }, maxTicksLimit: 5 }, grid: { color: '#e5e7eb' } },
+                             y: { stacked: true, ticks: { color: '#374151', font: { size: 10 } }, grid: { display: false } } } }
+    });
+}
+
+function exportTrafficHistoryCSV() {
+    const h = _thData;
+    if (!h || !h.rows || !h.rows.length) { alert('No traffic history to export yet.'); return; }
+    const cols = ['hours', 'pkts_rf', 'pkts_mqtt', 'senders', 'radio_rx', 'radio_dupe', 'radio_bad',
+                  'radio_tx', 'radio_relay', 'cu_avg', 'cu_max', 'air_tx_avg', 'nodes_online', 'avg_snr'];
+    const rows = h.rows.map(r => {
+        const d = new Date(r.ts * 1000);
+        const when = h.bucket === 3600 ? _thDayKey(d) + ' ' + String(d.getHours()).padStart(2, '0') + ':00' : String(r.bucket_key);
+        return [when].concat(cols.map(c => (r[c] == null ? '' : r[c])));
+    });
+    downloadCSV('meshpulse-traffic-' + h.range + '-' + new Date().toISOString().slice(0, 10) + '.csv',
+                [h.bucket === 3600 ? 'hour' : 'day'].concat(cols), rows);
 }
 
 // ── Radio History Widgets ─────────────────────────────────────────

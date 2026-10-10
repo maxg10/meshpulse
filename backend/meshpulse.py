@@ -91,7 +91,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.8.3'
+MAPPER_VERSION = '2.9.0'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -331,14 +331,40 @@ class SerialMeshtasticInterface:
 
 
 class StatsDB:
-    """SQLite database for network statistics - keeps 3 days of data."""
+    """SQLite database for network statistics.
+
+    The raw tables (packets, anomalies, neighbors, radio_stats_history) keep
+    `retention_days` of data: 30 by default, `stats_retention_days` in config.json.
+    The hourly rollup (traffic_hourly, traffic_hourly_port) holds about 9k rows a
+    year and is never pruned, so long-term trends survive the raw retention.
+    """
 
     DB_PATH = '/var/www/html/meshpulse/stats.db'
-    RETENTION_DAYS = 3
+    DEFAULT_RETENTION_DAYS = 30
+    MAX_RETENTION_DAYS = 365
+    # Two radio samples further apart than this are a gap, not a delta: pinning
+    # hours of counter growth on a single hour would invent a traffic spike.
+    RADIO_MAX_GAP = 7200
+    # Upper bounds on work per call. A backfill, or a retention lowered from 30
+    # days to 3, is spread over several minutes instead of stalling the listener.
+    ROLLUP_MAX_HOURS = 48
+    CLEANUP_CHUNK = 500
+    CLEANUP_MAX_CHUNKS = 4   # 500 rows take ~0.5 s on a Pi 2 with every index updated
 
-    def __init__(self):
+    def __init__(self, retention_days=DEFAULT_RETENTION_DAYS):
         self.lock = threading.Lock()
+        self.retention_days = retention_days
         self._init_db()
+
+    @classmethod
+    def clamp_retention(cls, value):
+        """config.json is edited by hand: anything that is not a whole number of
+        days falls back to the default, and the rest is clamped to 1..365."""
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            return cls.DEFAULT_RETENTION_DAYS
+        return max(1, min(cls.MAX_RETENTION_DAYS, days))
 
     def _init_db(self):
         with self.lock:
@@ -388,7 +414,13 @@ class StatsDB:
     snr REAL
 )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from ON packets(from_id)')
+            # (from_id, portnum, ts) serves every from_id lookup the old single-column
+            # index did, and turns the "last relay" subquery in get_stats_summary from
+            # a scan of each node's whole history into a range seek. Measured on a
+            # Pi 2 with 30 days of traffic: 4.95 s -> 0.47 s, run every minute while
+            # holding the lock that packet logging waits on.
+            c.execute('DROP INDEX IF EXISTS idx_packets_from')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from_port_ts ON packets(from_id, portnum, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_relay ON packets(relayed_by_us, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_mqtt ON packets(via_mqtt, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts)')
@@ -408,6 +440,61 @@ class StatsDB:
                 num_total_nodes INTEGER
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_radio_stats_ts ON radio_stats_history(ts)')
+            # Hourly rollup, kept indefinitely. Packet columns count what this mapper
+            # logged (RF and MQTT apart; SNR/RSSI/hops averaged over RF only, since an
+            # MQTT packet carries somebody else's radio conditions). radio_* columns
+            # are growth of the node's own firmware counters within the hour.
+            c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly (
+                hour_ts INTEGER PRIMARY KEY,
+                pkts_rf INTEGER NOT NULL DEFAULT 0,
+                pkts_mqtt INTEGER NOT NULL DEFAULT 0,
+                senders INTEGER NOT NULL DEFAULT 0,
+                avg_snr REAL,
+                avg_rssi REAL,
+                avg_hops REAL,
+                radio_rx INTEGER,
+                radio_dupe INTEGER,
+                radio_bad INTEGER,
+                radio_tx INTEGER,
+                radio_relay INTEGER,
+                cu_avg REAL,
+                cu_max REAL,
+                air_tx_avg REAL,
+                nodes_online INTEGER,
+                samples INTEGER NOT NULL DEFAULT 0
+            )''')
+            # Every public key MeshPulse has seen, by node. The radio's own NodeDB holds
+            # far fewer nodes than a city mesh (80 on a Wio Tracker L1), so keys it has
+            # dropped can be handed back with add_contact before a PKC admin request.
+            # first_seen / changes are the seed of key-change detection.
+            c.execute('''CREATE TABLE IF NOT EXISTS node_keys (
+                node_id TEXT PRIMARY KEY,
+                public_key TEXT NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                via_mqtt INTEGER NOT NULL DEFAULT 0,
+                changes INTEGER NOT NULL DEFAULT 0
+            )''')
+            # Every remote admin write: who was changed, what, and whether it took
+            c.execute('''CREATE TABLE IF NOT EXISTS admin_audit (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts INTEGER NOT NULL,
+                dest TEXT NOT NULL,
+                action TEXT NOT NULL,
+                section TEXT,
+                changes TEXT,
+                outcome TEXT,
+                rtt REAL
+            )''')
+            # One row per (hour, portnum): a port the mapper starts logging later is a
+            # new row, not a schema migration.
+            c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly_port (
+                hour_ts INTEGER NOT NULL,
+                portnum TEXT NOT NULL,
+                rf INTEGER NOT NULL DEFAULT 0,
+                mqtt INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (hour_ts, portnum)
+            )''')
             # One-time cleanup: remove bad rows inserted by deviceMetrics (no localStats data)
             c.execute('''DELETE FROM radio_stats_history
                 WHERE num_tx_relay IS NULL
@@ -467,17 +554,286 @@ class StatsDB:
             conn.close()
 
     def cleanup_old_data(self):
-        """Remove data older than RETENTION_DAYS."""
-        cutoff = int(time.time()) - (self.RETENTION_DAYS * 86400)
+        """Prune the raw tables to retention_days. The rollup tables are never pruned.
+
+        Runs every minute, so normally it removes a minute's worth of rows. packets
+        is the one table that grows large, and a lowered retention can leave weeks
+        to delete at once (one day of a busy mesh took 29 s in a single DELETE on a
+        Pi 2). So it goes in chunks, releasing the lock in between, and stops after
+        CLEANUP_MAX_CHUNKS; the rest waits for the next call.
+        """
+        cutoff = int(time.time()) - (self.retention_days * 86400)
+        for _ in range(self.CLEANUP_MAX_CHUNKS):
+            with self.lock:
+                conn = sqlite3.connect(self.DB_PATH)
+                try:
+                    deleted = conn.execute(
+                        'DELETE FROM packets WHERE id IN '
+                        '(SELECT id FROM packets WHERE ts < ? LIMIT ?)',
+                        (cutoff, self.CLEANUP_CHUNK)).rowcount
+                    conn.commit()
+                finally:
+                    conn.close()
+            if deleted < self.CLEANUP_CHUNK:
+                break
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
-            conn.execute('DELETE FROM packets WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM radio_stats_history WHERE ts < ?', (cutoff,))
             conn.commit()
             conn.close()
+
+    @staticmethod
+    def _counter_delta(prev, cur):
+        """Growth of a firmware counter between two samples. The counters run from
+        the node's boot, so a drop means it rebooted: everything since is new."""
+        if prev is None or cur is None:
+            return None
+        return cur - prev if cur >= prev else cur
+
+    def _next_data_ts(self, since):
+        """Earliest raw timestamp at or after `since`, in either source table."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                return conn.execute('''SELECT MIN(t) FROM (
+                    SELECT MIN(ts) AS t FROM packets WHERE ts >= ?
+                    UNION ALL
+                    SELECT MIN(ts) FROM radio_stats_history WHERE ts >= ?)''',
+                    (since, since)).fetchone()[0]
+            finally:
+                conn.close()
+
+    def _rollup_hour(self, hour):
+        """Rewrite the rollup rows for [hour, hour + 3600). False if it holds no data.
+
+        A pair of consecutive radio samples is credited to the hour of the later
+        one, using the last sample before the hour as the baseline. Summed over
+        hours, that reproduces the counters' total growth, minus gaps longer than
+        RADIO_MAX_GAP, which are dropped rather than guessed.
+        """
+        end = hour + 3600
+        cols = ('ts, channel_utilization, air_util_tx, num_packets_rx, num_rx_dupe, '
+                'num_packets_rx_bad, num_packets_tx, num_tx_relay, num_online_nodes')
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                pk = conn.execute('''SELECT
+                        COALESCE(SUM(via_mqtt = 0), 0),
+                        COALESCE(SUM(via_mqtt = 1), 0),
+                        COUNT(DISTINCT from_id),
+                        AVG(CASE WHEN via_mqtt = 0 THEN snr END),
+                        AVG(CASE WHEN via_mqtt = 0 THEN rssi END),
+                        AVG(CASE WHEN via_mqtt = 0 AND hops >= 0 THEN hops END)
+                    FROM packets WHERE ts >= ? AND ts < ?''', (hour, end)).fetchone()
+                samples = conn.execute(
+                    f'SELECT {cols} FROM radio_stats_history '
+                    'WHERE ts >= ? AND ts < ? ORDER BY ts', (hour, end)).fetchall()
+                if pk[0] + pk[1] == 0 and not samples:
+                    return False
+                ports = conn.execute('''SELECT portnum, SUM(via_mqtt = 0), SUM(via_mqtt = 1)
+                    FROM packets WHERE ts >= ? AND ts < ? GROUP BY portnum''',
+                    (hour, end)).fetchall()
+                prev = conn.execute(
+                    f'SELECT {cols} FROM radio_stats_history '
+                    'WHERE ts < ? AND ts >= ? ORDER BY ts DESC LIMIT 1',
+                    (hour, hour - self.RADIO_MAX_GAP)).fetchone()
+
+                # rx, dupe, bad, tx, relay: columns 3..7 of `cols`
+                deltas = [None] * 5
+                for s in samples:
+                    if prev is not None and s[0] - prev[0] <= self.RADIO_MAX_GAP:
+                        for i in range(5):
+                            d = self._counter_delta(prev[3 + i], s[3 + i])
+                            if d is not None:
+                                deltas[i] = (deltas[i] or 0) + d
+                    prev = s
+                cu = [s[1] for s in samples if s[1] is not None]
+                air = [s[2] for s in samples if s[2] is not None]
+                online = [s[8] for s in samples if s[8] is not None]
+
+                conn.execute('''INSERT OR REPLACE INTO traffic_hourly
+                    (hour_ts, pkts_rf, pkts_mqtt, senders, avg_snr, avg_rssi, avg_hops,
+                     radio_rx, radio_dupe, radio_bad, radio_tx, radio_relay,
+                     cu_avg, cu_max, air_tx_avg, nodes_online, samples)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+                    hour, pk[0], pk[1], pk[2], pk[3], pk[4], pk[5],
+                    *deltas,
+                    sum(cu) / len(cu) if cu else None,
+                    max(cu) if cu else None,
+                    sum(air) / len(air) if air else None,
+                    max(online) if online else None,
+                    len(samples)))
+                conn.execute('DELETE FROM traffic_hourly_port WHERE hour_ts = ?', (hour,))
+                conn.executemany(
+                    'INSERT INTO traffic_hourly_port (hour_ts, portnum, rf, mqtt) VALUES (?,?,?,?)',
+                    [(hour, p[0], p[1], p[2]) for p in ports])
+                conn.commit()
+                return True
+            finally:
+                conn.close()
+
+    def rollup_traffic(self, now=None):
+        """Fold every complete hour not rolled up yet into the hourly tables.
+
+        Idempotent: each hour is rewritten whole, so a second call, a restart
+        halfway through, or two mapper instances racing after a reconnect cannot
+        double-count. The first run after an upgrade backfills whatever the raw
+        tables still hold, skipping the oldest hour if retention already cut into
+        it. Hours with no data at all get no row: a gap stays a gap, it does not
+        turn into a quiet hour. Returns the number of hours written.
+        """
+        now = int(time.time() if now is None else now)
+        current = (now // 3600) * 3600  # the hour in progress is never rolled up
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                last = conn.execute('SELECT MAX(hour_ts) FROM traffic_hourly').fetchone()[0]
+            finally:
+                conn.close()
+        if last is not None:
+            hour = last + 3600
+        else:
+            first = self._next_data_ts(0)
+            if first is None:
+                return 0
+            hour = (first // 3600) * 3600
+            if first > hour:
+                hour += 3600
+        written = 0
+        for _ in range(self.ROLLUP_MAX_HOURS):
+            if hour >= current:
+                break
+            if self._rollup_hour(hour):
+                written += 1
+                hour += 3600
+            else:
+                nxt = self._next_data_ts(hour + 3600)
+                if nxt is None:
+                    break
+                hour = (nxt // 3600) * 3600
+        return written
+
+    def remember_public_key(self, node_id, public_key_b64, via_mqtt=False):
+        """Store a node's public key. Returns 'new', 'same' or 'changed'.
+        An MQTT sighting never replaces a key heard over radio."""
+        now = int(time.time())
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                row = conn.execute('SELECT public_key, via_mqtt FROM node_keys WHERE node_id = ?',
+                                   (node_id,)).fetchone()
+                if row is None:
+                    conn.execute('INSERT INTO node_keys (node_id, public_key, first_seen, last_seen, via_mqtt) '
+                                 'VALUES (?,?,?,?,?)', (node_id, public_key_b64, now, now, 1 if via_mqtt else 0))
+                    outcome = 'new'
+                elif row[0] == public_key_b64:
+                    conn.execute('UPDATE node_keys SET last_seen = ?, via_mqtt = via_mqtt AND ? WHERE node_id = ?',
+                                 (now, 1 if via_mqtt else 0, node_id))
+                    outcome = 'same'
+                elif via_mqtt and not row[1]:
+                    outcome = 'same'   # do not let a broker overwrite what the radio heard
+                else:
+                    conn.execute('UPDATE node_keys SET public_key = ?, last_seen = ?, via_mqtt = ?, '
+                                 'changes = changes + 1 WHERE node_id = ?',
+                                 (public_key_b64, now, 1 if via_mqtt else 0, node_id))
+                    outcome = 'changed'
+                conn.commit()
+                return outcome
+            finally:
+                conn.close()
+
+    def log_admin_action(self, dest, action, section, changes, outcome, rtt=None):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                conn.execute('INSERT INTO admin_audit (ts, dest, action, section, changes, outcome, rtt) '
+                             'VALUES (?,?,?,?,?,?,?)', (int(time.time()), dest, action, section, changes, outcome, rtt))
+                conn.commit()
+            finally:
+                conn.close()
+
+    def recent_admin_actions(self, limit=10):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                rows = conn.execute('SELECT ts, dest, action, section, changes, outcome FROM admin_audit '
+                                    'ORDER BY id DESC LIMIT ?', (int(limit),)).fetchall()
+            finally:
+                conn.close()
+        return [{'ts': r[0], 'dest': r[1], 'action': r[2], 'section': r[3], 'changes': r[4], 'outcome': r[5]}
+                for r in rows]
+
+    def get_public_key(self, node_id):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                row = conn.execute('SELECT public_key FROM node_keys WHERE node_id = ?', (node_id,)).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
+
+    # range key -> (span in seconds, bucket in seconds)
+    HISTORY_RANGES = {
+        '24h': (86400, 3600),
+        '7d': (7 * 86400, 3600),
+        '30d': (30 * 86400, 86400),
+        '1y': (365 * 86400, 86400),
+    }
+
+    def get_traffic_history(self, range_key='7d', now=None):
+        """Rollup rows for the Stats history charts.
+
+        24h and 7d come back per hour, 30d and 1y per local calendar day. Only
+        complete hours exist in the rollup, so the newest bucket is the last full
+        hour. Daily rows aggregate the hourly ones: counters are summed, channel
+        utilisation is averaged weighted by radio samples, and `senders` becomes
+        the busiest hour of the day (distinct senders do not add up across hours).
+        """
+        if range_key not in self.HISTORY_RANGES:
+            range_key = '7d'
+        span, bucket = self.HISTORY_RANGES[range_key]
+        now = int(time.time() if now is None else now)
+        since = (now // 3600) * 3600 - span
+        key = 'hour_ts' if bucket == 3600 else "date(hour_ts, 'unixepoch', 'localtime')"
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            conn.row_factory = sqlite3.Row
+            try:
+                rows = conn.execute(f'''SELECT {key} AS bucket_key, MIN(hour_ts) AS ts,
+                        COUNT(*) AS hours,
+                        SUM(pkts_rf) AS pkts_rf, SUM(pkts_mqtt) AS pkts_mqtt,
+                        MAX(senders) AS senders,
+                        SUM(radio_rx) AS radio_rx, SUM(radio_dupe) AS radio_dupe,
+                        SUM(radio_bad) AS radio_bad, SUM(radio_tx) AS radio_tx,
+                        SUM(radio_relay) AS radio_relay,
+                        SUM(cu_avg * samples) / NULLIF(SUM(CASE WHEN cu_avg IS NOT NULL THEN samples END), 0) AS cu_avg,
+                        MAX(cu_max) AS cu_max,
+                        SUM(air_tx_avg * samples) / NULLIF(SUM(CASE WHEN air_tx_avg IS NOT NULL THEN samples END), 0) AS air_tx_avg,
+                        MAX(nodes_online) AS nodes_online,
+                        SUM(avg_snr * pkts_rf) / NULLIF(SUM(CASE WHEN avg_snr IS NOT NULL THEN pkts_rf END), 0) AS avg_snr
+                    FROM traffic_hourly WHERE hour_ts >= ?
+                    GROUP BY bucket_key ORDER BY ts''', (since,)).fetchall()
+                ports = conn.execute('''SELECT portnum, SUM(rf) AS rf, SUM(mqtt) AS mqtt
+                    FROM traffic_hourly_port WHERE hour_ts >= ?
+                    GROUP BY portnum ORDER BY SUM(rf + mqtt) DESC''', (since,)).fetchall()
+                first_ts = conn.execute('SELECT MIN(hour_ts) FROM traffic_hourly').fetchone()[0]
+            finally:
+                conn.close()
+        return {
+            'range': range_key,
+            'bucket': bucket,
+            'since': since,
+            'now': now,
+            'first_ts': first_ts,
+            'retention_days': self.retention_days,
+            # Floats rounded: a year of daily rows goes over the WebSocket as is.
+            'rows': [{k: (round(v, 2) if isinstance(v, float) else v) for k, v in dict(r).items()}
+                     for r in rows],
+            'ports': [dict(r) for r in ports],
+        }
 
     def clear_node_packets(self, node_id):
         """Delete all packet history for a specific node from stats.db."""
@@ -496,6 +852,8 @@ class StatsDB:
             conn.execute('DELETE FROM node_activity')
             conn.execute('DELETE FROM anomalies')
             conn.execute('DELETE FROM neighbors')
+            conn.execute('DELETE FROM traffic_hourly')
+            conn.execute('DELETE FROM traffic_hourly_port')
             conn.commit()
             conn.close()
 
@@ -783,6 +1141,8 @@ def load_config():
     config.setdefault('coverage_antenna_height', 10.0)
     config.setdefault('coverage_max_range_km', 50)
     config.setdefault('plugin_store_url', 'https://meshpulse.app/plugins/plugins.json')
+    config.setdefault('stats_retention_days', StatsDB.DEFAULT_RETENTION_DAYS)
+    config.setdefault('remote_admin_write', False)
     return config
 
 
@@ -2615,9 +2975,589 @@ class ListenBasedMapper:
     # Python API packet parsers (TCP mode — receive already-decoded dicts)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Remote administration (read-only, v1)
+    # ------------------------------------------------------------------
+    # Admin messages travel over the live interface, the same way
+    # request_position does: no serial release, no CLI subprocess. Measured on
+    # Pimesh1 against a direct neighbour: 1.2 to 1.5 s per PKC round trip,
+    # against 7 s for `meshtastic --dest ... --get` plus the reconnect.
+
+    # section -> (oneof field of AdminMessage, enum container, enum value name)
+    REMOTE_ADMIN_SECTIONS = {
+        'owner': ('get_owner_request', None, None),
+        'metadata': ('get_device_metadata_request', None, None),
+        'device': ('get_config_request', 'ConfigType', 'DEVICE_CONFIG'),
+        'position': ('get_config_request', 'ConfigType', 'POSITION_CONFIG'),
+        'power': ('get_config_request', 'ConfigType', 'POWER_CONFIG'),
+        'network': ('get_config_request', 'ConfigType', 'NETWORK_CONFIG'),
+        'display': ('get_config_request', 'ConfigType', 'DISPLAY_CONFIG'),
+        'lora': ('get_config_request', 'ConfigType', 'LORA_CONFIG'),
+        'bluetooth': ('get_config_request', 'ConfigType', 'BLUETOOTH_CONFIG'),
+        'security': ('get_config_request', 'ConfigType', 'SECURITY_CONFIG'),
+        'mqtt': ('get_module_config_request', 'ModuleConfigType', 'MQTT_CONFIG'),
+        'telemetry': ('get_module_config_request', 'ModuleConfigType', 'TELEMETRY_CONFIG'),
+        'neighborinfo': ('get_module_config_request', 'ModuleConfigType', 'NEIGHBORINFO_CONFIG'),
+        'store_forward': ('get_module_config_request', 'ModuleConfigType', 'STOREFORWARD_CONFIG'),
+        'range_test': ('get_module_config_request', 'ModuleConfigType', 'RANGETEST_CONFIG'),
+    }
+
+    # Routing errors an admin request can come back with, in words a user can act on
+    REMOTE_ADMIN_HINTS = {
+        'ADMIN_PUBLIC_KEY_UNAUTHORIZED': "The node answered, but your tracker's public key is not one of its admin keys. "
+                                         "Add it on that node under Security > Admin Key (up to three keys).",
+        'NOT_AUTHORIZED': "The node refused the request: your tracker is not authorised to administer it.",
+        'PKI_FAILED': "Your tracker could not encrypt for this node: it does not hold the node's public key.",
+        'PKI_UNKNOWN_PUBKEY': "The node does not know your tracker's public key yet.",
+        'NO_RESPONSE': "The request was delivered, but nothing answered it.",
+        'MAX_RETRANSMIT': "No acknowledgement after all retries: the node is out of reach or asleep.",
+        'NO_ROUTE': "No route to the node.",
+        'NO_CHANNEL': "The node is not on a channel your tracker can use for admin.",
+        'TOO_LARGE': "The answer did not fit in one packet.",
+        'PKI_SEND_FAIL_PUBLIC_KEY': "Your radio does not hold this node's public key, so it refused to encrypt for it.",
+        'ADMIN_BAD_SESSION_KEY': "The node rejected the write: the session key from the read had expired. Try again.",
+    }
+
+    def _remember_key(self, node_id, public_key_b64, via_mqtt=False):
+        """Keep every public key we see, so keys the radio's small NodeDB drops can be
+        handed back to it later. A changed key is logged: that is either a reflashed
+        node or somebody impersonating it."""
+        if not node_id or not public_key_b64:
+            return
+        try:
+            outcome = self.stats_db.remember_public_key(node_id, public_key_b64, via_mqtt)
+            if outcome == 'changed':
+                print(f"[KEYS] ⚠️ {node_id} now announces a different public key ({public_key_b64[:8]}…)"
+                      f"{' via MQTT' if via_mqtt else ''}")
+        except Exception as e:
+            print(f"[KEYS] could not store key for {node_id}: {e}")
+
+    def _mesh_iface(self):
+        """The live MeshInterface of the current connection, or None."""
+        if self.connection_type == 'serial' and self._serial_iface and self._serial_iface.iface:
+            return self._serial_iface.iface
+        if self.connection_type == 'tcp' and self._tcp_iface and self._tcp_iface.interface:
+            return self._tcp_iface.interface
+        return None
+
+    @staticmethod
+    def _send_and_wait(iface, payload, dest, port, timeout, want_response=True, **kw):
+        """sendData with onResponse, without the library's blocking waitForAckNak,
+        which fights the listener on serial. Returns (rtt_seconds, packet) or (None, None)."""
+        done, box = threading.Event(), {}
+
+        def _on_response(packet):
+            box['p'], box['t'] = packet, time.time()
+            done.set()
+
+        t0 = time.time()
+        iface.sendData(payload, dest, portNum=port, wantResponse=want_response, onResponse=_on_response, **kw)
+        if not done.wait(timeout):
+            return None, None
+        return box['t'] - t0, box['p']
+
+    def _ensure_remote_pubkey(self, iface, dest, steps, timeout=15):
+        """PKC needs the target's public key in the radio's own NodeDB, which holds far
+        fewer nodes than the mesh has (80 on a Wio Tracker L1 against 300+ around
+        Poznań), so it drops keys all the time. In order:
+          1. the radio still has it: done;
+          2. MeshPulse has it in node_keys: hand it back with add_contact, the same
+             thing the phone apps do before every DM (firmware also pins the entry
+             as a favourite, so it is not evicted again);
+          3. ask the node with a NodeInfo request. Last, because firmware ignores a
+             requester it heard less than 12 h ago (NODEINFO_REPLY_SUPPRESS_SECS)."""
+        from meshtastic.protobuf import admin_pb2
+
+        if ((iface.nodes or {}).get(dest) or {}).get('user', {}).get('publicKey'):
+            return True
+        cached = self.stats_db.get_public_key(dest)
+        if cached:
+            known = (iface.nodes or {}).get(dest, {}).get('user', {})
+            contact = admin_pb2.AdminMessage()
+            contact.add_contact.node_num = int(dest[1:], 16)
+            contact.add_contact.user.id = dest
+            contact.add_contact.user.long_name = known.get('longName') or self._display_name(dest)
+            contact.add_contact.user.short_name = known.get('shortName') or ''
+            contact.add_contact.user.public_key = base64.b64decode(cached)
+            iface.localNode._sendAdmin(contact, wantResponse=False)
+            steps.append('Radio had dropped this node\'s public key; handed it back from MeshPulse\'s key store')
+            time.sleep(0.5)  # let the radio file it before we ask it to encrypt
+            return True
+
+        def _has_key():
+            return bool(((iface.nodes or {}).get(dest) or {}).get('user', {}).get('publicKey'))
+        me = (iface.getMyNodeInfo() or {}).get('user', {})
+        user = mesh_pb2.User(id=me.get('id', ''), long_name=me.get('longName', ''),
+                             short_name=me.get('shortName', ''),
+                             public_key=iface.localNode.localConfig.security.public_key)
+        steps.append('No public key for this node anywhere yet, asking it for its node info')
+        rtt, packet = self._send_and_wait(iface, user, dest, portnums_pb2.PortNum.NODEINFO_APP, timeout, wantAck=False)
+        if packet is None:
+            steps.append(f'No node info answer within {timeout} s (a node ignores requesters it heard in the last 12 h)')
+            return False
+        for _ in range(30):  # the library files the key a moment after the callback
+            if _has_key():
+                self._remember_key(dest, iface.nodes[dest]['user']['publicKey'])
+                steps.append(f'Got its public key in {rtt:.1f} s')
+                return True
+            time.sleep(0.1)
+        steps.append('Node info answered, but without a public key (firmware older than 2.5?)')
+        return False
+
+    def _display_name(self, node_id):
+        n = self.nodes.get(node_id) or self.nodes_no_position.get(node_id) or {}
+        return (n.get('name') or self.known_names.get(node_id) or node_id)[:39]
+
+    # Writes are allowed when config.json says so permanently, or for a limited time
+    # after someone arms them from the Config page. Shared by every mapper instance
+    # (the mapper object is rebuilt on reconnect; an armed window must survive that).
+    REMOTE_ADMIN_ARM = {'until': 0.0, 'by': None}
+    REMOTE_ADMIN_ARM_MINUTES = (15, 30, 60, 120)
+
+    def remote_admin_write_enabled(self):
+        return bool(self.config.get('remote_admin_write', False)) or time.time() < self.REMOTE_ADMIN_ARM['until']
+
+    def remote_admin_state(self):
+        now = time.time()
+        until = self.REMOTE_ADMIN_ARM['until']
+        try:
+            recent = self.stats_db.recent_admin_actions(10)
+        except Exception:
+            recent = []
+        return {
+            'permanent': bool(self.config.get('remote_admin_write', False)),
+            'armed': until > now,
+            'armed_until': int(until) if until > now else 0,
+            'remaining': max(0, int(until - now)),
+            'armed_by': self.REMOTE_ADMIN_ARM['by'] if until > now else None,
+            'enabled': self.remote_admin_write_enabled(),
+            'minutes_options': list(self.REMOTE_ADMIN_ARM_MINUTES),
+            'recent': recent,
+        }
+
+    def remote_admin_arm(self, minutes, client):
+        minutes = int(minutes) if str(minutes).isdigit() else 60
+        if minutes not in self.REMOTE_ADMIN_ARM_MINUTES:
+            minutes = 60
+        self.REMOTE_ADMIN_ARM['until'] = time.time() + minutes * 60
+        self.REMOTE_ADMIN_ARM['by'] = client
+        try:
+            self.stats_db.log_admin_action('-', 'arm', None, json.dumps({'minutes': minutes, 'client': client}), 'armed')
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] remote writes armed for {minutes} min by {client}")
+        return self.remote_admin_state()
+
+    def remote_admin_disarm(self, client):
+        was = self.REMOTE_ADMIN_ARM['until'] > time.time()
+        self.REMOTE_ADMIN_ARM['until'] = 0.0
+        self.REMOTE_ADMIN_ARM['by'] = None
+        if was:
+            try:
+                self.stats_db.log_admin_action('-', 'disarm', None, json.dumps({'client': client}), 'disarmed')
+            except Exception as e:
+                print(f"[ADMIN] audit log failed: {e}")
+            print(f"[ADMIN] remote writes disarmed by {client}")
+        return self.remote_admin_state()
+
+    # Sections that may be written remotely, and why the others may not (yet).
+    # Full remote configuration is the goal; these guards are a policy layer, so
+    # opening a section or field later is a one-line change here, not a rewrite.
+    REMOTE_ADMIN_WRITABLE = {'owner', 'device', 'position', 'power', 'display', 'telemetry',
+                             'neighborinfo', 'range_test', 'store_forward'}
+    REMOTE_ADMIN_GUARDED_SECTIONS = {
+        'lora': 'Radio parameters. A wrong region, preset or channel cuts the node off the mesh, '
+                'and only a cable brings it back.',
+        'security': 'Keys and admin settings. One wrong value locks remote admin out for good.',
+        'network': 'Network settings can take away the interfaces you would use to rescue the node.',
+        'bluetooth': 'Bluetooth settings can take away the interfaces you would use to rescue the node.',
+        'mqtt': 'Not writable yet.',
+        'metadata': 'Read-only by nature.',
+    }
+    REMOTE_ADMIN_GUARDED_FIELDS = {
+        'device.role': 'The role decides how the node relays. Not remotely yet.',
+        'owner.is_licensed': 'Licensed (ham) mode switches encryption off, PKC included: remote admin would stop working.',
+        'power.is_power_saving': 'A sleeping node may stop answering admin requests.',
+    }
+    REMOTE_ADMIN_OWNER_EDITABLE = {'long_name', 'short_name', 'is_unmessagable'}
+    # field name of the section inside Config / ModuleConfig
+    REMOTE_ADMIN_ONEOF = {
+        'device': 'device', 'position': 'position', 'power': 'power', 'network': 'network',
+        'display': 'display', 'lora': 'lora', 'bluetooth': 'bluetooth', 'security': 'security',
+        'mqtt': 'mqtt', 'telemetry': 'telemetry', 'neighborinfo': 'neighbor_info',
+        'store_forward': 'store_forward', 'range_test': 'range_test',
+    }
+
+    def _ra_prepare(self, dest, section, result):
+        """Validate the request and return the live interface, or None with result filled."""
+        if section is not None and section not in self.REMOTE_ADMIN_SECTIONS:
+            result['error'] = 'UNKNOWN_SECTION'
+            return None
+        if not dest or not re.fullmatch(r'![0-9a-f]{8}', dest):
+            result['error'] = 'BAD_NODE_ID'
+            return None
+        iface = self._mesh_iface()
+        if iface is None:
+            result['error'] = 'NOT_CONNECTED'
+            result['hint'] = 'MeshPulse is not connected to its radio right now.'
+            return None
+        if not hasattr(self, '_remote_admin_lock'):
+            self._remote_admin_lock = threading.Lock()
+            self._remote_admin_sessions = {}
+        result['tracker_public_key'] = base64.b64encode(iface.localNode.localConfig.security.public_key).decode()
+        return iface
+
+    def _ra_send(self, iface, dest, msg, timeout, steps, result, expect_reply=True):
+        """One PKC admin round trip. With expect_reply the answer is an admin message;
+        without it (set_*, reboot) the node only acknowledges, so the ACK is the answer.
+        Returns the reply packet, or None with result['error'] filled."""
+        kw = dict(wantAck=True, pkiEncrypted=True, channelIndex=iface.localNode._getAdminChannelIndex())
+        if not expect_reply:
+            kw.update(want_response=False, onResponseAckPermitted=True)
+        rtt, packet = self._send_and_wait(iface, msg, dest, portnums_pb2.PortNum.ADMIN_APP, timeout, **kw)
+        if packet is None:
+            result['error'] = 'TIMEOUT'
+            result['hint'] = f'No answer within {timeout} s. The node may be out of reach, asleep or busy.'
+            steps.append(result['hint'])
+            return None
+        result['rtt'] = round(rtt, 2)
+        decoded = packet.get('decoded', {})
+        if 'routing' in decoded:
+            reason = decoded['routing'].get('errorReason', 'NONE')
+            if reason == 'NONE' and not expect_reply:
+                steps.append(f'Acknowledged in {rtt:.1f} s')
+                return packet
+            result['error'] = reason
+            result['hint'] = self.REMOTE_ADMIN_HINTS.get(reason, '')
+            steps.append(f'{reason} after {rtt:.1f} s')
+            return None
+        return packet
+
+    def _ra_read(self, iface, dest, section, timeout, steps, result):
+        """Read one section. Returns its protobuf message (Config.XConfig, ModuleConfig.X,
+        User or DeviceMetadata), or None with result filled. Remembers the session key."""
+        from meshtastic.protobuf import admin_pb2
+        field, enum_name, value = self.REMOTE_ADMIN_SECTIONS[section]
+        msg = admin_pb2.AdminMessage()
+        if enum_name is None:
+            setattr(msg, field, True)
+        else:
+            setattr(msg, field, getattr(admin_pb2.AdminMessage, enum_name).Value(value))
+        steps.append(f'Sent {field} ({section})')
+        packet = self._ra_send(iface, dest, msg, timeout, steps, result)
+        if packet is None:
+            return None
+        raw = packet.get('decoded', {}).get('admin', {}).get('raw')
+        if raw is None:
+            result['error'] = 'UNEXPECTED_REPLY'
+            return None
+        if raw.session_passkey:
+            self._remote_admin_sessions[dest] = (raw.session_passkey, time.time())
+        which = raw.WhichOneof('payload_variant')
+        body = getattr(raw, which)
+        if which in ('get_config_response', 'get_module_config_response'):
+            body = getattr(body, body.WhichOneof('payload_variant'))
+        result['reply'] = which
+        steps.append(f'Answered in {result["rtt"]:.1f} s')
+        return body
+
+    def _ra_schema(self, section, body):
+        """Every scalar field of the section with its type, enum options, current value
+        (defaults included, which MessageToDict would drop) and whether it may be written."""
+        from google.protobuf.descriptor import FieldDescriptor as FD
+        ints = {FD.TYPE_INT32, FD.TYPE_INT64, FD.TYPE_UINT32, FD.TYPE_UINT64, FD.TYPE_SINT32,
+                FD.TYPE_SINT64, FD.TYPE_FIXED32, FD.TYPE_FIXED64, FD.TYPE_SFIXED32, FD.TYPE_SFIXED64}
+        unsigned = {FD.TYPE_UINT32, FD.TYPE_UINT64, FD.TYPE_FIXED32, FD.TYPE_FIXED64}
+        section_ok = section in self.REMOTE_ADMIN_WRITABLE
+        out = []
+
+        def walk(msg, prefix):
+            for f in msg.DESCRIPTOR.fields:
+                if f.GetOptions().deprecated:
+                    continue
+                path = prefix + f.name
+                repeated = getattr(f, 'is_repeated', None)
+                if repeated is None:
+                    repeated = f.label == FD.LABEL_REPEATED
+                if f.type == FD.TYPE_MESSAGE and not repeated:
+                    walk(getattr(msg, f.name), path + '.')
+                    continue
+                v = getattr(msg, f.name)
+                e = {'path': path}
+                if repeated:
+                    e['type'] = 'list'
+                    e['value'] = [base64.b64encode(x).decode() if isinstance(x, bytes) else str(x) for x in v]
+                elif f.type == FD.TYPE_BYTES:
+                    e['type'], e['value'] = 'bytes', base64.b64encode(v).decode()
+                elif f.type == FD.TYPE_ENUM:
+                    e['type'] = 'enum'
+                    e['options'] = [ev.name for ev in f.enum_type.values]
+                    ev = f.enum_type.values_by_number.get(v)
+                    e['value'] = ev.name if ev else str(v)
+                elif f.type == FD.TYPE_BOOL:
+                    e['type'], e['value'] = 'bool', bool(v)
+                elif f.type in (FD.TYPE_FLOAT, FD.TYPE_DOUBLE):
+                    e['type'], e['value'] = 'float', round(float(v), 6)
+                elif f.type in ints:
+                    e['type'], e['value'] = 'int', int(v)
+                    if f.type in unsigned:
+                        e['min'] = 0
+                elif f.type == FD.TYPE_STRING:
+                    e['type'], e['value'] = 'string', v
+                else:
+                    continue
+                full = f'{section}.{path}'
+                if path == 'private_key':
+                    e['value'] = '(hidden)'
+                if not section_ok:
+                    e['editable'], e['reason'] = False, self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section, 'Not writable.')
+                elif full in self.REMOTE_ADMIN_GUARDED_FIELDS:
+                    e['editable'], e['reason'] = False, self.REMOTE_ADMIN_GUARDED_FIELDS[full]
+                elif section == 'owner' and path not in self.REMOTE_ADMIN_OWNER_EDITABLE:
+                    e['editable'], e['reason'] = False, 'Identity field, set by the firmware.'
+                elif e['type'] in ('list', 'bytes'):
+                    e['editable'], e['reason'] = False, 'Lists and binary fields are not editable yet.'
+                else:
+                    e['editable'] = True
+                if section == 'owner' and path == 'long_name':
+                    e['max_bytes'] = 39
+                elif section == 'owner' and path == 'short_name':
+                    e['max_bytes'] = 4
+                out.append(e)
+
+        walk(body, '')
+        return out
+
+    def remote_admin_get(self, dest, section, timeout=45):
+        """Read one config section from a remote node over PKC admin."""
+        from google.protobuf.json_format import MessageToDict
+        steps = []
+        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
+        iface = self._ra_prepare(dest, section, result)
+        if iface is None:
+            return result
+        with self._remote_admin_lock:  # one admin conversation at a time
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                result['hint'] = ("MeshPulse has not seen this node's public key yet and the node did not answer a "
+                                  "node info request. It is stored automatically the next time the node broadcasts "
+                                  "its node info (every few hours); try again after that.")
+                return result
+            body = self._ra_read(iface, dest, section, timeout, steps, result)
+            if body is None:
+                return result
+        values = MessageToDict(body, preserving_proto_field_name=True)
+        if 'private_key' in values:  # never let a private key reach a browser
+            values['private_key'] = '(hidden)'
+        write_enabled = self.remote_admin_write_enabled()
+        result.update(ok=True, values=values, schema=self._ra_schema(section, body),
+                      write_enabled=write_enabled,
+                      section_writable=section in self.REMOTE_ADMIN_WRITABLE,
+                      section_reason=self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section))
+        return result
+
+    def _ra_apply_changes(self, section, body, changes):
+        """Apply {path: value} to a copy of the section. Returns (new_body, diff, error)."""
+        schema = {e['path']: e for e in self._ra_schema(section, body)}
+        new = type(body)()
+        new.CopyFrom(body)
+        diff = []
+        if not isinstance(changes, dict) or not changes:
+            return None, None, 'No changes given.'
+        for path, value in changes.items():
+            e = schema.get(path)
+            if e is None:
+                return None, None, f'Unknown field: {path}'
+            if not e.get('editable'):
+                return None, None, f'{path} is locked: {e.get("reason", "")}'
+            try:
+                if e['type'] == 'bool':
+                    if not isinstance(value, bool):
+                        raise ValueError('expected true or false')
+                    new_v = value
+                elif e['type'] == 'int':
+                    if isinstance(value, bool) or float(value) != int(float(value)):
+                        raise ValueError('expected a whole number')
+                    new_v = int(float(value))
+                    if e.get('min') is not None and new_v < e['min']:
+                        raise ValueError(f'must be at least {e["min"]}')
+                elif e['type'] == 'float':
+                    new_v = float(value)
+                elif e['type'] == 'string':
+                    new_v = str(value)
+                    if e.get('max_bytes') and len(new_v.encode('utf-8')) > e['max_bytes']:
+                        raise ValueError(f'at most {e["max_bytes"]} bytes')
+                    if path in ('long_name', 'short_name') and not new_v.strip():
+                        raise ValueError('cannot be empty')
+                elif e['type'] == 'enum':
+                    if value not in e['options']:
+                        raise ValueError('not one of ' + ', '.join(e['options']))
+                    new_v = value
+                else:
+                    raise ValueError('not editable')
+            except (TypeError, ValueError) as err:
+                return None, None, f'{path}: {err}'
+            parent = new
+            parts = path.split('.')
+            for p in parts[:-1]:
+                parent = getattr(parent, p)
+            leaf = parts[-1]
+            try:
+                if e['type'] == 'enum':
+                    fd = parent.DESCRIPTOR.fields_by_name[leaf]
+                    setattr(parent, leaf, fd.enum_type.values_by_name[new_v].number)
+                else:
+                    setattr(parent, leaf, new_v)
+            except (TypeError, ValueError) as err:   # e.g. out of range for uint32
+                return None, None, f'{path}: {err}'
+            if new_v != e['value']:
+                diff.append({'path': path, 'old': e['value'], 'new': new_v})
+        if not diff:
+            return None, None, 'Nothing changed.'
+        return new, diff, None
+
+    def remote_admin_set(self, dest, section, changes, timeout=45):
+        """Write changed fields of one section to a remote node. Reads the section first
+        (current values plus a fresh session key), applies only the given fields, sends
+        the whole section back. The caller verifies by reading again after the node has
+        had time to restart."""
+        from meshtastic.protobuf import admin_pb2
+        steps = []
+        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
+        if not self.remote_admin_write_enabled():
+            result['error'] = 'WRITE_DISABLED'
+            result['hint'] = ('Remote writing is not armed. Arm it for a limited time in Config > Remote admin, '
+                              'or set "remote_admin_write": true in /var/www/html/meshpulse/config.json.')
+            return result
+        if section not in self.REMOTE_ADMIN_WRITABLE:
+            result['error'] = 'SECTION_LOCKED'
+            result['hint'] = self.REMOTE_ADMIN_GUARDED_SECTIONS.get(section, 'This section is not writable.')
+            return result
+        iface = self._ra_prepare(dest, section, result)
+        if iface is None:
+            return result
+        with self._remote_admin_lock:
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                return result
+            body = self._ra_read(iface, dest, section, timeout, steps, result)
+            if body is None:
+                return result
+            new_body, diff, err = self._ra_apply_changes(section, body, changes)
+            if err:
+                result['error'], result['hint'] = 'INVALID_CHANGE', err
+                steps.append(err)
+                return result
+            passkey = self._remote_admin_sessions.get(dest, (b'', 0))[0]
+            msg = admin_pb2.AdminMessage()
+            if section == 'owner':
+                msg.set_owner.CopyFrom(new_body)
+                what = 'set_owner'
+            elif self.REMOTE_ADMIN_SECTIONS[section][0] == 'get_config_request':
+                getattr(msg.set_config, self.REMOTE_ADMIN_ONEOF[section]).CopyFrom(new_body)
+                what = 'set_config'
+            else:
+                getattr(msg.set_module_config, self.REMOTE_ADMIN_ONEOF[section]).CopyFrom(new_body)
+                what = 'set_module_config'
+            if passkey:
+                msg.session_passkey = passkey
+            steps.append(f'Sent {what} ({section}): ' + ', '.join(f"{d['path']} {d['old']} -> {d['new']}" for d in diff))
+            packet = self._ra_send(iface, dest, msg, timeout, steps, result, expect_reply=False)
+        outcome = 'applied' if packet is not None else result.get('error', 'FAILED')
+        try:
+            self.stats_db.log_admin_action(dest, 'set', section, json.dumps(diff), outcome, result.get('rtt'))
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] set {section} on {dest}: {outcome} " + json.dumps(diff))
+        if packet is None:
+            return result
+        result.update(ok=True, diff=diff)
+        return result
+
+    def remote_admin_reboot(self, dest, seconds=5, timeout=45):
+        """Ask a remote node to reboot. Needs a session key, so it reads metadata first."""
+        from meshtastic.protobuf import admin_pb2
+        steps = []
+        result = {'dest': dest, 'ok': False, 'steps': steps}
+        if not self.remote_admin_write_enabled():
+            result['error'] = 'WRITE_DISABLED'
+            result['hint'] = 'Remote writing is not armed (Config > Remote admin, or remote_admin_write in config.json).'
+            return result
+        iface = self._ra_prepare(dest, 'metadata', result)
+        if iface is None:
+            return result
+        seconds = max(1, min(60, int(seconds or 5)))
+        with self._remote_admin_lock:
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                return result
+            if self._ra_read(iface, dest, 'metadata', timeout, steps, result) is None:
+                return result
+            msg = admin_pb2.AdminMessage()
+            msg.reboot_seconds = seconds
+            passkey = self._remote_admin_sessions.get(dest, (b'', 0))[0]
+            if passkey:
+                msg.session_passkey = passkey
+            steps.append(f'Sent reboot_seconds={seconds}')
+            packet = self._ra_send(iface, dest, msg, timeout, steps, result, expect_reply=False)
+        outcome = 'applied' if packet is not None else result.get('error', 'FAILED')
+        try:
+            self.stats_db.log_admin_action(dest, 'reboot', None, json.dumps({'seconds': seconds}), outcome, result.get('rtt'))
+        except Exception as e:
+            print(f"[ADMIN] audit log failed: {e}")
+        print(f"[ADMIN] reboot {dest} in {seconds} s: {outcome}")
+        if packet is not None:
+            result.update(ok=True, seconds=seconds)
+        return result
+
+    # Ports whose Python API parsers call log_packet_to_stats themselves.
+    # Every other packet is counted once, at the router, by _log_unparsed_packet.
+    STATS_PARSED_PORTS = frozenset(('NODEINFO_APP', 'POSITION_APP', 'TELEMETRY_APP', 'TEXT_MESSAGE_APP'))
+
+    @staticmethod
+    def _packet_radio_meta(packet):
+        """(hops, snr, rssi, via_mqtt, relay_node_raw) of a Python API packet dict.
+
+        MessageToDict leaves out zero-valued fields: a packet whose hop limit was
+        used up arrives without hopLimit, which means 0, not unknown. A missing
+        hopStart is unknown (firmware too old to send it).
+        """
+        hop_start = packet.get('hopStart')
+        hops = (hop_start - (packet.get('hopLimit') or 0)) if hop_start is not None else None
+        return (hops, packet.get('rxSnr'), packet.get('rxRssi') or None,
+                bool(packet.get('viaMqtt', False)), packet.get('relayNode'))
+
+    def _log_unparsed_packet(self, packet, portnum):
+        """Count a packet no parser logs: ROUTING, TRACEROUTE, NEIGHBORINFO, RANGE_TEST,
+        ADMIN, ..., and packets on a channel this node has no key for (ENCRYPTED).
+
+        Until 2.9 only four ports reached stats.db, so Stats showed roughly a
+        third of the traffic the radio actually decoded.
+        """
+        try:
+            if isinstance(portnum, int):
+                try:
+                    portnum = portnums_pb2.PortNum.Name(portnum)
+                except ValueError:
+                    portnum = f'PORT_{portnum}'
+            if not portnum:
+                portnum = 'ENCRYPTED' if packet.get('encrypted') else 'UNKNOWN'
+            if portnum in self.STATS_PARSED_PORTS:
+                return
+            from_id = sanitize_node_id(packet.get('fromId'))
+            if not from_id and isinstance(packet.get('from'), int):
+                from_id = f"!{packet['from']:08x}"
+            if not from_id:
+                return
+            hops, snr, rssi, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+            self.log_packet_to_stats(from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw)
+        except Exception as e:
+            print(f"[STATS] Could not log {portnum} packet: {e}")
+
     def _on_tcp_packet(self, packet):
         """Route an incoming TCP API packet to the appropriate parser."""
         portnum = packet.get('decoded', {}).get('portnum', '')
+        self._log_unparsed_packet(packet, portnum)
         if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
             self.parse_node_info_from_packet(packet)
         elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
@@ -2659,6 +3599,7 @@ class ListenBasedMapper:
                 hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
                 short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
                 is_licensed = bool(user.get('isLicensed', False))
+                self._remember_key(node_id, user.get('publicKey'), bool(raw.get('viaMqtt', False)))
                 role_raw = user.get('role', 'CLIENT')
                 role = role_raw if isinstance(role_raw, str) else 'CLIENT'
 
@@ -2881,12 +3822,13 @@ class ListenBasedMapper:
 
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
-            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            hops = (hop_start - (hop_limit or 0)) if hop_start is not None else None
 
             # Identity fields from NodeInfo user submessage
             hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
             short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
             is_licensed = bool(user.get('isLicensed', False))
+            self._remember_key(node_id, user.get('publicKey'), via_mqtt)
             # Snapshot previous entry to preserve telemetry/position-injected fields
             prev = self.nodes.get(node_id) or self.nodes_no_position.get(node_id)
 
@@ -2987,7 +3929,7 @@ class ListenBasedMapper:
             via_mqtt = packet.get('viaMqtt', False)
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
-            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            hops = (hop_start - (hop_limit or 0)) if hop_start is not None else None
             relay_node_raw = packet.get('relayNode')
             sats = pos.get('satsInView')
 
@@ -3120,8 +4062,8 @@ class ListenBasedMapper:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
             if node_id != self.local_node_id:
-                relay_node_raw = packet.get('relayNode')
-                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
+                hops, snr, _, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
 
             # Save device metrics for all nodes (not just tracker)
             device_metrics = telemetry.get('deviceMetrics', {})
@@ -3242,8 +4184,8 @@ class ListenBasedMapper:
 
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {self._packet_route_tag(packet)}")
-            relay_node_raw = packet.get('relayNode')
-            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
+            hops, snr, rssi, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
             if plugin_manager:
                 plugin_manager.dispatch_hook_sync('on_message', message)
@@ -3388,6 +4330,7 @@ class ListenBasedMapper:
         try:
             result = self.stats_db.get_stats_summary(self.local_node_id)
             result['local_node_id'] = self.local_node_id
+            result['retention_days'] = self.stats_db.retention_days
             result['nodes'] = {
                 nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
                 for nid, n in {**self.nodes, **self.nodes_no_position}.items()
@@ -3445,6 +4388,12 @@ class ListenBasedMapper:
     def _stats_refresh_loop(self):
         time.sleep(30)
         while True:
+            try:
+                hours = self.stats_db.rollup_traffic()
+                if hours:
+                    print(f"[STATS] Rolled up {hours} hour(s) of traffic")
+            except Exception as e:
+                print(f"[STATS] Rollup error: {e}")
             self._recompute_stats()
             time.sleep(60)
 
@@ -3733,6 +4682,7 @@ class ListenBasedMapper:
         """Route incoming serial packets to appropriate parsers (mirrors _on_tcp_packet)."""
         try:
             portnum = packet.get('decoded', {}).get('portnum', '')
+            self._log_unparsed_packet(packet, portnum)
             if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
                 self.parse_node_info_from_packet(packet)
             elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
@@ -4724,6 +5674,19 @@ async def websocket_handler(websocket):
                         t.start()
                     else:
                         await websocket.send(safe_json({'type': 'stats_data', 'data': {}}))
+                elif data.get('type') == 'get_traffic_history':
+                    # Reads only the hourly rollup (a few hundred rows at most), off the
+                    # event loop: the StatsDB lock can be held by the minute summary.
+                    range_key = str(data.get('range', '7d'))
+                    if mapper:
+                        try:
+                            hist = await asyncio.to_thread(mapper.stats_db.get_traffic_history, range_key)
+                        except Exception as e:
+                            print(f"[STATS] Traffic history error: {e}")
+                            hist = {'range': range_key, 'rows': [], 'ports': [], 'error': str(e)}
+                    else:
+                        hist = {'range': range_key, 'rows': [], 'ports': []}
+                    await websocket.send(safe_json({'type': 'traffic_history', 'data': hist}))
                 elif data.get('type') == 'get_config':
                     if mapper:
                         try:
@@ -5684,6 +6647,55 @@ async def websocket_handler(websocket):
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}, ensure_ascii=False))
 
+                elif data.get('type') == 'remote_admin_get':
+                    # Read-only remote administration over PKC admin messages
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    section = str(data.get('section', ''))
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_get, dest, section)
+                        except Exception as e:
+                            print(f"[ADMIN] {dest} {section}: {e}")
+                            res = {'dest': dest, 'section': section, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'section': section, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    print(f"[ADMIN] get {section} from {dest}: {'OK' if res.get('ok') else res.get('error')}"
+                          f"{' in %.1f s' % res['rtt'] if res.get('rtt') else ''}")
+                    await websocket.send(safe_json({'type': 'remote_admin_result', 'data': res}))
+                elif data.get('type') == 'remote_admin_set':
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    section = str(data.get('section', ''))
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_set, dest, section, data.get('changes'))
+                        except Exception as e:
+                            print(f"[ADMIN] set {dest} {section}: {e}")
+                            res = {'dest': dest, 'section': section, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'section': section, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    await websocket.send(safe_json({'type': 'remote_admin_set_result', 'data': res}))
+                elif data.get('type') in ('remote_admin_state', 'remote_admin_arm', 'remote_admin_disarm'):
+                    who = f"{client_addr[0]}" if client_addr else 'unknown'
+                    if not mapper:
+                        state = {'enabled': False, 'permanent': False, 'armed': False, 'remaining': 0, 'recent': []}
+                    elif data['type'] == 'remote_admin_arm':
+                        state = await asyncio.to_thread(mapper.remote_admin_arm, data.get('minutes', 60), who)
+                    elif data['type'] == 'remote_admin_disarm':
+                        state = await asyncio.to_thread(mapper.remote_admin_disarm, who)
+                    else:
+                        state = await asyncio.to_thread(mapper.remote_admin_state)
+                    await websocket.send(safe_json({'type': 'remote_admin_state', 'data': state}))
+                elif data.get('type') == 'remote_admin_reboot':
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_reboot, dest, data.get('seconds', 5))
+                        except Exception as e:
+                            print(f"[ADMIN] reboot {dest}: {e}")
+                            res = {'dest': dest, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    await websocket.send(safe_json({'type': 'remote_admin_reboot_result', 'data': res}))
                 elif data.get('type') == 'ping_device':
                     try:
                         is_connected = False
@@ -6106,6 +7118,10 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
+            mapper.stats_db.retention_days = StatsDB.clamp_retention(
+                mapper.config.get('stats_retention_days'))
+            print(f"[STATS] Raw history kept {mapper.stats_db.retention_days} days, "
+                  f"hourly rollup kept indefinitely")
             # Update plugin_manager's mapper reference for each new mapper
             # instance — plugins resolve their mapper through it lazily
             if plugin_manager:
