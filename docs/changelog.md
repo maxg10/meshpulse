@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.9.0 (unreleased)
+## v2.9.0
 - New: Remote admin, read-only. A 🛠 Admin button in a Meshtastic node's popup
   (and 🛠 in the No GPS list) opens a window that reads that node's settings over
   the mesh: owner, firmware, device, LoRa, position, power, network, display,
