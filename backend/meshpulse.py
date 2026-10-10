@@ -2892,6 +2892,167 @@ class ListenBasedMapper:
     # Python API packet parsers (TCP mode — receive already-decoded dicts)
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Remote administration (read-only, v1)
+    # ------------------------------------------------------------------
+    # Admin messages travel over the live interface, the same way
+    # request_position does: no serial release, no CLI subprocess. Measured on
+    # Pimesh1 against a direct neighbour: 1.2 to 1.5 s per PKC round trip,
+    # against 7 s for `meshtastic --dest ... --get` plus the reconnect.
+
+    # section -> (oneof field of AdminMessage, enum container, enum value name)
+    REMOTE_ADMIN_SECTIONS = {
+        'owner': ('get_owner_request', None, None),
+        'metadata': ('get_device_metadata_request', None, None),
+        'device': ('get_config_request', 'ConfigType', 'DEVICE_CONFIG'),
+        'position': ('get_config_request', 'ConfigType', 'POSITION_CONFIG'),
+        'power': ('get_config_request', 'ConfigType', 'POWER_CONFIG'),
+        'network': ('get_config_request', 'ConfigType', 'NETWORK_CONFIG'),
+        'display': ('get_config_request', 'ConfigType', 'DISPLAY_CONFIG'),
+        'lora': ('get_config_request', 'ConfigType', 'LORA_CONFIG'),
+        'bluetooth': ('get_config_request', 'ConfigType', 'BLUETOOTH_CONFIG'),
+        'security': ('get_config_request', 'ConfigType', 'SECURITY_CONFIG'),
+        'mqtt': ('get_module_config_request', 'ModuleConfigType', 'MQTT_CONFIG'),
+        'telemetry': ('get_module_config_request', 'ModuleConfigType', 'TELEMETRY_CONFIG'),
+        'neighborinfo': ('get_module_config_request', 'ModuleConfigType', 'NEIGHBORINFO_CONFIG'),
+        'store_forward': ('get_module_config_request', 'ModuleConfigType', 'STOREFORWARD_CONFIG'),
+        'range_test': ('get_module_config_request', 'ModuleConfigType', 'RANGETEST_CONFIG'),
+    }
+
+    # Routing errors an admin request can come back with, in words a user can act on
+    REMOTE_ADMIN_HINTS = {
+        'ADMIN_PUBLIC_KEY_UNAUTHORIZED': "The node answered, but your tracker's public key is not one of its admin keys. "
+                                         "Add it on that node under Security > Admin Key (up to three keys).",
+        'NOT_AUTHORIZED': "The node refused the request: your tracker is not authorised to administer it.",
+        'ADMIN_BAD_SESSION_KEY': "The admin session expired. Read any section again to get a fresh one.",
+        'PKI_FAILED': "Your tracker could not encrypt for this node: it does not hold the node's public key.",
+        'PKI_UNKNOWN_PUBKEY': "The node does not know your tracker's public key yet.",
+        'NO_RESPONSE': "The request was delivered, but nothing answered it.",
+        'MAX_RETRANSMIT': "No acknowledgement after all retries: the node is out of reach or asleep.",
+        'NO_ROUTE': "No route to the node.",
+        'NO_CHANNEL': "The node is not on a channel your tracker can use for admin.",
+        'TOO_LARGE': "The answer did not fit in one packet.",
+    }
+
+    def _mesh_iface(self):
+        """The live MeshInterface of the current connection, or None."""
+        if self.connection_type == 'serial' and self._serial_iface and self._serial_iface.iface:
+            return self._serial_iface.iface
+        if self.connection_type == 'tcp' and self._tcp_iface and self._tcp_iface.interface:
+            return self._tcp_iface.interface
+        return None
+
+    @staticmethod
+    def _send_and_wait(iface, payload, dest, port, timeout, **kw):
+        """sendData with onResponse, without the library's blocking waitForAckNak,
+        which fights the listener on serial. Returns (rtt_seconds, packet) or (None, None)."""
+        done, box = threading.Event(), {}
+
+        def _on_response(packet):
+            box['p'], box['t'] = packet, time.time()
+            done.set()
+
+        t0 = time.time()
+        iface.sendData(payload, dest, portNum=port, wantResponse=True, onResponse=_on_response, **kw)
+        if not done.wait(timeout):
+            return None, None
+        return box['t'] - t0, box['p']
+
+    def _ensure_remote_pubkey(self, iface, dest, steps, timeout=20):
+        """PKC needs the target's public key in the radio's own NodeDB, which holds
+        far fewer nodes than the mesh has (80 on a Wio Tracker L1 against 300+ around
+        Poznań). If it is missing, swap NodeInfo with the target: its answer carries
+        the key, and ours gives it the tracker's key in return."""
+        def _has_key():
+            return bool(((iface.nodes or {}).get(dest) or {}).get('user', {}).get('publicKey'))
+
+        if _has_key():
+            return True
+        me = (iface.getMyNodeInfo() or {}).get('user', {})
+        user = mesh_pb2.User(id=me.get('id', ''), long_name=me.get('longName', ''),
+                             short_name=me.get('shortName', ''),
+                             public_key=iface.localNode.localConfig.security.public_key)
+        steps.append('Radio has no public key for this node, exchanging node info')
+        rtt, packet = self._send_and_wait(iface, user, dest, portnums_pb2.PortNum.NODEINFO_APP, timeout, wantAck=False)
+        if packet is None:
+            steps.append(f'No node info answer within {timeout} s')
+            return False
+        for _ in range(30):  # the library files the key a moment after the callback
+            if _has_key():
+                steps.append(f'Got its public key in {rtt:.1f} s')
+                return True
+            time.sleep(0.1)
+        steps.append('Node info answered, but without a public key (firmware older than 2.5?)')
+        return False
+
+    def remote_admin_get(self, dest, section, timeout=45):
+        """Read one config section from a remote node over PKC admin. Read-only."""
+        from google.protobuf.json_format import MessageToDict
+        from meshtastic.protobuf import admin_pb2
+
+        steps = []
+        result = {'dest': dest, 'section': section, 'ok': False, 'steps': steps}
+        if section not in self.REMOTE_ADMIN_SECTIONS:
+            result['error'] = 'UNKNOWN_SECTION'
+            return result
+        if not dest or not re.fullmatch(r'![0-9a-f]{8}', dest):
+            result['error'] = 'BAD_NODE_ID'
+            return result
+        iface = self._mesh_iface()
+        if iface is None:
+            result['error'] = 'NOT_CONNECTED'
+            result['hint'] = 'MeshPulse is not connected to its radio right now.'
+            return result
+        if not hasattr(self, '_remote_admin_lock'):
+            self._remote_admin_lock = threading.Lock()
+            self._remote_admin_sessions = {}
+        result['tracker_public_key'] = base64.b64encode(iface.localNode.localConfig.security.public_key).decode()
+
+        with self._remote_admin_lock:  # one admin conversation at a time
+            if not self._ensure_remote_pubkey(iface, dest, steps):
+                result['error'] = 'PKI_UNKNOWN_PUBKEY'
+                result['hint'] = 'Could not get this node\'s public key. It may be out of reach, or running firmware older than 2.5.'
+                return result
+            field, enum_name, value = self.REMOTE_ADMIN_SECTIONS[section]
+            msg = admin_pb2.AdminMessage()
+            if enum_name is None:
+                setattr(msg, field, True)
+            else:
+                setattr(msg, field, getattr(admin_pb2.AdminMessage, enum_name).Value(value))
+            steps.append(f'Sent {field} ({section})')
+            rtt, packet = self._send_and_wait(iface, msg, dest, portnums_pb2.PortNum.ADMIN_APP, timeout,
+                                              wantAck=True, pkiEncrypted=True,
+                                              channelIndex=iface.localNode._getAdminChannelIndex())
+            if packet is None:
+                result['error'] = 'TIMEOUT'
+                result['hint'] = f'No answer within {timeout} s. The node may be out of reach, asleep or busy.'
+                steps.append(result['hint'])
+                return result
+            result['rtt'] = round(rtt, 2)
+            decoded = packet.get('decoded', {})
+            if 'routing' in decoded:
+                reason = decoded['routing'].get('errorReason', 'UNKNOWN')
+                result['error'] = reason
+                result['hint'] = self.REMOTE_ADMIN_HINTS.get(reason, '')
+                steps.append(f'{reason} after {rtt:.1f} s')
+                return result
+            raw = decoded.get('admin', {}).get('raw')
+            if raw is None:
+                result['error'] = 'UNEXPECTED_REPLY'
+                return result
+            if raw.session_passkey:
+                self._remote_admin_sessions[dest] = (raw.session_passkey, time.time())
+            which = raw.WhichOneof('payload_variant')
+            body = getattr(raw, which)
+            if which in ('get_config_response', 'get_module_config_response'):
+                body = getattr(body, body.WhichOneof('payload_variant'))
+            values = MessageToDict(body, preserving_proto_field_name=True)
+            if 'private_key' in values:  # never let a private key reach a browser
+                values['private_key'] = '(hidden)'
+            result.update(ok=True, values=values, reply=which)
+            steps.append(f'Answered in {rtt:.1f} s')
+            return result
+
     # Ports whose Python API parsers call log_packet_to_stats themselves.
     # Every other packet is counted once, at the router, by _log_unparsed_packet.
     STATS_PARSED_PORTS = frozenset(('NODEINFO_APP', 'POSITION_APP', 'TELEMETRY_APP', 'TEXT_MESSAGE_APP'))
@@ -6027,6 +6188,21 @@ async def websocket_handler(websocket):
                         print(f"[POS] Error requesting position from {node_id}: {e}")
                         await websocket.send(json.dumps({'type': 'error', 'message': f'Position request failed: {e}'}, ensure_ascii=False))
 
+                elif data.get('type') == 'remote_admin_get':
+                    # Read-only remote administration over PKC admin messages
+                    dest = str(data.get('node_id', '')).strip().lower()
+                    section = str(data.get('section', ''))
+                    if mapper:
+                        try:
+                            res = await asyncio.to_thread(mapper.remote_admin_get, dest, section)
+                        except Exception as e:
+                            print(f"[ADMIN] {dest} {section}: {e}")
+                            res = {'dest': dest, 'section': section, 'ok': False, 'error': 'EXCEPTION', 'hint': str(e), 'steps': []}
+                    else:
+                        res = {'dest': dest, 'section': section, 'ok': False, 'error': 'NOT_CONNECTED', 'steps': []}
+                    print(f"[ADMIN] get {section} from {dest}: {'OK' if res.get('ok') else res.get('error')}"
+                          f"{' in %.1f s' % res['rtt'] if res.get('rtt') else ''}")
+                    await websocket.send(safe_json({'type': 'remote_admin_result', 'data': res}))
                 elif data.get('type') == 'ping_device':
                     try:
                         is_connected = False

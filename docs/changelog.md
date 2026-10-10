@@ -1,6 +1,21 @@
 # Changelog
 
 ## v2.9.0 (unreleased)
+- New: Remote admin, read-only. A 🛠 Admin button in a Meshtastic node's popup
+  (and 🛠 in the No GPS list) opens a window that reads that node's settings over
+  the mesh: owner, firmware, device, LoRa, position, power, network, display,
+  Bluetooth, security, MQTT, telemetry, neighbor info, store & forward and range
+  test. Each section is one PKC-encrypted admin request sent through the live
+  radio connection (no serial release, no CLI subprocess); a console under the
+  window shows every request, step and round-trip time. Measured against a direct
+  neighbour from a Pi 2: 1.2 to 1.5 s per section, against 7 s for the CLI path.
+  The target must list the tracker's public key as one of its admin keys
+  (firmware 2.5+); when it does not, the window says so and shows the key to
+  paste. If the tracker's own NodeDB has dropped the target's public key (it holds
+  80 nodes on a Wio Tracker L1, far fewer than a city mesh), MeshPulse first swaps
+  node info with the target to get it. Private keys are never sent to the browser.
+  Nothing is written to the remote node yet. New WebSocket request
+  `remote_admin_get`.
 - New: Hourly traffic rollup in `stats.db`, kept indefinitely. Every complete
   hour is folded into `traffic_hourly` (RF and MQTT packets, distinct senders,
   RF-only SNR/RSSI/hops, growth of the node's own firmware counters: received,
