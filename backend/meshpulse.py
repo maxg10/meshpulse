@@ -463,6 +463,18 @@ class StatsDB:
                 nodes_online INTEGER,
                 samples INTEGER NOT NULL DEFAULT 0
             )''')
+            # Every public key MeshPulse has seen, by node. The radio's own NodeDB holds
+            # far fewer nodes than a city mesh (80 on a Wio Tracker L1), so keys it has
+            # dropped can be handed back with add_contact before a PKC admin request.
+            # first_seen / changes are the seed of key-change detection.
+            c.execute('''CREATE TABLE IF NOT EXISTS node_keys (
+                node_id TEXT PRIMARY KEY,
+                public_key TEXT NOT NULL,
+                first_seen INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL,
+                via_mqtt INTEGER NOT NULL DEFAULT 0,
+                changes INTEGER NOT NULL DEFAULT 0
+            )''')
             # One row per (hour, portnum): a port the mapper starts logging later is a
             # new row, not a schema migration.
             c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly_port (
@@ -692,6 +704,44 @@ class StatsDB:
                     break
                 hour = (nxt // 3600) * 3600
         return written
+
+    def remember_public_key(self, node_id, public_key_b64, via_mqtt=False):
+        """Store a node's public key. Returns 'new', 'same' or 'changed'.
+        An MQTT sighting never replaces a key heard over radio."""
+        now = int(time.time())
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                row = conn.execute('SELECT public_key, via_mqtt FROM node_keys WHERE node_id = ?',
+                                   (node_id,)).fetchone()
+                if row is None:
+                    conn.execute('INSERT INTO node_keys (node_id, public_key, first_seen, last_seen, via_mqtt) '
+                                 'VALUES (?,?,?,?,?)', (node_id, public_key_b64, now, now, 1 if via_mqtt else 0))
+                    outcome = 'new'
+                elif row[0] == public_key_b64:
+                    conn.execute('UPDATE node_keys SET last_seen = ?, via_mqtt = via_mqtt AND ? WHERE node_id = ?',
+                                 (now, 1 if via_mqtt else 0, node_id))
+                    outcome = 'same'
+                elif via_mqtt and not row[1]:
+                    outcome = 'same'   # do not let a broker overwrite what the radio heard
+                else:
+                    conn.execute('UPDATE node_keys SET public_key = ?, last_seen = ?, via_mqtt = ?, '
+                                 'changes = changes + 1 WHERE node_id = ?',
+                                 (public_key_b64, now, 1 if via_mqtt else 0, node_id))
+                    outcome = 'changed'
+                conn.commit()
+                return outcome
+            finally:
+                conn.close()
+
+    def get_public_key(self, node_id):
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                row = conn.execute('SELECT public_key FROM node_keys WHERE node_id = ?', (node_id,)).fetchone()
+                return row[0] if row else None
+            finally:
+                conn.close()
 
     # range key -> (span in seconds, bucket in seconds)
     HISTORY_RANGES = {
@@ -2932,7 +2982,22 @@ class ListenBasedMapper:
         'NO_ROUTE': "No route to the node.",
         'NO_CHANNEL': "The node is not on a channel your tracker can use for admin.",
         'TOO_LARGE': "The answer did not fit in one packet.",
+        'PKI_SEND_FAIL_PUBLIC_KEY': "Your radio does not hold this node's public key, so it refused to encrypt for it.",
     }
+
+    def _remember_key(self, node_id, public_key_b64, via_mqtt=False):
+        """Keep every public key we see, so keys the radio's small NodeDB drops can be
+        handed back to it later. A changed key is logged: that is either a reflashed
+        node or somebody impersonating it."""
+        if not node_id or not public_key_b64:
+            return
+        try:
+            outcome = self.stats_db.remember_public_key(node_id, public_key_b64, via_mqtt)
+            if outcome == 'changed':
+                print(f"[KEYS] ⚠️ {node_id} now announces a different public key ({public_key_b64[:8]}…)"
+                      f"{' via MQTT' if via_mqtt else ''}")
+        except Exception as e:
+            print(f"[KEYS] could not store key for {node_id}: {e}")
 
     def _mesh_iface(self):
         """The live MeshInterface of the current connection, or None."""
@@ -2958,32 +3023,57 @@ class ListenBasedMapper:
             return None, None
         return box['t'] - t0, box['p']
 
-    def _ensure_remote_pubkey(self, iface, dest, steps, timeout=20):
-        """PKC needs the target's public key in the radio's own NodeDB, which holds
-        far fewer nodes than the mesh has (80 on a Wio Tracker L1 against 300+ around
-        Poznań). If it is missing, swap NodeInfo with the target: its answer carries
-        the key, and ours gives it the tracker's key in return."""
+    def _ensure_remote_pubkey(self, iface, dest, steps, timeout=15):
+        """PKC needs the target's public key in the radio's own NodeDB, which holds far
+        fewer nodes than the mesh has (80 on a Wio Tracker L1 against 300+ around
+        Poznań), so it drops keys all the time. In order:
+          1. the radio still has it: done;
+          2. MeshPulse has it in node_keys: hand it back with add_contact, the same
+             thing the phone apps do before every DM (firmware also pins the entry
+             as a favourite, so it is not evicted again);
+          3. ask the node with a NodeInfo request. Last, because firmware ignores a
+             requester it heard less than 12 h ago (NODEINFO_REPLY_SUPPRESS_SECS)."""
+        from meshtastic.protobuf import admin_pb2
+
+        if ((iface.nodes or {}).get(dest) or {}).get('user', {}).get('publicKey'):
+            return True
+        cached = self.stats_db.get_public_key(dest)
+        if cached:
+            known = (iface.nodes or {}).get(dest, {}).get('user', {})
+            contact = admin_pb2.AdminMessage()
+            contact.add_contact.node_num = int(dest[1:], 16)
+            contact.add_contact.user.id = dest
+            contact.add_contact.user.long_name = known.get('longName') or self._display_name(dest)
+            contact.add_contact.user.short_name = known.get('shortName') or ''
+            contact.add_contact.user.public_key = base64.b64decode(cached)
+            iface.localNode._sendAdmin(contact, wantResponse=False)
+            steps.append('Radio had dropped this node\'s public key; handed it back from MeshPulse\'s key store')
+            time.sleep(0.5)  # let the radio file it before we ask it to encrypt
+            return True
+
         def _has_key():
             return bool(((iface.nodes or {}).get(dest) or {}).get('user', {}).get('publicKey'))
-
-        if _has_key():
-            return True
         me = (iface.getMyNodeInfo() or {}).get('user', {})
         user = mesh_pb2.User(id=me.get('id', ''), long_name=me.get('longName', ''),
                              short_name=me.get('shortName', ''),
                              public_key=iface.localNode.localConfig.security.public_key)
-        steps.append('Radio has no public key for this node, exchanging node info')
+        steps.append('No public key for this node anywhere yet, asking it for its node info')
         rtt, packet = self._send_and_wait(iface, user, dest, portnums_pb2.PortNum.NODEINFO_APP, timeout, wantAck=False)
         if packet is None:
-            steps.append(f'No node info answer within {timeout} s')
+            steps.append(f'No node info answer within {timeout} s (a node ignores requesters it heard in the last 12 h)')
             return False
         for _ in range(30):  # the library files the key a moment after the callback
             if _has_key():
+                self._remember_key(dest, iface.nodes[dest]['user']['publicKey'])
                 steps.append(f'Got its public key in {rtt:.1f} s')
                 return True
             time.sleep(0.1)
         steps.append('Node info answered, but without a public key (firmware older than 2.5?)')
         return False
+
+    def _display_name(self, node_id):
+        n = self.nodes.get(node_id) or self.nodes_no_position.get(node_id) or {}
+        return (n.get('name') or self.known_names.get(node_id) or node_id)[:39]
 
     def remote_admin_get(self, dest, section, timeout=45):
         """Read one config section from a remote node over PKC admin. Read-only."""
@@ -3011,7 +3101,9 @@ class ListenBasedMapper:
         with self._remote_admin_lock:  # one admin conversation at a time
             if not self._ensure_remote_pubkey(iface, dest, steps):
                 result['error'] = 'PKI_UNKNOWN_PUBKEY'
-                result['hint'] = 'Could not get this node\'s public key. It may be out of reach, or running firmware older than 2.5.'
+                result['hint'] = ("MeshPulse has not seen this node's public key yet and the node did not answer a "
+                                  "node info request. It is stored automatically the next time the node broadcasts "
+                                  "its node info (every few hours); try again after that.")
                 return result
             field, enum_name, value = self.REMOTE_ADMIN_SECTIONS[section]
             msg = admin_pb2.AdminMessage()
@@ -3142,6 +3234,7 @@ class ListenBasedMapper:
                 hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
                 short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
                 is_licensed = bool(user.get('isLicensed', False))
+                self._remember_key(node_id, user.get('publicKey'), bool(raw.get('viaMqtt', False)))
                 role_raw = user.get('role', 'CLIENT')
                 role = role_raw if isinstance(role_raw, str) else 'CLIENT'
 
@@ -3370,6 +3463,7 @@ class ListenBasedMapper:
             hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
             short_name = sanitize_str(user.get('shortName') or '', max_len=8) or None
             is_licensed = bool(user.get('isLicensed', False))
+            self._remember_key(node_id, user.get('publicKey'), via_mqtt)
             # Snapshot previous entry to preserve telemetry/position-injected fields
             prev = self.nodes.get(node_id) or self.nodes_no_position.get(node_id)
 
