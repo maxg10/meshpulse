@@ -331,14 +331,40 @@ class SerialMeshtasticInterface:
 
 
 class StatsDB:
-    """SQLite database for network statistics - keeps 3 days of data."""
+    """SQLite database for network statistics.
+
+    The raw tables (packets, anomalies, neighbors, radio_stats_history) keep
+    `retention_days` of data: 30 by default, `stats_retention_days` in config.json.
+    The hourly rollup (traffic_hourly, traffic_hourly_port) holds about 9k rows a
+    year and is never pruned, so long-term trends survive the raw retention.
+    """
 
     DB_PATH = '/var/www/html/meshpulse/stats.db'
-    RETENTION_DAYS = 3
+    DEFAULT_RETENTION_DAYS = 30
+    MAX_RETENTION_DAYS = 365
+    # Two radio samples further apart than this are a gap, not a delta: pinning
+    # hours of counter growth on a single hour would invent a traffic spike.
+    RADIO_MAX_GAP = 7200
+    # Upper bounds on work per call. A backfill, or a retention lowered from 30
+    # days to 3, is spread over several minutes instead of stalling the listener.
+    ROLLUP_MAX_HOURS = 48
+    CLEANUP_CHUNK = 500
+    CLEANUP_MAX_CHUNKS = 10
 
-    def __init__(self):
+    def __init__(self, retention_days=DEFAULT_RETENTION_DAYS):
         self.lock = threading.Lock()
+        self.retention_days = retention_days
         self._init_db()
+
+    @classmethod
+    def clamp_retention(cls, value):
+        """config.json is edited by hand: anything that is not a whole number of
+        days falls back to the default, and the rest is clamped to 1..365."""
+        try:
+            days = int(value)
+        except (TypeError, ValueError):
+            return cls.DEFAULT_RETENTION_DAYS
+        return max(1, min(cls.MAX_RETENTION_DAYS, days))
 
     def _init_db(self):
         with self.lock:
@@ -388,7 +414,13 @@ class StatsDB:
     snr REAL
 )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_ts ON packets(ts)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from ON packets(from_id)')
+            # (from_id, portnum, ts) serves every from_id lookup the old single-column
+            # index did, and turns the "last relay" subquery in get_stats_summary from
+            # a scan of each node's whole history into a range seek. Measured on a
+            # Pi 2 with 30 days of traffic: 4.95 s -> 0.47 s, run every minute while
+            # holding the lock that packet logging waits on.
+            c.execute('DROP INDEX IF EXISTS idx_packets_from')
+            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from_port_ts ON packets(from_id, portnum, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_relay ON packets(relayed_by_us, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_mqtt ON packets(via_mqtt, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts)')
@@ -408,6 +440,38 @@ class StatsDB:
                 num_total_nodes INTEGER
             )''')
             c.execute('CREATE INDEX IF NOT EXISTS idx_radio_stats_ts ON radio_stats_history(ts)')
+            # Hourly rollup, kept indefinitely. Packet columns count what this mapper
+            # logged (RF and MQTT apart; SNR/RSSI/hops averaged over RF only, since an
+            # MQTT packet carries somebody else's radio conditions). radio_* columns
+            # are growth of the node's own firmware counters within the hour.
+            c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly (
+                hour_ts INTEGER PRIMARY KEY,
+                pkts_rf INTEGER NOT NULL DEFAULT 0,
+                pkts_mqtt INTEGER NOT NULL DEFAULT 0,
+                senders INTEGER NOT NULL DEFAULT 0,
+                avg_snr REAL,
+                avg_rssi REAL,
+                avg_hops REAL,
+                radio_rx INTEGER,
+                radio_dupe INTEGER,
+                radio_bad INTEGER,
+                radio_tx INTEGER,
+                radio_relay INTEGER,
+                cu_avg REAL,
+                cu_max REAL,
+                air_tx_avg REAL,
+                nodes_online INTEGER,
+                samples INTEGER NOT NULL DEFAULT 0
+            )''')
+            # One row per (hour, portnum): a port the mapper starts logging later is a
+            # new row, not a schema migration.
+            c.execute('''CREATE TABLE IF NOT EXISTS traffic_hourly_port (
+                hour_ts INTEGER NOT NULL,
+                portnum TEXT NOT NULL,
+                rf INTEGER NOT NULL DEFAULT 0,
+                mqtt INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (hour_ts, portnum)
+            )''')
             # One-time cleanup: remove bad rows inserted by deviceMetrics (no localStats data)
             c.execute('''DELETE FROM radio_stats_history
                 WHERE num_tx_relay IS NULL
@@ -467,17 +531,167 @@ class StatsDB:
             conn.close()
 
     def cleanup_old_data(self):
-        """Remove data older than RETENTION_DAYS."""
-        cutoff = int(time.time()) - (self.RETENTION_DAYS * 86400)
+        """Prune the raw tables to retention_days. The rollup tables are never pruned.
+
+        Runs every minute, so normally it removes a minute's worth of rows. packets
+        is the one table that grows large, and a lowered retention can leave weeks
+        to delete at once (one day of a busy mesh took 29 s in a single DELETE on a
+        Pi 2). So it goes in chunks, releasing the lock in between, and stops after
+        CLEANUP_MAX_CHUNKS; the rest waits for the next call.
+        """
+        cutoff = int(time.time()) - (self.retention_days * 86400)
+        for _ in range(self.CLEANUP_MAX_CHUNKS):
+            with self.lock:
+                conn = sqlite3.connect(self.DB_PATH)
+                try:
+                    deleted = conn.execute(
+                        'DELETE FROM packets WHERE id IN '
+                        '(SELECT id FROM packets WHERE ts < ? LIMIT ?)',
+                        (cutoff, self.CLEANUP_CHUNK)).rowcount
+                    conn.commit()
+                finally:
+                    conn.close()
+            if deleted < self.CLEANUP_CHUNK:
+                break
         with self.lock:
             conn = sqlite3.connect(self.DB_PATH)
-            conn.execute('DELETE FROM packets WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM radio_stats_history WHERE ts < ?', (cutoff,))
             conn.commit()
             conn.close()
+
+    @staticmethod
+    def _counter_delta(prev, cur):
+        """Growth of a firmware counter between two samples. The counters run from
+        the node's boot, so a drop means it rebooted: everything since is new."""
+        if prev is None or cur is None:
+            return None
+        return cur - prev if cur >= prev else cur
+
+    def _next_data_ts(self, since):
+        """Earliest raw timestamp at or after `since`, in either source table."""
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                return conn.execute('''SELECT MIN(t) FROM (
+                    SELECT MIN(ts) AS t FROM packets WHERE ts >= ?
+                    UNION ALL
+                    SELECT MIN(ts) FROM radio_stats_history WHERE ts >= ?)''',
+                    (since, since)).fetchone()[0]
+            finally:
+                conn.close()
+
+    def _rollup_hour(self, hour):
+        """Rewrite the rollup rows for [hour, hour + 3600). False if it holds no data.
+
+        A pair of consecutive radio samples is credited to the hour of the later
+        one, using the last sample before the hour as the baseline. Summed over
+        hours, that reproduces the counters' total growth, minus gaps longer than
+        RADIO_MAX_GAP, which are dropped rather than guessed.
+        """
+        end = hour + 3600
+        cols = ('ts, channel_utilization, air_util_tx, num_packets_rx, num_rx_dupe, '
+                'num_packets_rx_bad, num_packets_tx, num_tx_relay, num_online_nodes')
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                pk = conn.execute('''SELECT
+                        COALESCE(SUM(via_mqtt = 0), 0),
+                        COALESCE(SUM(via_mqtt = 1), 0),
+                        COUNT(DISTINCT from_id),
+                        AVG(CASE WHEN via_mqtt = 0 THEN snr END),
+                        AVG(CASE WHEN via_mqtt = 0 THEN rssi END),
+                        AVG(CASE WHEN via_mqtt = 0 AND hops >= 0 THEN hops END)
+                    FROM packets WHERE ts >= ? AND ts < ?''', (hour, end)).fetchone()
+                samples = conn.execute(
+                    f'SELECT {cols} FROM radio_stats_history '
+                    'WHERE ts >= ? AND ts < ? ORDER BY ts', (hour, end)).fetchall()
+                if pk[0] + pk[1] == 0 and not samples:
+                    return False
+                ports = conn.execute('''SELECT portnum, SUM(via_mqtt = 0), SUM(via_mqtt = 1)
+                    FROM packets WHERE ts >= ? AND ts < ? GROUP BY portnum''',
+                    (hour, end)).fetchall()
+                prev = conn.execute(
+                    f'SELECT {cols} FROM radio_stats_history '
+                    'WHERE ts < ? AND ts >= ? ORDER BY ts DESC LIMIT 1',
+                    (hour, hour - self.RADIO_MAX_GAP)).fetchone()
+
+                # rx, dupe, bad, tx, relay: columns 3..7 of `cols`
+                deltas = [None] * 5
+                for s in samples:
+                    if prev is not None and s[0] - prev[0] <= self.RADIO_MAX_GAP:
+                        for i in range(5):
+                            d = self._counter_delta(prev[3 + i], s[3 + i])
+                            if d is not None:
+                                deltas[i] = (deltas[i] or 0) + d
+                    prev = s
+                cu = [s[1] for s in samples if s[1] is not None]
+                air = [s[2] for s in samples if s[2] is not None]
+                online = [s[8] for s in samples if s[8] is not None]
+
+                conn.execute('''INSERT OR REPLACE INTO traffic_hourly
+                    (hour_ts, pkts_rf, pkts_mqtt, senders, avg_snr, avg_rssi, avg_hops,
+                     radio_rx, radio_dupe, radio_bad, radio_tx, radio_relay,
+                     cu_avg, cu_max, air_tx_avg, nodes_online, samples)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (
+                    hour, pk[0], pk[1], pk[2], pk[3], pk[4], pk[5],
+                    *deltas,
+                    sum(cu) / len(cu) if cu else None,
+                    max(cu) if cu else None,
+                    sum(air) / len(air) if air else None,
+                    max(online) if online else None,
+                    len(samples)))
+                conn.execute('DELETE FROM traffic_hourly_port WHERE hour_ts = ?', (hour,))
+                conn.executemany(
+                    'INSERT INTO traffic_hourly_port (hour_ts, portnum, rf, mqtt) VALUES (?,?,?,?)',
+                    [(hour, p[0], p[1], p[2]) for p in ports])
+                conn.commit()
+                return True
+            finally:
+                conn.close()
+
+    def rollup_traffic(self, now=None):
+        """Fold every complete hour not rolled up yet into the hourly tables.
+
+        Idempotent: each hour is rewritten whole, so a second call, a restart
+        halfway through, or two mapper instances racing after a reconnect cannot
+        double-count. The first run after an upgrade backfills whatever the raw
+        tables still hold, skipping the oldest hour if retention already cut into
+        it. Hours with no data at all get no row: a gap stays a gap, it does not
+        turn into a quiet hour. Returns the number of hours written.
+        """
+        now = int(time.time() if now is None else now)
+        current = (now // 3600) * 3600  # the hour in progress is never rolled up
+        with self.lock:
+            conn = sqlite3.connect(self.DB_PATH)
+            try:
+                last = conn.execute('SELECT MAX(hour_ts) FROM traffic_hourly').fetchone()[0]
+            finally:
+                conn.close()
+        if last is not None:
+            hour = last + 3600
+        else:
+            first = self._next_data_ts(0)
+            if first is None:
+                return 0
+            hour = (first // 3600) * 3600
+            if first > hour:
+                hour += 3600
+        written = 0
+        for _ in range(self.ROLLUP_MAX_HOURS):
+            if hour >= current:
+                break
+            if self._rollup_hour(hour):
+                written += 1
+                hour += 3600
+            else:
+                nxt = self._next_data_ts(hour + 3600)
+                if nxt is None:
+                    break
+                hour = (nxt // 3600) * 3600
+        return written
 
     def clear_node_packets(self, node_id):
         """Delete all packet history for a specific node from stats.db."""
@@ -496,6 +710,8 @@ class StatsDB:
             conn.execute('DELETE FROM node_activity')
             conn.execute('DELETE FROM anomalies')
             conn.execute('DELETE FROM neighbors')
+            conn.execute('DELETE FROM traffic_hourly')
+            conn.execute('DELETE FROM traffic_hourly_port')
             conn.commit()
             conn.close()
 
@@ -783,6 +999,7 @@ def load_config():
     config.setdefault('coverage_antenna_height', 10.0)
     config.setdefault('coverage_max_range_km', 50)
     config.setdefault('plugin_store_url', 'https://meshpulse.app/plugins/plugins.json')
+    config.setdefault('stats_retention_days', StatsDB.DEFAULT_RETENTION_DAYS)
     return config
 
 
@@ -3388,6 +3605,7 @@ class ListenBasedMapper:
         try:
             result = self.stats_db.get_stats_summary(self.local_node_id)
             result['local_node_id'] = self.local_node_id
+            result['retention_days'] = self.stats_db.retention_days
             result['nodes'] = {
                 nid: {'name': n.get('name', nid), 'role': n.get('role', 'CLIENT')}
                 for nid, n in {**self.nodes, **self.nodes_no_position}.items()
@@ -3445,6 +3663,12 @@ class ListenBasedMapper:
     def _stats_refresh_loop(self):
         time.sleep(30)
         while True:
+            try:
+                hours = self.stats_db.rollup_traffic()
+                if hours:
+                    print(f"[STATS] Rolled up {hours} hour(s) of traffic")
+            except Exception as e:
+                print(f"[STATS] Rollup error: {e}")
             self._recompute_stats()
             time.sleep(60)
 
@@ -6106,6 +6330,10 @@ if __name__ == '__main__':
                 max_age=86400
             )
             mapper.config = load_config()
+            mapper.stats_db.retention_days = StatsDB.clamp_retention(
+                mapper.config.get('stats_retention_days'))
+            print(f"[STATS] Raw history kept {mapper.stats_db.retention_days} days, "
+                  f"hourly rollup kept indefinitely")
             # Update plugin_manager's mapper reference for each new mapper
             # instance — plugins resolve their mapper through it lazily
             if plugin_manager:

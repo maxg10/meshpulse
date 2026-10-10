@@ -4,5 +4,7 @@
   "port": null,
   "_port_note": "null = auto-detect the first free serial device. Prefer an explicit /dev/serial/by-id/... path: ttyUSB/ttyACM numbering shifts on reboot, and auto-detect has no way to tell one radio from another.",
   "host": null,
-  "_host_note": "For TCP mode, 'host' accepts 'host' or 'host:port', e.g. \"192.168.1.100:4405\" — the port defaults to 4403 (Meshtastic standard) when omitted"
+  "_host_note": "For TCP mode, 'host' accepts 'host' or 'host:port', e.g. \"192.168.1.100:4405\" — the port defaults to 4403 (Meshtastic standard) when omitted",
+  "stats_retention_days": 30,
+  "_stats_retention_note": "Days of raw packet history kept in stats.db (1 to 365). The hourly traffic summary is kept regardless. 30 days of a busy mesh is roughly 30 to 90 MB."
 }

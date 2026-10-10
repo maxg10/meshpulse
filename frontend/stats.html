@@ -592,7 +592,7 @@
     </div>
 </div>
 
-<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained 3 days</div>
+<div class="refresh-info">Auto-refreshes every 30 seconds via WebSocket &nbsp;·&nbsp; Data retained <span id="retention-days">30</span> days</div>
 
 <script>
 // ── Global tooltip ──────────────────────────────────────────────
@@ -930,6 +930,11 @@ function formatLastSeen(ts) {
 // ── Render all ───────────────────────────────────────────────────
 function renderAll(data) {
     window._lastStatsData = data;
+    // Retention is configurable (stats_retention_days); show what the backend uses
+    if (data.retention_days) {
+        const rd = document.getElementById('retention-days');
+        if (rd) rd.textContent = data.retention_days;
+    }
     // Data window
     setDataWindows(data.data_window_minutes || 0);
 

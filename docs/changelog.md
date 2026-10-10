@@ -1,5 +1,24 @@
 # Changelog
 
+## v2.9.0 (unreleased)
+- New: Hourly traffic rollup in `stats.db`, kept indefinitely. Every complete
+  hour is folded into `traffic_hourly` (RF and MQTT packets, distinct senders,
+  RF-only SNR/RSSI/hops, growth of the node's own firmware counters: received,
+  duplicates, bad CRC, transmitted, relayed, plus channel utilisation) and
+  `traffic_hourly_port` (per portnum). Until now everything older than three days
+  was deleted, so no trend longer than that could ever be shown. The first run
+  backfills from whatever raw data is still there. Firmware counter resets
+  (node reboot) are handled; gaps longer than two hours are dropped, not
+  smeared into a fake spike.
+- New: Raw history retention is configurable, `stats_retention_days` in
+  `config.json`, default 30 days (was a hardcoded 3). The "packets (7 days)" tile
+  and chart now actually have seven days to show.
+- Perf: `packets` index `(from_id)` replaced by `(from_id, portnum, ts)`. The
+  "last relay" subquery of the Stats summary ran in 4.95 s on a Pi 2 with 30 days
+  of traffic, every minute, holding the lock packet logging waits on; 0.47 s now.
+- Perf: Pruning deletes `packets` in bounded chunks, so lowering the retention
+  cannot freeze packet logging for half a minute.
+
 ## v2.8.3
 - Fix: `api.links` invented direct links. Its test for "heard by our own radio"
   was a bare `hops === 0`, with no check of which network the node belongs to or
