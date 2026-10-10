@@ -18,6 +18,20 @@
   of traffic, every minute, holding the lock packet logging waits on; 0.47 s now.
 - Perf: Pruning deletes `packets` in bounded chunks, so lowering the retention
   cannot freeze packet logging for half a minute.
+- New: Every packet the radio hands over is counted, not just four ports. Until
+  now only NODEINFO, POSITION, TELEMETRY and TEXT reached `stats.db`, roughly a
+  third of what the node decoded; ROUTING, TRACEROUTE, NEIGHBORINFO, RANGE_TEST,
+  ADMIN and the rest were invisible, and so was traffic on channels this node has
+  no key for (now `ENCRYPTED`). Expect the Stats totals to jump: the mesh did not
+  get busier, the counter got honest.
+- Fix: TELEMETRY and TEXT packets were logged with `via_mqtt` hardcoded to false
+  and no hops or SNR. MQTT telemetry counted as radio traffic and could raise
+  "too frequent telemetry" anomalies against nodes that are not even in range.
+- Fix: A packet that arrived with its hop limit used up was logged with unknown
+  hops: protobuf leaves zero-valued fields out of the dict, so `hopLimit` was
+  missing and the hop count was dropped, for exactly the packets that travelled
+  furthest. On Pimesh1, 5 to 8% of RF positions and node infos had no hop count;
+  this was one cause (firmware too old to send `hopStart` is the other).
 
 ## v2.8.3
 - Fix: `api.links` invented direct links. Its test for "heard by our own radio"

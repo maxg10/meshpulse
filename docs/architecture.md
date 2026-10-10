@@ -47,7 +47,7 @@ fields: `channelUtilization`, `airUtilTx`, `numPacketsTx`, `numPacketsRx`, `numP
 - **Raw tables**: `packets`, `node_activity`, `anomalies`, `neighbors`, `radio_stats_history`
 - **Raw retention**: `stats_retention_days` in `config.json` (default 30, clamped
   to 1..365). Pruned on every `save_nodes()`, `packets` in chunks of 500 rows and
-  at most 5000 per call, so a lowered retention drains over a few minutes instead
+  at most 2000 per call, so a lowered retention drains over a few minutes instead
   of holding the lock that packet logging waits on
 - **Hourly rollup**: `traffic_hourly` (one row per hour: RF and MQTT packet
   counts, distinct senders, RF-only SNR/RSSI/hops, growth of the node's firmware

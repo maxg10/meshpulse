@@ -349,7 +349,7 @@ class StatsDB:
     # days to 3, is spread over several minutes instead of stalling the listener.
     ROLLUP_MAX_HOURS = 48
     CLEANUP_CHUNK = 500
-    CLEANUP_MAX_CHUNKS = 10
+    CLEANUP_MAX_CHUNKS = 4   # 500 rows take ~0.5 s on a Pi 2 with every index updated
 
     def __init__(self, retention_days=DEFAULT_RETENTION_DAYS):
         self.lock = threading.Lock()
@@ -2832,9 +2832,54 @@ class ListenBasedMapper:
     # Python API packet parsers (TCP mode — receive already-decoded dicts)
     # ------------------------------------------------------------------
 
+    # Ports whose Python API parsers call log_packet_to_stats themselves.
+    # Every other packet is counted once, at the router, by _log_unparsed_packet.
+    STATS_PARSED_PORTS = frozenset(('NODEINFO_APP', 'POSITION_APP', 'TELEMETRY_APP', 'TEXT_MESSAGE_APP'))
+
+    @staticmethod
+    def _packet_radio_meta(packet):
+        """(hops, snr, rssi, via_mqtt, relay_node_raw) of a Python API packet dict.
+
+        MessageToDict leaves out zero-valued fields: a packet whose hop limit was
+        used up arrives without hopLimit, which means 0, not unknown. A missing
+        hopStart is unknown (firmware too old to send it).
+        """
+        hop_start = packet.get('hopStart')
+        hops = (hop_start - (packet.get('hopLimit') or 0)) if hop_start is not None else None
+        return (hops, packet.get('rxSnr'), packet.get('rxRssi') or None,
+                bool(packet.get('viaMqtt', False)), packet.get('relayNode'))
+
+    def _log_unparsed_packet(self, packet, portnum):
+        """Count a packet no parser logs: ROUTING, TRACEROUTE, NEIGHBORINFO, RANGE_TEST,
+        ADMIN, ..., and packets on a channel this node has no key for (ENCRYPTED).
+
+        Until 2.9 only four ports reached stats.db, so Stats showed roughly a
+        third of the traffic the radio actually decoded.
+        """
+        try:
+            if isinstance(portnum, int):
+                try:
+                    portnum = portnums_pb2.PortNum.Name(portnum)
+                except ValueError:
+                    portnum = f'PORT_{portnum}'
+            if not portnum:
+                portnum = 'ENCRYPTED' if packet.get('encrypted') else 'UNKNOWN'
+            if portnum in self.STATS_PARSED_PORTS:
+                return
+            from_id = sanitize_node_id(packet.get('fromId'))
+            if not from_id and isinstance(packet.get('from'), int):
+                from_id = f"!{packet['from']:08x}"
+            if not from_id:
+                return
+            hops, snr, rssi, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+            self.log_packet_to_stats(from_id, portnum, hops, snr, rssi, via_mqtt, relay_node_raw)
+        except Exception as e:
+            print(f"[STATS] Could not log {portnum} packet: {e}")
+
     def _on_tcp_packet(self, packet):
         """Route an incoming TCP API packet to the appropriate parser."""
         portnum = packet.get('decoded', {}).get('portnum', '')
+        self._log_unparsed_packet(packet, portnum)
         if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
             self.parse_node_info_from_packet(packet)
         elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
@@ -3098,7 +3143,7 @@ class ListenBasedMapper:
 
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
-            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            hops = (hop_start - (hop_limit or 0)) if hop_start is not None else None
 
             # Identity fields from NodeInfo user submessage
             hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
@@ -3204,7 +3249,7 @@ class ListenBasedMapper:
             via_mqtt = packet.get('viaMqtt', False)
             hop_start = packet.get('hopStart')
             hop_limit = packet.get('hopLimit')
-            hops = (hop_start - hop_limit) if (hop_start is not None and hop_limit is not None) else None
+            hops = (hop_start - (hop_limit or 0)) if hop_start is not None else None
             relay_node_raw = packet.get('relayNode')
             sats = pos.get('satsInView')
 
@@ -3337,8 +3382,8 @@ class ListenBasedMapper:
                     self.nodes_no_position[node_id]['rssi'] = rssi
 
             if node_id != self.local_node_id:
-                relay_node_raw = packet.get('relayNode')
-                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', None, None, rssi, False, relay_node_raw)
+                hops, snr, _, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+                self.log_packet_to_stats(node_id, 'TELEMETRY_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
 
             # Save device metrics for all nodes (not just tracker)
             device_metrics = telemetry.get('deviceMetrics', {})
@@ -3459,8 +3504,8 @@ class ListenBasedMapper:
 
             dm_marker = " [DM]" if message['is_dm'] else ""
             print(f"💬 [ch{channel_index}] {sender_name}: {text}{dm_marker} {self._packet_route_tag(packet)}")
-            relay_node_raw = packet.get('relayNode')
-            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', None, None, None, False, relay_node_raw)
+            hops, snr, rssi, via_mqtt, relay_node_raw = self._packet_radio_meta(packet)
+            self.log_packet_to_stats(from_id, 'TEXT_MESSAGE_APP', hops, snr, rssi, via_mqtt, relay_node_raw)
             asyncio.run(self.broadcast_message(message))
             if plugin_manager:
                 plugin_manager.dispatch_hook_sync('on_message', message)
@@ -3957,6 +4002,7 @@ class ListenBasedMapper:
         """Route incoming serial packets to appropriate parsers (mirrors _on_tcp_packet)."""
         try:
             portnum = packet.get('decoded', {}).get('portnum', '')
+            self._log_unparsed_packet(packet, portnum)
             if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
                 self.parse_node_info_from_packet(packet)
             elif portnum in ('POSITION_APP', portnums_pb2.PortNum.Value('POSITION_APP')):
