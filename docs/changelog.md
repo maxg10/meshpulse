@@ -38,6 +38,22 @@
   addresses, to anyone on the network.
 - Security: Leaflet and Chart.js load with Subresource Integrity, and Chart.js
   is pinned to 4.6.1 instead of whatever version the CDN serves today.
+- Fix: Restoring a backup and installing a plugin from a file work at any
+  size. A WebSocket message may be 64 KB at most, and anything bigger was
+  dropped without a word, so a full backup (with `stats.db`) or a larger
+  plugin package never arrived. The Config page now sends files in 40 KB
+  pieces, each acknowledged, with a progress display; the Pi writes them to an
+  owner-only temp file instead of memory. Up to 512 MB for a backup and 32 MB
+  for a plugin, checked against free disk space first. Restoring `stats.db`
+  also failed in a worker thread (the WAL anchor connection was tied to the
+  main thread) and left `stats.db.restore` behind; both fixed.
+- Security: The WebSocket server stops a message over 128 KB before reading
+  it (it buffered up to 10 MB per message and connection, then ignored
+  anything over 64 KB anyway). Messages between 64 and 128 KB get an
+  `error: message_too_large` answer instead of silence.
+- Security: Files written by a restore (`stats.db`, `config.json`) are
+  owner-only from the first byte, and the temp file of a plugin upload no
+  longer takes its name from the client.
 - Perf: `stats.db` runs in WAL mode with `synchronous=NORMAL`. Logging a
   packet on a Raspberry Pi 2 SD card: 28.9 ms → 5.3 ms median, 66 → 6.5 ms
   p95, and that is time spent holding the lock the rest of the core waits on.

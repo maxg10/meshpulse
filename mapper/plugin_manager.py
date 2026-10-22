@@ -338,18 +338,19 @@ class PluginManager:
         import base64
         try:
             data = base64.b64decode(base64_data)
-            temp_path = os.path.join(self.plugins_dir, f'_upload_{filename}')
-            with open(temp_path, 'wb') as f:
-                f.write(data)
-
-            result = self.install(temp_path)
-
+            # Never build the path from `filename`: it comes from the network,
+            # and `../../x` would write, then delete, any file we can reach.
+            fd, temp_path = tempfile.mkstemp(prefix='_upload_', suffix='.meshplugin',
+                                             dir=self.plugins_dir)
             try:
-                os.remove(temp_path)
-            except Exception:
-                pass
-
-            return result
+                with os.fdopen(fd, 'wb') as f:
+                    f.write(data)
+                return self.install(temp_path)
+            finally:
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
         except Exception as e:
             return {'success': False, 'error': f'Upload error: {str(e)}'}
 

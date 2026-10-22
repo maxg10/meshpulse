@@ -38,7 +38,8 @@ PROTECTED = frozenset({
     'connect', 'get_config', 'set_config', 'save_channel',
     'set_fixed_position', 'clear_fixed_position', 'test_coverage',
     # data
-    'create_backup', 'restore_backup', 'clear_all_stats', 'clear_node_stats',
+    'create_backup', 'restore_backup', 'upload_begin', 'upload_chunk',
+    'clear_all_stats', 'clear_node_stats',
     'set_favorite', 'remove_favorite', 'set_ignored_node', 'remove_ignored_node',
     # other nodes, over the air
     'remote_admin_get', 'remote_admin_set', 'remote_admin_reboot',

@@ -432,8 +432,10 @@ class StatsDB:
 
     def _open_anchor(self):
         # A connection only counts once it has read the file; an idle one that
-        # never ran a query does not keep the WAL alive.
-        conn = self._connect()
+        # never ran a query does not keep the WAL alive. It is opened at start
+        # and closed by a restore, which runs in a worker thread, so it must
+        # not be tied to one thread; nothing else ever uses it.
+        conn = sqlite3.connect(self.DB_PATH, timeout=10, check_same_thread=False)
         conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchone()
         return conn
 
@@ -475,14 +477,20 @@ class StatsDB:
     def replace_with(self, data):
         """Swap in a database restored from a backup.
 
-        The old -wal and -shm files go first: SQLite would otherwise replay
-        the old WAL on top of the new file. The new file is checked to be a
-        SQLite database before anything is removed.
+        `data` is bytes or a binary file object (streamed, so a large
+        database never sits in memory whole). The old -wal and -shm files
+        go first: SQLite would otherwise replay the old WAL on top of the
+        new file. The new file is checked to be a SQLite database before
+        anything is removed.
         """
         tmp = self.DB_PATH + '.restore'
         with self.lock:
-            with open(tmp, 'wb') as f:
-                f.write(data)
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'wb') as f:
+                if isinstance(data, (bytes, bytearray)):
+                    f.write(data)
+                else:
+                    shutil.copyfileobj(data, f, 1024 * 1024)
             try:
                 check = sqlite3.connect(tmp)
                 try:
@@ -493,21 +501,33 @@ class StatsDB:
             except sqlite3.DatabaseError:
                 os.remove(tmp)
                 raise ValueError('stats.db in the backup is not a SQLite database')
-            # The anchor holds the old file open; let it go, and anchor the new one.
-            anchor = getattr(self, '_wal_anchor', None)
-            if anchor is not None:
-                anchor.close()
-                self._wal_anchor = None
-            for suffix in ('-wal', '-shm'):
+            try:
+                # The anchor holds the old file open; let it go, and anchor the new one.
+                anchor = getattr(self, '_wal_anchor', None)
+                if anchor is not None:
+                    self._wal_anchor = None
+                    anchor.close()
+                for suffix in ('-wal', '-shm'):
+                    try:
+                        os.remove(self.DB_PATH + suffix)
+                    except FileNotFoundError:
+                        pass
+                os.replace(tmp, self.DB_PATH)
+            except BaseException:
                 try:
-                    os.remove(self.DB_PATH + suffix)
-                except FileNotFoundError:
+                    os.remove(tmp)
+                except OSError:
                     pass
-            os.replace(tmp, self.DB_PATH)
+                raise
             conn = self._connect()
             conn.execute('PRAGMA journal_mode=WAL')
             conn.close()
             self._wal_anchor = self._open_anchor()
+            for suffix in ('', '-wal', '-shm'):
+                try:
+                    os.chmod(self.DB_PATH + suffix, 0o600)
+                except OSError:
+                    pass
 
     @classmethod
     def clamp_retention(cls, value):
@@ -5776,6 +5796,220 @@ async def handle_connection_change(data, websocket):
 
 
 # WebSocket server handler
+def _write_restored(dest, src, private):
+    """Write one file from a backup next to its destination, then swap it in."""
+    os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
+    tmp = dest + '.restore'
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o666)
+    with os.fdopen(fd, 'wb') as f:
+        shutil.copyfileobj(src, f, 1024 * 1024)
+    os.replace(tmp, dest)
+
+
+def _restore_backup(src):
+    """Restore a backup ZIP from a path or a binary file object.
+
+    Only what a backup contains is written: config.json, nodes.json,
+    stats.db, plugins/enabled.json and plugins/<author>/<name>/config.json.
+    """
+    import zipfile
+    if not zipfile.is_zipfile(src):
+        return {'success': False, 'error': 'Not a valid ZIP file'}
+    if hasattr(src, 'seek'):
+        src.seek(0)
+    restored, skipped = [], []
+    with zipfile.ZipFile(src, 'r') as zf:
+        names = zf.namelist()
+        if 'backup_info.json' not in names:
+            return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
+        info = json.loads(zf.read('backup_info.json'))
+        backup_type = info.get('backup_type', 'unknown')
+        for name in names:
+            if name == 'backup_info.json':
+                continue
+            dest, private = None, False
+            if name == 'config.json':
+                dest, private = CONFIG_PATH, True
+            elif name == 'nodes.json':
+                dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
+            elif name == 'stats.db':
+                sdb = mapper.stats_db if mapper else StatsDB()
+                with zf.open(name) as f:
+                    sdb.replace_with(f)
+                restored.append(name)
+                continue
+            elif plugin_manager and _restorable_plugin_file(name):
+                # A backup only ever holds plugins/enabled.json and
+                # plugins/<author>/<name>/config.json. Anything else, or
+                # a path that leaves the plugins directory, is refused:
+                # restore must not be a way to write code onto the Pi.
+                base = os.path.realpath(plugin_manager.plugins_dir)
+                cand = os.path.realpath(os.path.join(base, name[len('plugins/'):]))
+                if cand.startswith(base + os.sep):
+                    dest = cand
+            if dest:
+                with zf.open(name) as f:
+                    _write_restored(dest, f, private)
+                restored.append(name)
+            elif not name.endswith('/'):
+                skipped.append(name)
+        if skipped:
+            print(f"[RESTORE] Refused {len(skipped)} unexpected entries: {skipped[:5]}")
+    return {'success': True, 'backup_type': backup_type, 'files_restored': restored,
+            'files_refused': skipped}
+
+
+async def _run_restore(websocket, src):
+    try:
+        result = await asyncio.to_thread(_restore_backup, src)
+        print(f"[RESTORE] {result}")
+    except Exception as e:
+        print(f"[RESTORE] Error: {e}")
+        result = {'success': False, 'error': str(e)}
+    await websocket.send(json.dumps({'type': 'restore_result', **result}, ensure_ascii=False))
+
+
+async def _run_install(websocket, path):
+    if not plugin_manager:
+        return
+    result = plugin_manager.install(path)
+    await websocket.send(json.dumps({'type': 'plugin_installed', **result}, ensure_ascii=False))
+
+
+# ── Chunked uploads ─────────────────────────────────────────────────
+# A WebSocket message is 64 KB at most, so that nobody on the network can
+# make a Pi 2 hold megabytes per connection. Backups and plugin packages are
+# bigger, so the Config page sends them in pieces:
+#   upload_begin  {upload_id, purpose, filename, size}  -> upload_ack {received: 0, chunk}
+#   upload_chunk  {upload_id, offset, data: base64}     -> upload_ack {received}
+#   upload_cancel {upload_id}
+# Pieces must arrive in order. They go to an owner-only temp file next to
+# config.json, never to memory, and the last one runs the restore or the
+# install, which answer as before (restore_result, plugin_installed).
+# Problems answer upload_error {upload_id, error}.
+UPLOAD_CHUNK = 40 * 1024             # raw bytes per piece, ~55 KB as base64
+UPLOAD_LIMITS = {
+    'restore_backup': 512 * 1024 * 1024,
+    'install_plugin': 32 * 1024 * 1024,
+}
+UPLOAD_MAX_ACTIVE = 2                # across all connections
+UPLOAD_IDLE = 120                    # seconds without a piece before an upload is dropped
+UPLOAD_TYPES = ('upload_begin', 'upload_chunk', 'upload_cancel')
+_uploads = {}                        # upload_id -> state
+
+
+def _upload_dir():
+    return os.path.dirname(CONFIG_PATH) or '.'
+
+
+def _upload_drop(upload_id):
+    up = _uploads.pop(upload_id, None)
+    if up:
+        try:
+            up['fh'].close()
+        except Exception:
+            pass
+        try:
+            os.remove(up['path'])
+        except OSError:
+            pass
+
+
+def _upload_drop_where(pred, why):
+    for uid, up in list(_uploads.items()):
+        if pred(up):
+            print(f"[UPLOAD] {uid}: {why}, dropped")
+            _upload_drop(uid)
+
+
+async def _handle_upload_message(websocket, data):
+    t = data.get('type')
+    uid = str(data.get('upload_id') or '')[:64]
+
+    async def error(msg, drop=True):
+        if drop:
+            _upload_drop(uid)
+        await websocket.send(json.dumps({'type': 'upload_error', 'upload_id': uid, 'error': msg}))
+
+    up = _uploads.get(uid)
+    mine = up is not None and up['ws'] is websocket
+
+    if t == 'upload_cancel':
+        if mine:
+            print(f"[UPLOAD] {uid}: cancelled")
+            _upload_drop(uid)
+        return
+
+    if t == 'upload_begin':
+        now = time.time()
+        _upload_drop_where(lambda u: now - u['last'] > UPLOAD_IDLE, f'no data for {UPLOAD_IDLE} s')
+        purpose = data.get('purpose')
+        try:
+            size = int(data.get('size'))
+        except (TypeError, ValueError):
+            size = -1
+        if not uid or uid in _uploads:
+            return await error('Bad upload id', drop=False)
+        if purpose not in UPLOAD_LIMITS:
+            return await error('Unknown upload purpose', drop=False)
+        limit = UPLOAD_LIMITS[purpose]
+        if size <= 0:
+            return await error('The file is empty', drop=False)
+        if size > limit:
+            return await error(f'The file is too large (max {limit // (1024 * 1024)} MB)', drop=False)
+        if any(u['ws'] is websocket for u in _uploads.values()) or len(_uploads) >= UPLOAD_MAX_ACTIVE:
+            return await error('Another upload is still running', drop=False)
+        try:
+            free = shutil.disk_usage(_upload_dir()).free
+        except OSError:
+            free = 0
+        if free < 2 * size + 64 * 1024 * 1024:
+            return await error('Not enough free disk space on the Pi', drop=False)
+        fd, path = tempfile.mkstemp(prefix='.upload-', dir=_upload_dir())
+        _uploads[uid] = {'ws': websocket, 'purpose': purpose, 'path': path,
+                         'fh': os.fdopen(fd, 'wb'), 'size': size, 'received': 0, 'last': now}
+        print(f"[UPLOAD] {uid}: {purpose}, {size} bytes")
+        await websocket.send(json.dumps({'type': 'upload_ack', 'upload_id': uid,
+                                         'received': 0, 'chunk': UPLOAD_CHUNK}))
+        return
+
+    if t == 'upload_chunk':
+        if not mine:
+            return await error('Upload not found (it may have timed out)', drop=False)
+        try:
+            offset = int(data.get('offset'))
+        except (TypeError, ValueError):
+            offset = -1
+        if offset != up['received']:
+            return await error('Upload pieces arrived out of order')
+        try:
+            raw = base64.b64decode(data.get('data') or '', validate=True)
+        except ValueError:
+            return await error('Bad upload piece')
+        if not raw or len(raw) > UPLOAD_CHUNK or up['received'] + len(raw) > up['size']:
+            return await error('Bad upload piece size')
+        up['fh'].write(raw)
+        up['received'] += len(raw)
+        up['last'] = time.time()
+        await websocket.send(json.dumps({'type': 'upload_ack', 'upload_id': uid,
+                                         'received': up['received']}))
+        if up['received'] < up['size']:
+            return
+        _uploads.pop(uid, None)
+        up['fh'].close()
+        print(f"[UPLOAD] {uid}: complete, running {up['purpose']}")
+        try:
+            if up['purpose'] == 'restore_backup':
+                await _run_restore(websocket, up['path'])
+            else:
+                await _run_install(websocket, up['path'])
+        finally:
+            try:
+                os.remove(up['path'])
+            except OSError:
+                pass
+
+
 async def websocket_handler(websocket):
     """Handle WebSocket connections"""
     connected_clients.add(websocket)
@@ -5811,8 +6045,10 @@ async def websocket_handler(websocket):
                 # Never log what could carry a password.
                 if message and len(message) < 200 and '"auth' not in message and 'admin_password' not in message:
                     print(f"[WS] ← {client_addr}: {message}")
-                if len(message) > 65536:  # 64KB max
+                if len(message) > 65536:  # 64 KB max; files come in pieces (upload_*)
                     print(f"[WS] Message too large ({len(message)} bytes), ignoring")
+                    await websocket.send(json.dumps({'type': 'error', 'error': 'message_too_large',
+                                                     'max_bytes': 65536}))
                     continue
                 data = json.loads(message)
                 _t = data.get('type')
@@ -5824,6 +6060,9 @@ async def websocket_handler(websocket):
                     if _auth.required() and authed_key != _auth.fingerprint():
                         await websocket.send(json.dumps({'type': 'auth_required', 'request_type': _t}))
                         continue
+                if _t in UPLOAD_TYPES:
+                    await _handle_upload_message(websocket, data)
+                    continue
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
                 elif data.get('type') == 'traceroute':
@@ -7041,65 +7280,14 @@ async def websocket_handler(websocket):
                         }, ensure_ascii=False))
 
                 elif data.get('type') == 'restore_backup':
-                    import io, zipfile, base64 as _b64
-                    def _do_restore():
-                        raw = _b64.b64decode(data.get('data', ''))
-                        buf = io.BytesIO(raw)
-                        if not zipfile.is_zipfile(buf):
-                            return {'success': False, 'error': 'Not a valid ZIP file'}
-                        buf.seek(0)
-                        restored = []
-                        with zipfile.ZipFile(buf, 'r') as zf:
-                            names = zf.namelist()
-                            if 'backup_info.json' not in names:
-                                return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
-                            info = json.loads(zf.read('backup_info.json'))
-                            backup_type = info.get('backup_type', 'unknown')
-                            skipped = []
-                            for name in names:
-                                if name == 'backup_info.json':
-                                    continue
-                                dest = None
-                                if name == 'config.json':
-                                    dest = CONFIG_PATH
-                                elif name == 'nodes.json':
-                                    dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
-                                elif name == 'stats.db':
-                                    sdb = mapper.stats_db if mapper else StatsDB()
-                                    sdb.replace_with(zf.read(name))
-                                    restored.append(name)
-                                    continue
-                                elif plugin_manager and _restorable_plugin_file(name):
-                                    # A backup only ever holds plugins/enabled.json and
-                                    # plugins/<author>/<name>/config.json. Anything else, or
-                                    # a path that leaves the plugins directory, is refused:
-                                    # restore must not be a way to write code onto the Pi.
-                                    base = os.path.realpath(plugin_manager.plugins_dir)
-                                    cand = os.path.realpath(os.path.join(base, name[len('plugins/'):]))
-                                    if cand.startswith(base + os.sep):
-                                        dest = cand
-                                if dest:
-                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
-                                    with open(dest, 'wb') as f:
-                                        f.write(zf.read(name))
-                                    restored.append(name)
-                                elif not name.endswith('/'):
-                                    skipped.append(name)
-                            if skipped:
-                                print(f"[RESTORE] Refused {len(skipped)} unexpected entries: {skipped[:5]}")
-                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored,
-                                'files_refused': skipped}
+                    # One message, so 64 KB at most. The Config page uploads
+                    # backups in chunks (upload_begin / upload_chunk).
+                    import io
                     try:
-                        result = await asyncio.to_thread(_do_restore)
-                        print(f"[RESTORE] {result}")
-                        await websocket.send(json.dumps({
-                            'type': 'restore_result', **result,
-                        }, ensure_ascii=False))
-                    except Exception as e:
-                        print(f"[RESTORE] Error: {e}")
-                        await websocket.send(json.dumps({
-                            'type': 'restore_result', 'success': False, 'error': str(e),
-                        }, ensure_ascii=False))
+                        src = io.BytesIO(base64.b64decode(data.get('data', '')))
+                    except ValueError:
+                        src = io.BytesIO(b'')
+                    await _run_restore(websocket, src)
 
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
@@ -7112,6 +7300,7 @@ async def websocket_handler(websocket):
             await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
         plugin_subscriptions.pop(websocket, None)
+        _upload_drop_where(lambda u: u['ws'] is websocket, 'client disconnected')
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
@@ -7134,7 +7323,7 @@ async def flush_packet_events():
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
-    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=128*1024):
         asyncio.create_task(flush_packet_events())
         await asyncio.Future()  # Run forever
 

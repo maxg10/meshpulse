@@ -1775,6 +1775,7 @@ function stopDeviceHeartbeat() {
 }
 
 function connectWS() {
+    _upload = null;   // an upload does not survive its connection
     ws = new WebSocket(`ws://${location.hostname}:8765`);
     if (window.MeshAuth) MeshAuth.attach(ws);
     ws.onopen = () => {
@@ -2049,6 +2050,8 @@ function connectWS() {
                 link.click();
                 showAlert('✅ Backup downloaded: ' + d.filename, 'success');
             }
+        } else if (d.type === 'upload_ack' || d.type === 'upload_error') {
+            onUploadMessage(d);
         } else if (d.type === 'restore_result') {
             if (d.success) {
                 showAlert('✅ Restore complete (' + d.backup_type + '). Files restored: ' +
@@ -2692,18 +2695,84 @@ function uploadPlugin(input) {
         input.value = '';
         return;
     }
+    startUpload(file, 'install_plugin', '📦 Installing ' + escHtml(file.name) + '...');
+    input.value = '';
+}
+
+// ── Chunked uploads ──────────────────────────────────────────────
+// One WebSocket message may be 64 KB at most, so plugin packages and backups
+// go up in pieces. The backend acknowledges each one and says how big they
+// may be; a few are kept in flight, read from the file one after another so
+// they leave in order.
+var _upload = null;
+var UPLOAD_WINDOW = 4;
+
+function startUpload(file, purpose, doneMsg) {
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+        showAlert('❌ Not connected to MeshPulse', 'error');
+        return;
+    }
+    if (_upload && _upload.chunk) {
+        showAlert('⏳ Another upload is still running', 'error');
+        return;
+    }
+    // A begin that never got an answer (a closed password dialog) is dropped.
+    if (_upload) ws.send(JSON.stringify({type: 'upload_cancel', upload_id: _upload.id}));
+    _upload = {
+        id: 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+        file: file, doneMsg: doneMsg, chunk: 0, sent: 0, inflight: 0, reading: false, pct: -1
+    };
+    ws.send(JSON.stringify({type: 'upload_begin', upload_id: _upload.id, purpose: purpose,
+                            filename: file.name, size: file.size}));
+    showAlert('📤 Uploading ' + escHtml(file.name) + '...', 'info', true);
+}
+
+function _uploadPump() {
+    var u = _upload;
+    if (!u || !u.chunk || u.reading || u.inflight >= UPLOAD_WINDOW || u.sent >= u.file.size) return;
+    var offset = u.sent, end = Math.min(offset + u.chunk, u.file.size);
+    u.reading = true;
     var reader = new FileReader();
     reader.onload = function(e) {
-        var base64 = e.target.result.split(',')[1];
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({
-                type: 'install_plugin', filename: file.name, data: base64
-            }));
-            showAlert('📦 Installing ' + escHtml(file.name) + '...', 'info');
-        }
+        u.reading = false;
+        if (_upload !== u || !ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({type: 'upload_chunk', upload_id: u.id, offset: offset,
+                                data: e.target.result.split(',')[1] || ''}));
+        u.sent = end;
+        u.inflight++;
+        _uploadPump();
     };
-    reader.readAsDataURL(file);
-    input.value = '';
+    reader.onerror = function() {
+        u.reading = false;
+        if (_upload !== u) return;
+        ws.send(JSON.stringify({type: 'upload_cancel', upload_id: u.id}));
+        _upload = null;
+        showAlert('❌ Could not read the file', 'error');
+    };
+    reader.readAsDataURL(u.file.slice(offset, end));
+}
+
+function onUploadMessage(d) {
+    var u = _upload;
+    if (d.type === 'upload_error') {
+        if (u && d.upload_id === u.id) _upload = null;
+        showAlert('❌ Upload failed: ' + escHtml(d.error || 'unknown error'), 'error');
+        return;
+    }
+    if (!u || d.upload_id !== u.id) return;
+    if (d.chunk) u.chunk = d.chunk;
+    if (d.received > 0) u.inflight = Math.max(0, u.inflight - 1);
+    if (d.received >= u.file.size) {
+        _upload = null;
+        showAlert(u.doneMsg, 'info', true);
+        return;
+    }
+    var pct = Math.floor(100 * d.received / u.file.size);
+    if (pct >= u.pct + 5) {
+        u.pct = pct;
+        showAlert('📤 Uploading ' + escHtml(u.file.name) + ': ' + pct + '%', 'info', true);
+    }
+    _uploadPump();
 }
 
 function savePluginConfigField(pluginId, key, value) {
@@ -2851,15 +2920,7 @@ function doRestore(input) {
         input.value = '';
         return;
     }
-    var reader = new FileReader();
-    reader.onload = function(e) {
-        var base64 = e.target.result.split(',')[1];
-        if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({type: 'restore_backup', data: base64}));
-            showAlert('📥 Restoring backup...', 'info');
-        }
-    };
-    reader.readAsDataURL(file);
+    startUpload(file, 'restore_backup', '📥 Restoring backup...');
     input.value = '';
 }
 
