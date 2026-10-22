@@ -24,7 +24,7 @@ dependencies and memory use modest.
 | Plugin API (public) | `mapper/plugin_api.py` — `MeshPlugin` base class |
 | Plugin loader | `mapper/plugin_manager.py` |
 | Frontend | `frontend/{index,config,stats,messages}.html` + `styles.css` |
-| Plugin store manifest | `plugins-store/plugins.json` (deployed to meshpulse.app) |
+| Plugin store manifest | live: `/var/www/meshpulse.app/plugins/plugins.json` on betelgeuse; `plugins-store/plugins.json` is a versioned copy, update both |
 | Plugin install dir | `plugins/<author>/<name>/` (gitignored, runtime) |
 | Web root | `/var/www/html/meshpulse/` |
 | WebSocket | port `8765` |

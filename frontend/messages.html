@@ -226,6 +226,8 @@ function escHtml(s) {
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
 }
+// A value as a JavaScript string literal that is safe inside an HTML attribute.
+function jsArg(s) { return escHtml(JSON.stringify(String(s == null ? '' : s))); }
 
 let ws = null;
 let allMessages = {};
@@ -553,10 +555,10 @@ function dmSearch(query) {
     const top = matches.slice(0, 8);
     if (top.length === 0) { resultsEl.style.display = 'none'; return; }
     resultsEl.innerHTML = top.map(n => `
-        <div onclick="selectDMNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');"
+        <div onclick="selectDMNode(${jsArg(n.id)},${jsArg(n.name||n.id)});"
              style="padding:4px 8px;cursor:pointer;border-bottom:1px solid #f3f4f6;"
              onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background=''">
-            <b>${n.name||n.id}</b> <span style="color:#9ca3af">${n.id}</span>
+            <b>${escHtml(n.name||n.id)}</b> <span style="color:#9ca3af">${escHtml(n.id)}</span>
         </div>`).join('');
     resultsEl.style.display = 'block';
 }

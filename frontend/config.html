@@ -1397,7 +1397,7 @@ function renderChannels(channels) {
             <div class="field-row">
                 <div class="field">
                     <label>Name</label>
-                    <input type="text" id="ch-name-${ch.index}" value="${ch.name||''}" maxlength="11" placeholder="${isPrimary?'Primary channel':'Channel name'}" oninput="chMarkChanged(${ch.index})">
+                    <input type="text" id="ch-name-${ch.index}" value="${escHtml(ch.name||'')}" maxlength="11" placeholder="${isPrimary?'Primary channel':'Channel name'}" oninput="chMarkChanged(${ch.index})">
                 </div>
                 <div class="field">
                     <label>Role</label>
@@ -1608,9 +1608,9 @@ function renderFavoritesList(favorites) {
     }
     el.innerHTML = favorites.map(f => `
         <div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f3f4f6;">
-            <span style="font-weight:600;font-size:13px">${f.name}</span>
+            <span style="font-weight:600;font-size:13px">${escHtml(f.name)}</span>
             <span style="font-family:monospace;font-size:11px;color:#6b7280">${f.node_id}</span>
-            <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px">${f.short_name}</span>
+            <span style="font-size:10px;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 5px">${escHtml(f.short_name)}</span>
             <button class="btn btn-secondary" style="margin-left:auto;font-size:11px;padding:2px 8px"
                 onclick="quickRemoveFavorite('${f.node_id}')">✕ Remove</button>
         </div>
@@ -1961,7 +1961,7 @@ function connectWS() {
             }
         } else if (d.type === 'plugin_installed') {
             if (d.success) {
-                showAlert('✅ Installed ' + (d.name || d.plugin_id) + ' v' + (d.version || ''), 'success');
+                showAlert('✅ Installed ' + escHtml(d.name || d.plugin_id) + ' v' + escHtml(d.version || ''), 'success');
                 // Update cache immediately so store re-render shows correct state
                 var existing = _installedPluginsCache.find(function(p) { return p.id === d.plugin_id; });
                 if (existing) {
@@ -2623,7 +2623,7 @@ function uploadPlugin(input) {
             ws.send(JSON.stringify({
                 type: 'install_plugin', filename: file.name, data: base64
             }));
-            showAlert('📦 Installing ' + file.name + '...', 'info');
+            showAlert('📦 Installing ' + escHtml(file.name) + '...', 'info');
         }
     };
     reader.readAsDataURL(file);

@@ -18,7 +18,18 @@ import importlib
 import importlib.util
 import time
 import subprocess
+import re
 from mapper.plugin_api import MeshPlugin
+
+# author/name, plain characters only. Plugin ids come from manifests inside
+# uploaded packages and from WebSocket messages; a path segment such as '..'
+# would turn "uninstall" into shutil.rmtree() on any directory the service can
+# write.
+_PLUGIN_ID_RE = re.compile(r'^[A-Za-z0-9_-][A-Za-z0-9_.-]*/[A-Za-z0-9_-][A-Za-z0-9_.-]*$')
+
+
+def valid_plugin_id(plugin_id):
+    return isinstance(plugin_id, str) and len(plugin_id) <= 128 and bool(_PLUGIN_ID_RE.match(plugin_id))
 
 
 class PluginManager:
@@ -136,10 +147,14 @@ class PluginManager:
         Returns:
             str: Path like plugins/maxg10/bbs/
         """
-        parts = plugin_id.split('/', 1)
-        if len(parts) == 2:
-            return os.path.join(self.plugins_dir, parts[0], parts[1])
-        return os.path.join(self.plugins_dir, plugin_id)
+        if not valid_plugin_id(plugin_id):
+            raise ValueError(f'Invalid plugin id: {plugin_id!r}')
+        author, name = plugin_id.split('/', 1)
+        path = os.path.join(self.plugins_dir, author, name)
+        base = os.path.realpath(self.plugins_dir)
+        if not os.path.realpath(path).startswith(base + os.sep):
+            raise ValueError(f'Plugin path escapes the plugins directory: {plugin_id!r}')
+        return path
 
     def _get_web_root(self):
         """Return the web root plugins path, or None if not found."""
@@ -225,8 +240,8 @@ class PluginManager:
 
                 manifest = json.loads(zf.read('plugin.json'))
                 plugin_id = manifest.get('id')
-                if not plugin_id or '/' not in plugin_id:
-                    return {'success': False, 'error': 'Invalid plugin ID (must be author/name)'}
+                if not valid_plugin_id(plugin_id):
+                    return {'success': False, 'error': 'Invalid plugin ID (must be author/name, letters, digits, . _ - only)'}
 
                 # Check compatibility
                 min_version = manifest.get('compatibility', {}).get('min_mapper_version', '0.0.0')
@@ -820,7 +835,10 @@ class PluginManager:
 
     def get_plugin_info(self, plugin_id):
         """Get detailed info about a specific plugin."""
-        plugin_dir = self._get_plugin_dir(plugin_id)
+        try:
+            plugin_dir = self._get_plugin_dir(plugin_id)
+        except ValueError:
+            return None
         manifest = self._read_manifest(plugin_dir)
         if not manifest:
             return None
@@ -885,7 +903,11 @@ class PluginManager:
         Called once at mapper startup.
         """
         for plugin_id in list(self.enabled_ids):
-            plugin_dir = self._get_plugin_dir(plugin_id)
+            try:
+                plugin_dir = self._get_plugin_dir(plugin_id)
+            except ValueError as e:
+                print(f"[PLUGINS] Skipping {e}")
+                continue
             if os.path.exists(os.path.join(plugin_dir, 'plugin.json')):
                 result = self.enable(plugin_id)
                 if not result.get('success'):

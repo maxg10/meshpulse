@@ -1,164 +1,297 @@
 {
-    "version": 1,
-    "updated": "2026-09-13T20:49:37Z",
-    "store_url": "https://meshpulse.app/plugins",
-    "plugins": [
-        {
-            "id": "maxg10/meshcore",
-            "name": "Meshcore",
-            "version": "1.2.0",
-            "description": "Show Meshcore network nodes on the MeshPulse map alongside Meshtastic. Connects to a Meshcore companion node over USB serial or TCP and injects its known nodes as diamond markers, with Meshtastic/Meshcore layer toggles. The serial device is picked from a list of what the machine actually has. Read-only — no messages, telemetry or node configuration.",
-            "author": {
-                "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
-                "github": "maxg10"
-            },
-            "license": "GPL-3.0",
-            "min_mapper_version": "2.6.0",
-            "tested_up_to": "2.7.2",
-            "type": "backend",
-            "category": "connectivity",
-            "icon": "💎",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/meshcore-v1.2.0/meshcore-1.2.0.meshplugin",
-            "download_size": 4967,
-            "dependencies_note": "Requires meshcore library (auto-installed) + a Meshcore companion node",
-            "documentation": "https://github.com/maxg10/meshplugins/blob/main/meshcore/README.md",
-            "homepage": "https://github.com/maxg10/meshplugins/tree/main/meshcore",
-            "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.2.0: Serial device picked from a device list (core 2.7.2+); readable error when the companion does not answer instead of a NoneType traceback; exposes hops_away/net_self so core can measure the network from the companion radio",
-            "screenshots": [],
-            "tags": [
-                "meshcore",
-                "multi-network",
-                "map",
-                "connectivity"
-            ]
-        },
-        {
-            "id": "maxg10/elevation-map",
-            "name": "Elevation Map",
-            "version": "1.0.3",
-            "description": "Terrain overlay for the map — switch base tiles (OpenTopoMap, Esri Topo, Shaded Relief) plus a stackable Hillshade overlay that shows terrain shading over any base map. Frontend-only.",
-            "author": {
-                "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
-                "github": "maxg10"
-            },
-            "license": "GPL-3.0",
-            "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.6.1",
-            "type": "frontend",
-            "category": "map",
-            "icon": "⛰️",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.3/elevation-map-1.0.3.meshplugin",
-            "download_size": 3697,
-            "documentation": "https://github.com/maxg10/meshplugins/blob/main/elevation-map/README.md",
-            "homepage": "https://github.com/maxg10/meshplugins/tree/main/elevation-map",
-            "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.0.3: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1. v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
-            "screenshots": [],
-            "tags": [
-                "map",
-                "elevation",
-                "terrain",
-                "tiles"
-            ]
-        },
-        {
-            "id": "maxg10/mqtt-proxy",
-            "name": "MQTT Proxy",
-            "version": "1.1.1",
-            "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
-            "author": {
-                "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
-                "github": "maxg10"
-            },
-            "license": "GPL-3.0",
-            "min_mapper_version": "2.7.2",
-            "tested_up_to": "2.7.2",
-            "type": "backend",
-            "category": "connectivity",
-            "icon": "📡",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/mqtt-proxy-v1.1.1/mqtt-proxy-1.1.1.meshplugin",
-            "download_size": 3901,
-            "dependencies_note": "Requires paho-mqtt (auto-installed)",
-            "documentation": "https://github.com/maxg10/meshplugins/blob/main/mqtt-proxy/README.md",
-            "homepage": "https://github.com/maxg10/meshplugins/tree/main/mqtt-proxy",
-            "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.1.1: Sets itself up when the radio connects (new on_connect hook) instead of failing on every cold start; a tracker with MQTT disabled in firmware is told so directly. Requires core 2.7.2, the release that dispatches on_connect",
-            "screenshots": [],
-            "tags": [
-                "mqtt",
-                "proxy",
-                "connectivity",
-                "bridge"
-            ]
-        },
-        {
-            "id": "maxg10/bbs",
-            "name": "Meshtastic BBS",
-            "version": "1.1.0",
-            "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and a classic terminal UI — over the radio and, on core 2.7.0+, in a browser tab.",
-            "author": {
-                "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
-                "github": "maxg10"
-            },
-            "license": "GPL-3.0",
-            "min_mapper_version": "2.2.0",
-            "tested_up_to": "2.7.0",
-            "type": "backend",
-            "category": "communication",
-            "icon": "📋",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.1.0/bbs-1.1.0.meshplugin",
-            "download_size": 18078,
-            "documentation": "https://github.com/maxg10/meshplugins/blob/main/bbs/docs/COMMANDS.md",
-            "homepage": "https://github.com/maxg10/meshplugins/tree/main/bbs",
-            "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.1.0: web board viewer — the BBS tab in the MeshPulse navbar opens a browsable view of the boards, netmail, node directory and stats (needs core 2.7.0 for manifest page tabs; the mesh side still runs on 2.2.0+). Transport moved to the plugin WebSocket channel; fixes a missing register_ws_channel() and swapped broadcast_ws() arguments that kept live events from ever arriving. v1.0.6: _c_about returns default when about_message is empty, support \\n in config",
-            "screenshots": [],
-            "tags": [
-                "bbs",
-                "mail",
-                "bulletin",
-                "communication",
-                "fido",
-                "store-forward"
-            ]
-        },
-        {
-            "id": "maxg10/weather-overlay",
-            "name": "Weather Overlay",
-            "version": "1.0.3",
-            "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
-            "author": {
-                "name": "Mariusz \"Max\" Gieparda",
-                "url": "https://meshpulse.app",
-                "github": "maxg10"
-            },
-            "license": "GPL-3.0",
-            "min_mapper_version": "2.5.3",
-            "tested_up_to": "2.7.0",
-            "type": "frontend",
-            "category": "map",
-            "icon": "🌡️",
-            "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.3/weather-overlay-1.0.3.meshplugin",
-            "download_size": 5010,
-            "documentation": "https://github.com/maxg10/meshplugins/blob/main/weather-overlay/README.md",
-            "homepage": "https://github.com/maxg10/meshplugins/tree/main/weather-overlay",
-            "repository": "https://github.com/maxg10/meshplugins",
-            "changelog": "v1.0.3: renders from the map’s visible node set (api.nodes.getVisible, core 2.7.0) and re-renders on filter changes — labels and heatmap no longer survive filtering their nodes off the map; falls back to getAll() on older cores. v1.0.2: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1",
-            "screenshots": [],
-            "tags": [
-                "weather",
-                "temperature",
-                "humidity",
-                "pressure",
-                "heatmap",
-                "environment",
-                "sensors"
-            ]
-        }
-    ]
+  "version": 1,
+  "updated": "2026-10-22T19:51:06Z",
+  "store_url": "https://meshpulse.app/plugins",
+  "plugins": [
+    {
+      "id": "maxg10/meshcore",
+      "name": "Meshcore",
+      "version": "1.2.0",
+      "description": "Show Meshcore network nodes on the MeshPulse map alongside Meshtastic. Connects to a Meshcore companion node over USB serial or TCP and injects its known nodes as diamond markers, with Meshtastic/Meshcore layer toggles. The serial device is picked from a list of what the machine actually has. Read-only — no messages, telemetry or node configuration.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.6.0",
+      "tested_up_to": "2.7.2",
+      "type": "backend",
+      "category": "connectivity",
+      "icon": "💎",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/meshcore-v1.2.0/meshcore-1.2.0.meshplugin",
+      "download_size": 4967,
+      "dependencies_note": "Requires meshcore library (auto-installed) + a Meshcore companion node",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/meshcore/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/meshcore",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.2.0: Serial device picked from a device list (core 2.7.2+); readable error when the companion does not answer instead of a NoneType traceback; exposes hops_away/net_self so core can measure the network from the companion radio",
+      "screenshots": [],
+      "tags": [
+        "meshcore",
+        "multi-network",
+        "map",
+        "connectivity"
+      ]
+    },
+    {
+      "id": "maxg10/elevation-map",
+      "name": "Elevation Map",
+      "version": "1.0.3",
+      "description": "Terrain overlay for the map — switch base tiles (OpenTopoMap, Esri Topo, Shaded Relief) plus a stackable Hillshade overlay that shows terrain shading over any base map. Frontend-only.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.2.0",
+      "tested_up_to": "2.6.1",
+      "type": "frontend",
+      "category": "map",
+      "icon": "⛰️",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/elevation-map-v1.0.3/elevation-map-1.0.3.meshplugin",
+      "download_size": 3697,
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/elevation-map/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/elevation-map",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.3: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1. v1.0.2: dropped dead Stamen provider (now Esri Topo), added Hillshade overlay, migrated to monorepo",
+      "screenshots": [],
+      "tags": [
+        "map",
+        "elevation",
+        "terrain",
+        "tiles"
+      ]
+    },
+    {
+      "id": "maxg10/mqtt-proxy",
+      "name": "MQTT Proxy",
+      "version": "1.1.1",
+      "description": "MQTT client proxy for trackers without WiFi. Publishes mesh packets to MQTT broker and receives downlink on behalf of the connected tracker. Reads MQTT config directly from tracker firmware — zero manual configuration.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.7.2",
+      "tested_up_to": "2.7.2",
+      "type": "backend",
+      "category": "connectivity",
+      "icon": "📡",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/mqtt-proxy-v1.1.1/mqtt-proxy-1.1.1.meshplugin",
+      "download_size": 3901,
+      "dependencies_note": "Requires paho-mqtt (auto-installed)",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/mqtt-proxy/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/mqtt-proxy",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.1.1: Sets itself up when the radio connects (new on_connect hook) instead of failing on every cold start; a tracker with MQTT disabled in firmware is told so directly. Requires core 2.7.2, the release that dispatches on_connect",
+      "screenshots": [],
+      "tags": [
+        "mqtt",
+        "proxy",
+        "connectivity",
+        "bridge"
+      ]
+    },
+    {
+      "id": "maxg10/bbs",
+      "name": "Meshtastic BBS",
+      "version": "1.1.0",
+      "description": "Bulletin Board System for Meshtastic mesh networks — inspired by FidoNet BBS systems of the 1980s/90s. Public bulletin boards, private mail with store & forward, node directory, and a classic terminal UI — over the radio and, on core 2.7.0+, in a browser tab.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.2.0",
+      "tested_up_to": "2.7.0",
+      "type": "backend",
+      "category": "communication",
+      "icon": "📋",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/bbs-v1.1.0/bbs-1.1.0.meshplugin",
+      "download_size": 18078,
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/bbs/docs/COMMANDS.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/bbs",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.1.0: web board viewer — the BBS tab in the MeshPulse navbar opens a browsable view of the boards, netmail, node directory and stats (needs core 2.7.0 for manifest page tabs; the mesh side still runs on 2.2.0+). Transport moved to the plugin WebSocket channel; fixes a missing register_ws_channel() and swapped broadcast_ws() arguments that kept live events from ever arriving. v1.0.6: _c_about returns default when about_message is empty, support \\n in config",
+      "screenshots": [],
+      "tags": [
+        "bbs",
+        "mail",
+        "bulletin",
+        "communication",
+        "fido",
+        "store-forward"
+      ]
+    },
+    {
+      "id": "maxg10/weather-overlay",
+      "name": "Weather Overlay",
+      "version": "1.0.3",
+      "description": "Shows environment sensor data (temperature, humidity, barometric pressure) as map labels and heatmap overlay for nodes reporting environmentMetrics. Labels visible at zoom ≥ 10, heatmap always on. Metric choice persists across refreshes.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.5.3",
+      "tested_up_to": "2.7.0",
+      "type": "frontend",
+      "category": "map",
+      "icon": "🌡️",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-overlay-v1.0.3/weather-overlay-1.0.3.meshplugin",
+      "download_size": 5010,
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/weather-overlay/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/weather-overlay",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.3: renders from the map’s visible node set (api.nodes.getVisible, core 2.7.0) and re-renders on filter changes — labels and heatmap no longer survive filtering their nodes off the map; falls back to getAll() on older cores. v1.0.2: panel registered through the core api.panels API — appears in the mobile \"Map Layers\" drawer, with a fallback guard for cores older than 2.6.1",
+      "screenshots": [],
+      "tags": [
+        "weather",
+        "temperature",
+        "humidity",
+        "pressure",
+        "heatmap",
+        "environment",
+        "sensors"
+      ]
+    },
+    {
+      "id": "maxg10/weather-radar",
+      "name": "Weather Radar",
+      "version": "1.0.0",
+      "description": "Animated precipitation radar over the mesh map, from RainViewer. Roughly two hours of past radar in 10-minute steps, with play/pause, frame stepping, a time slider and a timestamp for the frame on screen. Frontend-only: the browser pulls tiles straight from RainViewer, so the machine running MeshPulse does no extra work and needs no extra dependency. The radar draws above the base map but below nodes and links, so nothing on the mesh gets hidden by rain.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.6.1",
+      "tested_up_to": "2.7.2",
+      "type": "frontend",
+      "category": "map",
+      "icon": "🌧️",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/weather-radar-v1.0.0/weather-radar-1.0.0.meshplugin",
+      "download_size": 7393,
+      "dependencies_note": "No server-side dependency. Needs internet access in the browser viewing the map, not on the MeshPulse host.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/weather-radar/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/weather-radar",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release — animated RainViewer radar layer with time slider and playback, 9 colour schemes, configurable opacity, frame time and native zoom, panel registered through the core api.panels API so it also lands in the mobile Map Layers drawer, playback pauses while the tab is hidden, and an index URL field for anyone running a commercial RainViewer feed",
+      "screenshots": [],
+      "tags": [
+        "weather",
+        "radar",
+        "rain",
+        "precipitation",
+        "map",
+        "animation",
+        "rainviewer"
+      ]
+    },
+    {
+      "id": "maxg10/lifelines",
+      "name": "Lifelines",
+      "version": "1.2.0",
+      "description": "Finds the single points of failure in your mesh: the nodes that, if they went off the air, would cut other nodes off from the network. Builds a graph from neighbour reports plus the nodes your own radio hears directly, finds its articulation points, and for each one counts how many nodes would lose their path to you. It also answers the question the list cannot: what happens to the rest of the mesh if YOUR node goes silent — does it hold together, or fall into pieces? Click any result and the map shows it. Frontend only — no backend, no extra traffic, nothing asked of the radio.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.8.2",
+      "tested_up_to": "2.8.3",
+      "type": "frontend",
+      "category": "map",
+      "icon": "🩺",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/lifelines-v1.2.0/lifelines-1.2.0.meshplugin",
+      "download_size": 10793,
+      "dependencies_note": "No dependencies. Needs at least one node sending NEIGHBORINFO, which is off by default in the Meshtastic firmware; the panel says so rather than showing an empty graph.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/lifelines/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/lifelines",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.2.0: the highlight is visible now — rings pulse (capped at 60, and off under prefers-reduced-motion), a dark casing stops the colour blending into a map full of dots, and the view moves to whatever you just highlighted, which matters on a mesh that spans provinces. New zoom_to_selection option. | v1.1.0: new row at the top of the panel — take your own node out of the graph and see whether the rest holds together or falls into parts, with the largest surviving group drawn in green and everything adrift in red. Nodes left alone are usually ones only your radio reports: they do not go off the air, they stop being visible to anyone keeping a map. | v1.0.3: the map preview ringed nodes from other components of the graph, which were unreachable all along and had nothing to do with the cut point clicked — it is now limited to what your node could reach before the removal, the same set the number counts. Where a ring is impossible because a node reports no position, the panel says so. | v1.0.2: the panel now states what it measures from, and only calls it your node when it is — on cores before 2.8.2 getTracker() returned null and the reference point silently fell back to the busiest node on the graph while the label still said it was yours. | v1.0.1: the findings list folds away, keeping its count in the header, and is capped at 45% of the window height so it scrolls inside the panel instead of over the map — a 125-node mesh really does produce 23 cut points. | v1.0.0: first release — iterative Tarjan articulation points over the mesh graph, orphan count per cut point measured against your own node, map preview of what a given node would take with it, and an explicit empty state when there are no neighbour reports to work with. Requires core 2.8.0 for the api.links edge list.",
+      "screenshots": [],
+      "tags": [
+        "topology",
+        "graph",
+        "resilience",
+        "analysis",
+        "map",
+        "network"
+      ]
+    },
+    {
+      "id": "maxg10/ground-truth",
+      "name": "Ground Truth",
+      "version": "1.0.1",
+      "description": "Compares every link and directly-heard node against its own past few weeks and reports the ones that quietly lost signal — water in a connector, a mast that shifted, a tree that grew. A finding needs a median drop above the threshold, enough measurements in both windows, and a drop larger than twice the link's own noise, so ordinary variation stays quiet. Reads the mapper's own history database read-only and keeps none of its own.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.6.1",
+      "tested_up_to": "2.8.0",
+      "type": "backend",
+      "category": "analysis",
+      "icon": "📉",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/ground-truth-v1.0.1/ground-truth-1.0.1.meshplugin",
+      "download_size": 8499,
+      "dependencies_note": "No external dependencies (standard library only). Reads stats.db read-only; if your web root is not the default, set stats_db_path. Needs weeks of history before it can say anything.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/ground-truth/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/ground-truth",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.1: fixed a manifest that declared backend as a plain string instead of {entry_point}, which made enabling the plugin fail inside the core and leave the button on \"Enabling...\"; also dropped an empty requirements.txt that made the core run pip on every enable. | v1.0.0: first release — median-based degradation detection over two time windows for NEIGHBORINFO links and zero-hop nodes, MAD-based noise gate against false alarms, MQTT-sourced packets excluded, configurable windows and threshold, and map preview of the affected link.",
+      "screenshots": [],
+      "tags": [
+        "diagnostics",
+        "snr",
+        "maintenance",
+        "analysis",
+        "history",
+        "antenna"
+      ]
+    },
+    {
+      "id": "maxg10/trails",
+      "name": "Trails",
+      "version": "1.0.0",
+      "description": "Where moving nodes are heading, where they have been, and a replay of it all. Vectors puts an arrow with speed and direction on every node moving right now; Trails draws the route each mover left in the last 1, 6 or 24 hours, fading with age and dashed across silences; Replay plays back up to a week on a timeline at 60x to 3600x. Stationary nodes stay out of the way: a fix only counts as movement when it lands farther away than GPS noise and position rounding can explain.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.6.1",
+      "tested_up_to": "2.9.1",
+      "type": "backend",
+      "category": "map",
+      "icon": "🧭",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/trails-v1.0.0/trails-1.0.0.meshplugin",
+      "download_size": 17409,
+      "dependencies_note": "No external dependencies (standard library only). Keeps its own history in data/trails.db, 7 days by default. On MeshPulse 2.9.1+ it uses the GPS speed, heading and position precision the node sent; on older cores it estimates speed from consecutive fixes and reads the precision off the coordinates.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/trails/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/trails",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Vectors, Trails (1/6/24 h) and Replay (1/3/7 days), live updates, movement detection that tells GPS noise and position rounding from real travel.",
+      "screenshots": [],
+      "tags": [
+        "map",
+        "tracking",
+        "movement",
+        "history",
+        "replay",
+        "gps"
+      ]
+    }
+  ]
 }

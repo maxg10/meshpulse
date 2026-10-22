@@ -35,6 +35,7 @@ import threading
 import base64
 import sqlite3
 import shutil
+import tempfile
 import uuid
 import platform
 import meshtastic
@@ -330,6 +331,19 @@ class SerialMeshtasticInterface:
         return self.iface.localNode
 
 
+_PLUGIN_PART = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+
+def _restorable_plugin_file(name):
+    """True for the plugin files a backup writes: plugins/enabled.json and
+    plugins/<author>/<name>/config.json, with plain path segments only."""
+    if name == 'plugins/enabled.json':
+        return True
+    parts = name.split('/')
+    return (len(parts) == 4 and parts[0] == 'plugins' and parts[3] == 'config.json'
+            and all(_PLUGIN_PART.match(x) and x not in ('.', '..') for x in parts[1:3]))
+
+
 class StatsDB:
     """SQLite database for network statistics.
 
@@ -355,6 +369,90 @@ class StatsDB:
         self.lock = threading.Lock()
         self.retention_days = retention_days
         self._init_db()
+        # Every query opens and closes its own connection, and SQLite checkpoints
+        # and deletes the WAL whenever the last connection to a file closes: an
+        # fsync per packet again. One idle connection held for the life of the
+        # process keeps the WAL in place; SQLite checkpoints it every ~1000 pages.
+        self._wal_anchor = self._open_anchor()
+
+    def _open_anchor(self):
+        # A connection only counts once it has read the file; an idle one that
+        # never ran a query does not keep the WAL alive.
+        conn = self._connect()
+        conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchone()
+        return conn
+
+    def _connect(self):
+        """Open stats.db. Every query goes through here.
+
+        The database runs in WAL mode (set once in _init_db; it is stored in
+        the file). With synchronous=NORMAL a commit appends to the WAL without
+        an fsync, and the fsync happens at checkpoint time: on an SD card that
+        is the difference between a write per packet and a write every few
+        hundred. A power cut can lose the last seconds of statistics, never
+        the database.
+        """
+        conn = sqlite3.connect(self.DB_PATH, timeout=10)
+        conn.execute('PRAGMA synchronous=NORMAL')
+        # The WAL is reused rather than shrunk; cap what it keeps on disk.
+        conn.execute('PRAGMA journal_size_limit=4194304')
+        return conn
+
+    def snapshot(self, dest_path):
+        """Write a consistent, self-contained copy of the database to dest_path.
+
+        Copying stats.db as a file misses whatever is still in the WAL and can
+        catch a write half done. The backup API copies a consistent state, and
+        the copy is switched to a rollback journal so it is a single file.
+        """
+        with self.lock:
+            src = self._connect()
+            try:
+                dst = sqlite3.connect(dest_path)
+                try:
+                    src.backup(dst)
+                    dst.execute('PRAGMA journal_mode=DELETE')
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+
+    def replace_with(self, data):
+        """Swap in a database restored from a backup.
+
+        The old -wal and -shm files go first: SQLite would otherwise replay
+        the old WAL on top of the new file. The new file is checked to be a
+        SQLite database before anything is removed.
+        """
+        tmp = self.DB_PATH + '.restore'
+        with self.lock:
+            with open(tmp, 'wb') as f:
+                f.write(data)
+            try:
+                check = sqlite3.connect(tmp)
+                try:
+                    check.execute('PRAGMA journal_mode=DELETE')
+                    check.execute('SELECT count(*) FROM sqlite_master').fetchone()
+                finally:
+                    check.close()
+            except sqlite3.DatabaseError:
+                os.remove(tmp)
+                raise ValueError('stats.db in the backup is not a SQLite database')
+            # The anchor holds the old file open; let it go, and anchor the new one.
+            anchor = getattr(self, '_wal_anchor', None)
+            if anchor is not None:
+                anchor.close()
+                self._wal_anchor = None
+            for suffix in ('-wal', '-shm'):
+                try:
+                    os.remove(self.DB_PATH + suffix)
+                except FileNotFoundError:
+                    pass
+            os.replace(tmp, self.DB_PATH)
+            conn = self._connect()
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.close()
+            self._wal_anchor = self._open_anchor()
 
     @classmethod
     def clamp_retention(cls, value):
@@ -368,8 +466,23 @@ class StatsDB:
 
     def _init_db(self):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             c = conn.cursor()
+            # Persistent: once set, every later connection opens the file in WAL.
+            # Readers (the Stats page, Ground Truth) then no longer wait for the
+            # packet logger, and the logger no longer waits for them.
+            mode = c.execute('PRAGMA journal_mode=WAL').fetchone()[0]
+            if str(mode).lower() != 'wal':
+                print(f"[STATS] journal_mode is {mode}, WAL not available on this filesystem")
+            # stats.db lives in the web root, so the web server would hand it to
+            # anyone on the network (admin audit with client addresses, every
+            # remote admin change). Owner-only, like config.json; SQLite gives
+            # the -wal and -shm files the database file's permissions.
+            for suffix in ('', '-wal', '-shm'):
+                try:
+                    os.chmod(self.DB_PATH + suffix, 0o600)
+                except OSError:
+                    pass
             c.execute('''CREATE TABLE IF NOT EXISTS packets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts INTEGER NOT NULL,
@@ -421,7 +534,10 @@ class StatsDB:
             # holding the lock that packet logging waits on.
             c.execute('DROP INDEX IF EXISTS idx_packets_from')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from_port_ts ON packets(from_id, portnum, ts)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_relay ON packets(relayed_by_us, ts)')
+            # relayed_by_us was never true for a real packet: relayNode carries one
+            # byte, and a client never sees its own node's rebroadcasts. The column
+            # stays (old databases have it), the index it cost on every insert goes.
+            c.execute('DROP INDEX IF EXISTS idx_packets_relay')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_mqtt ON packets(via_mqtt, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_ts ON neighbors(ts)')
@@ -505,7 +621,7 @@ class StatsDB:
 
     def log_packet(self, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO packets
                 (ts, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
                 VALUES (?,?,?,?,?,?,?,?,?,?)''',
@@ -516,7 +632,7 @@ class StatsDB:
 
     def log_anomaly(self, node_id, node_name, anomaly_type, details, severity='warning'):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO anomalies (ts, node_id, node_name, anomaly_type, details, severity)
                 VALUES (?,?,?,?,?,?)''',
                 (int(time.time()), node_id, node_name, anomaly_type, details, severity))
@@ -533,7 +649,7 @@ class StatsDB:
         ]):
             return
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO radio_stats_history
                 (ts, channel_utilization, air_util_tx, num_packets_tx,
                  num_packets_rx, num_packets_rx_bad, num_rx_dupe,
@@ -565,7 +681,7 @@ class StatsDB:
         cutoff = int(time.time()) - (self.retention_days * 86400)
         for _ in range(self.CLEANUP_MAX_CHUNKS):
             with self.lock:
-                conn = sqlite3.connect(self.DB_PATH)
+                conn = self._connect()
                 try:
                     deleted = conn.execute(
                         'DELETE FROM packets WHERE id IN '
@@ -577,7 +693,7 @@ class StatsDB:
             if deleted < self.CLEANUP_CHUNK:
                 break
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
@@ -596,7 +712,7 @@ class StatsDB:
     def _next_data_ts(self, since):
         """Earliest raw timestamp at or after `since`, in either source table."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 return conn.execute('''SELECT MIN(t) FROM (
                     SELECT MIN(ts) AS t FROM packets WHERE ts >= ?
@@ -618,7 +734,7 @@ class StatsDB:
         cols = ('ts, channel_utilization, air_util_tx, num_packets_rx, num_rx_dupe, '
                 'num_packets_rx_bad, num_packets_tx, num_tx_relay, num_online_nodes')
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 pk = conn.execute('''SELECT
                         COALESCE(SUM(via_mqtt = 0), 0),
@@ -688,7 +804,7 @@ class StatsDB:
         now = int(time.time() if now is None else now)
         current = (now // 3600) * 3600  # the hour in progress is never rolled up
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 last = conn.execute('SELECT MAX(hour_ts) FROM traffic_hourly').fetchone()[0]
             finally:
@@ -721,7 +837,7 @@ class StatsDB:
         An MQTT sighting never replaces a key heard over radio."""
         now = int(time.time())
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 row = conn.execute('SELECT public_key, via_mqtt FROM node_keys WHERE node_id = ?',
                                    (node_id,)).fetchone()
@@ -747,7 +863,7 @@ class StatsDB:
 
     def log_admin_action(self, dest, action, section, changes, outcome, rtt=None):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 conn.execute('INSERT INTO admin_audit (ts, dest, action, section, changes, outcome, rtt) '
                              'VALUES (?,?,?,?,?,?,?)', (int(time.time()), dest, action, section, changes, outcome, rtt))
@@ -757,7 +873,7 @@ class StatsDB:
 
     def recent_admin_actions(self, limit=10):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 rows = conn.execute('SELECT ts, dest, action, section, changes, outcome FROM admin_audit '
                                     'ORDER BY id DESC LIMIT ?', (int(limit),)).fetchall()
@@ -768,7 +884,7 @@ class StatsDB:
 
     def get_public_key(self, node_id):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 row = conn.execute('SELECT public_key FROM node_keys WHERE node_id = ?', (node_id,)).fetchone()
                 return row[0] if row else None
@@ -799,7 +915,7 @@ class StatsDB:
         since = (now // 3600) * 3600 - span
         key = 'hour_ts' if bucket == 3600 else "date(hour_ts, 'unixepoch', 'localtime')"
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             try:
                 rows = conn.execute(f'''SELECT {key} AS bucket_key, MIN(hour_ts) AS ts,
@@ -838,7 +954,7 @@ class StatsDB:
     def clear_node_packets(self, node_id):
         """Delete all packet history for a specific node from stats.db."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM packets WHERE from_id = ?', (node_id,))
             conn.execute('DELETE FROM anomalies WHERE node_id = ?', (node_id,))
             conn.commit()
@@ -847,7 +963,7 @@ class StatsDB:
     def clear_all_stats(self):
         """Delete ALL data from all stats tables."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM packets')
             conn.execute('DELETE FROM node_activity')
             conn.execute('DELETE FROM anomalies')
@@ -862,7 +978,7 @@ class StatsDB:
         if not name or name == node_id:
             return
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''UPDATE packets SET from_name = ?
                            WHERE from_id = ? AND (from_name = ? OR from_name IS NULL)''',
                         (name, node_id, node_id))
@@ -876,7 +992,7 @@ class StatsDB:
         """Store neighbor info packet data."""
         now = int(time.time())
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM neighbors WHERE from_id = ?', (from_id,))
             for neighbor in neighbors:
                 conn.execute('''INSERT INTO neighbors (ts, from_id, from_name, neighbor_id, neighbor_name, snr)
@@ -901,7 +1017,7 @@ class StatsDB:
         except Exception:
             last_byte_hex = ''
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             rows = c.execute('''
@@ -924,7 +1040,7 @@ class StatsDB:
         """Get neighbor graph for topology visualization. Only returns data from last 6 hours."""
         since = int(time.time()) - 21600
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             edges = c.execute('''SELECT from_id, from_name, neighbor_id, neighbor_name, snr, MAX(ts) as last_seen
@@ -937,7 +1053,7 @@ class StatsDB:
     def backfill_names(self, nodes_dict):
         """Update from_name for nodes where name = node_id (unknown at time of logging)."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             for node_id, node in nodes_dict.items():
                 name = node.get('name')
                 if name and name != node_id:
@@ -956,7 +1072,7 @@ class StatsDB:
         since_24h = now - 86400
         since_7d = now - 7 * 86400
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
@@ -1078,7 +1194,7 @@ class StatsDB:
         """Get node connections for D3.js graph."""
         since = int(time.time()) - 86400
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             nodes_data = c.execute('''SELECT DISTINCT from_id, MAX(from_name) as from_name, COUNT(*) as packet_count
@@ -2479,35 +2595,19 @@ class ListenBasedMapper:
             from_id
         )
 
-        relayed_by_us = False
         relay_node_id = None
-        if relay_node_raw is not None and self.local_node_id:
-            our_num = int(self.local_node_id.replace('!', ''), 16)
+        if relay_node_raw is not None:
             if relay_node_raw > 0xFF:
-                # Full node number (Python API) — safe to resolve exactly, no collision possible
-                relayed_by_us = (relay_node_raw == our_num) and (from_id != self.local_node_id)
+                # A full node number: node ids are '!%08x', so this is the id itself.
                 relay_node_id = f"!{relay_node_raw:08x}"
-                for nid in {**self.nodes, **self.nodes_no_position}:
-                    try:
-                        if int(nid.replace('!', ''), 16) == relay_node_raw:
-                            relay_node_id = nid
-                            break
-                    except:
-                        pass
-                # Final check: if relay_node_id resolved to our own node ID string, mark as relayed by us
-                if relay_node_id == self.local_node_id and from_id != self.local_node_id:
-                    relayed_by_us = True
             else:
-                # Last byte only (legacy CLI mode) — DO NOT attempt full node resolution.
-                # With 100+ nodes, last-byte collision probability is ~30% — would show
-                # a completely wrong node name in Stats.
-                our_last_byte = our_num & 0xFF
-                relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
+                # Last byte only, which is what the firmware sends. Resolving it to
+                # a node would guess: with 100+ nodes a last-byte collision is ~30%
+                # likely, so it stays an opaque relay_XX.
                 relay_node_id = f"relay_{relay_node_raw:02x}"
-                # Keep as opaque relay_XX — unresolvable without full 32-bit ID
 
         self._last_radio_packet_time = time.time()  # watchdog reset
-        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, False)
 
         if not via_mqtt:
             self._packet_event_queue.append({
@@ -6843,7 +6943,15 @@ async def websocket_handler(websocket):
                                 if os.path.exists(nodes_path):
                                     zf.write(nodes_path, 'nodes.json')
                                 if os.path.exists(StatsDB.DB_PATH):
-                                    zf.write(StatsDB.DB_PATH, 'stats.db')
+                                    # A consistent copy, not the live file (WAL, writes in flight).
+                                    sdb = mapper.stats_db if mapper else StatsDB()
+                                    fd, snap = tempfile.mkstemp(prefix='meshpulse-stats-', suffix='.db')
+                                    os.close(fd)
+                                    try:
+                                        sdb.snapshot(snap)
+                                        zf.write(snap, 'stats.db')
+                                    finally:
+                                        os.remove(snap)
                         buf.seek(0)
                         return base64.b64encode(buf.read()).decode('ascii')
                     try:
@@ -6876,6 +6984,7 @@ async def websocket_handler(websocket):
                                 return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
                             info = json.loads(zf.read('backup_info.json'))
                             backup_type = info.get('backup_type', 'unknown')
+                            skipped = []
                             for name in names:
                                 if name == 'backup_info.json':
                                     continue
@@ -6885,17 +6994,30 @@ async def websocket_handler(websocket):
                                 elif name == 'nodes.json':
                                     dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
                                 elif name == 'stats.db':
-                                    dest = StatsDB.DB_PATH
-                                elif name.startswith('plugins/') and not name.endswith('/'):
-                                    if plugin_manager:
-                                        rel = name[len('plugins/'):]
-                                        dest = os.path.join(plugin_manager.plugins_dir, rel)
+                                    sdb = mapper.stats_db if mapper else StatsDB()
+                                    sdb.replace_with(zf.read(name))
+                                    restored.append(name)
+                                    continue
+                                elif plugin_manager and _restorable_plugin_file(name):
+                                    # A backup only ever holds plugins/enabled.json and
+                                    # plugins/<author>/<name>/config.json. Anything else, or
+                                    # a path that leaves the plugins directory, is refused:
+                                    # restore must not be a way to write code onto the Pi.
+                                    base = os.path.realpath(plugin_manager.plugins_dir)
+                                    cand = os.path.realpath(os.path.join(base, name[len('plugins/'):]))
+                                    if cand.startswith(base + os.sep):
+                                        dest = cand
                                 if dest:
                                     os.makedirs(os.path.dirname(dest), exist_ok=True)
                                     with open(dest, 'wb') as f:
                                         f.write(zf.read(name))
                                     restored.append(name)
-                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored}
+                                elif not name.endswith('/'):
+                                    skipped.append(name)
+                            if skipped:
+                                print(f"[RESTORE] Refused {len(skipped)} unexpected entries: {skipped[:5]}")
+                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored,
+                                'files_refused': skipped}
                     try:
                         result = await asyncio.to_thread(_do_restore)
                         print(f"[RESTORE] {result}")

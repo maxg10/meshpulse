@@ -1,6 +1,34 @@
 # Changelog
 
 ## v2.9.1 (unreleased)
+- Security: A node name could run JavaScript in the browser. Node names come
+  from the air, and the DM, traceroute and Admin buttons put them into an
+  `onclick` attribute escaping only apostrophes; a 30-character long name such
+  as `x"><img src=x onerror=…>` ran in every open map. Those arguments are now
+  JSON-encoded and HTML-escaped, and the DM list, favourites, channel name and
+  plugin install messages escape what they show.
+- Security: Plugin ids are checked. `uninstall_plugin` deleted whatever
+  directory `plugins/<id>` resolved to, so a WebSocket message with
+  `x/../../..` removed the service user's home directory; a package with such
+  an id did the same on install. Ids must now be `author/name` from letters,
+  digits, `.`, `_` and `-`, and stay inside the plugins directory.
+- Security: Restoring a backup only writes what a backup contains
+  (`config.json`, `nodes.json`, `stats.db`, `plugins/enabled.json`,
+  `plugins/<author>/<name>/config.json`). A crafted archive could previously
+  write any file the service can write, including code.
+- Security: `stats.db` is owner-only (0600), like `config.json`. It sits in the
+  web root, so the web server gave it, with the remote admin audit and client
+  addresses, to anyone on the network.
+- Security: Leaflet and Chart.js load with Subresource Integrity, and Chart.js
+  is pinned to 4.6.1 instead of whatever version the CDN serves today.
+- Perf: `stats.db` runs in WAL mode with `synchronous=NORMAL`. Logging a
+  packet on a Raspberry Pi 2 SD card: 28.9 ms → 5.3 ms median, 66 → 6.5 ms
+  p95, and that is time spent holding the lock the rest of the core waits on.
+- Fix: A full backup copied `stats.db` as a live file, which could catch a
+  write half done and, with WAL, miss recent rows. It now takes a consistent
+  snapshot, and restore clears the old WAL before swapping the file in.
+- Cleanup: The `relayed_by_us` index is gone (the flag was never true for a
+  real packet, and the index cost a write on every insert).
 - Fix: Updating a plugin deleted its database. The upgrade kept `config.json`
   and a `data/` directory, but not `data.db`, the file `get_database()`
   creates, so every plugin using the documented API (and its `-wal`/`-shm`
