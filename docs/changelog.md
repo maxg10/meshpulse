@@ -1,6 +1,10 @@
 # Changelog
 
 ## v2.9.1 (unreleased)
+- Fix: Updating a plugin deleted its database. The upgrade kept `config.json`
+  and a `data/` directory, but not `data.db`, the file `get_database()`
+  creates, so every plugin using the documented API (and its `-wal`/`-shm`
+  files) started from scratch after an update.
 - Plugins: `on_position` now carries `via_mqtt`, `speed` (m/s), `heading`
   (degrees from true north), `precision_bits` and `pos_time` (the sender's GPS
   time). The guide had promised speed and heading for a long time; the core

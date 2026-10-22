@@ -87,8 +87,11 @@ class PluginManager:
     # ── Plugin Discovery ────────────────────────────────────────
 
     # Files a plugin owns at runtime rather than ships: its user config and any
-    # database it keeps. Upgrading must not touch them.
-    RUNTIME_STATE = ('config.json', 'data')
+    # database it keeps. Upgrading must not touch them. data.db is what
+    # MeshPlugin.get_database() creates; its -wal/-shm/-journal companions
+    # hold rows not yet written back, so they travel with it.
+    RUNTIME_STATE = ('config.json', 'data', 'data.db',
+                     'data.db-wal', 'data.db-shm', 'data.db-journal')
 
     def _take_runtime_state(self, plugin_dir):
         """Move a plugin's runtime state aside before its directory is replaced.
