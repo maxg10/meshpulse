@@ -360,9 +360,14 @@ class MeshPlugin:
             position (dict): {
                 'node_id': str,
                 'lat': float, 'lon': float, 'alt': int,
-                'speed': int, 'heading': int,
                 'snr': float, 'rssi': int,
-                'hops': int, 'timestamp': int
+                'hops': int, 'timestamp': int,
+                # 2.9.1+ (absent on older cores, None when the sender omits them):
+                'via_mqtt': bool,
+                'speed': int | None,           # ground speed, m/s
+                'heading': float | None,       # ground track, degrees from true north
+                'precision_bits': int | None,  # 32 = full precision; fewer = rounded position
+                'pos_time': int | None         # sender's GPS timestamp
             }
         """
         pass

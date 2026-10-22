@@ -2784,7 +2784,10 @@ class ListenBasedMapper:
                 plugin_manager.dispatch_hook_sync('on_position', {
                     'node_id': node_id, 'lat': lat, 'lon': lon,
                     'alt': 0, 'snr': snr, 'rssi': rssi, 'hops': hops,
-                    'timestamp': int(time.time())
+                    'timestamp': int(time.time()),
+                    'via_mqtt': bool(via_mqtt),
+                    'speed': None, 'heading': None,
+                    'precision_bits': None, 'pos_time': None,
                 })
 
             return True
@@ -3987,7 +3990,15 @@ class ListenBasedMapper:
                     'node_id': node_id, 'lat': lat, 'lon': lon,
                     'alt': pos.get('altitude', 0),
                     'snr': snr, 'rssi': rssi, 'hops': hops,
-                    'timestamp': int(time.time())
+                    'timestamp': int(time.time()),
+                    'via_mqtt': bool(via_mqtt),
+                    # Only present when the sender's position flags include them.
+                    'speed': pos.get('groundSpeed'),                      # m/s
+                    'heading': (pos['groundTrack'] / 1e5                  # degrees, true north
+                                if pos.get('groundTrack') is not None else None),
+                    # Position precision the sender chose for this channel (32 = full).
+                    'precision_bits': pos.get('precisionBits'),
+                    'pos_time': pos.get('time'),                          # sender's GPS time
                 })
             return True
         except Exception as e:

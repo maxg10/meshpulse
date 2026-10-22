@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.1 (unreleased)
+- Plugins: `on_position` now carries `via_mqtt`, `speed` (m/s), `heading`
+  (degrees from true north), `precision_bits` and `pos_time` (the sender's GPS
+  time). The guide had promised speed and heading for a long time; the core
+  never sent them. `None` when the sender's position flags leave a field out.
+
 ## v2.9.0
 - New: Remote admin, read-only. A 🛠 Admin button in a Meshtastic node's popup
   (and 🛠 in the No GPS list) opens a window that reads that node's settings over

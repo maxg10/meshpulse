@@ -199,7 +199,7 @@ class MyPlugin(MeshPlugin):
 | `on_disable()` | Plugin disabled | — |
 | `on_message(message)` | Text message received | `{from_id, from_name, to_id, text, timestamp, is_dm, channel_index}` |
 | `on_node_update(node)` | Node info changed | `{id, name, lat, lon, alt, snr, role, hops, via_mqtt, ...}` |
-| `on_position(position)` | GPS position update | `{node_id, lat, lon, alt, snr, rssi, hops, timestamp}` |
+| `on_position(position)` | GPS position update | `{node_id, lat, lon, alt, snr, rssi, hops, timestamp}`; 2.9.1+ also `via_mqtt`, `speed` (m/s), `heading` (degrees), `precision_bits`, `pos_time` (`None` when the sender omits them) |
 | `on_telemetry(telemetry)` | Telemetry packet | `{node_id, battery, voltage, channel_util, air_util_tx, ...}` |
 | `on_neighborinfo(info)` | NeighborInfo update | `{node_id, neighbors: [{id, snr}, ...]}` |
 | `on_mqtt_proxy(topic, data)` | MQTT proxy message | `topic` (str), `data` (bytes) |
