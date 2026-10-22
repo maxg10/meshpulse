@@ -23,6 +23,7 @@
     <title>MeshPulse — Config</title>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
+    <script src="auth.js?v=__ASSET_HASH__"></script>
     <style>
         * { box-sizing: border-box; }
         body {
@@ -188,6 +189,7 @@
     <button class="tab" onclick="switchTab('coverage', this)">📡 Coverage</button>
     <button class="tab" onclick="switchTab('plugins', this)">🔌 Plugins</button>
     <button class="tab" onclick="switchTab('remoteadmin', this)">🛠 Remote Admin</button>
+    <button class="tab" onclick="switchTab('security', this)">🔒 Security</button>
 </div>
 
 <!-- User tab -->
@@ -1195,6 +1197,35 @@
     </div>
 </div>
 
+<!-- Security tab -->
+<div id="tab-security" class="tab-content">
+    <div class="card">
+        <div class="card-title">🔒 Admin Password</div>
+        <div class="alert alert-info" style="margin-bottom:10px">
+            ℹ️ Without a password, anyone who can open this MeshPulse can also install plugins (which run code on this
+            computer), restore backups, read the channel keys, change the radio, use Remote Admin and transmit as your
+            node. With a password, the map, statistics and messages stay open to everyone, and all of that asks for the
+            password first. A browser that unlocks stays unlocked for 14 days.
+        </div>
+        <div id="sec-status" style="font-size:13px;margin:6px 0 12px;color:#374151">Checking…</div>
+        <div id="sec-form" style="display:flex;flex-direction:column;gap:8px;max-width:340px">
+            <input type="password" id="sec-new" autocomplete="new-password" placeholder="New password (at least 8 characters)" style="padding:7px 9px;font-size:13px">
+            <input type="password" id="sec-new2" autocomplete="new-password" placeholder="Repeat it" style="padding:7px 9px;font-size:13px">
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="btn btn-primary" id="sec-set-btn" onclick="secSetPassword()">Set password</button>
+                <button class="btn btn-secondary" id="sec-remove-btn" onclick="secRemovePassword()" style="display:none">Remove password</button>
+            </div>
+            <div id="sec-msg" style="font-size:12px;min-height:16px"></div>
+        </div>
+        <div id="sec-sessions" style="display:none;margin-top:14px;padding-top:12px;border-top:1px solid #e5e7eb">
+            <button class="btn btn-secondary" onclick="MeshAuth.signOut()">Lock this browser</button>
+            <button class="btn btn-secondary" onclick="secSignOutEverywhere()">Sign out every browser</button>
+        </div>
+        <div style="margin-top:12px;font-size:12px;color:#6b7280">Forgot it? Over SSH, remove <code>"admin_password_hash"</code> from
+            <code>/var/www/html/meshpulse/config.json</code> and restart the service.</div>
+    </div>
+</div>
+
 <!-- Plugins tab -->
 <div id="tab-plugins" class="tab-content">
     <div class="card">
@@ -1745,6 +1776,7 @@ function stopDeviceHeartbeat() {
 
 function connectWS() {
     ws = new WebSocket(`ws://${location.hostname}:8765`);
+    if (window.MeshAuth) MeshAuth.attach(ws);
     ws.onopen = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';
@@ -1773,6 +1805,7 @@ function connectWS() {
             console.warn('[WS] Malformed frame ignored:', e.data?.slice(0, 80), err.message);
             return;
         }
+        if (d && (d.type === 'admin_password_result' || d.type === 'admin_sign_out_result')) { secOnResult(d); return; }
         if (d.type === 'remote_admin_state') {
             handleRemoteAdminState(d.data || {});
             return;
@@ -2321,6 +2354,49 @@ function switchTab(name, el) {
     if (name === 'plugins') { loadPluginsList(); if (!_storeLoaded) loadPluginStore(); }
     if (name === 'remoteadmin') raStateRequest();
 }
+
+// ── Admin password ───────────────────────────────────────────────
+function secRender(st) {
+    const status = document.getElementById('sec-status');
+    if (!status) return;
+    if (!st.known) { status.textContent = 'Checking…'; return; }
+    status.innerHTML = st.required
+        ? (st.authed ? '🔓 A password is set, and this browser is unlocked.' : '🔒 A password is set. This browser is locked.')
+        : '⚠️ No password: everything is open to anyone who can reach this page.';
+    document.getElementById('sec-set-btn').textContent = st.required ? 'Change password' : 'Set password';
+    document.getElementById('sec-remove-btn').style.display = st.required ? '' : 'none';
+    document.getElementById('sec-sessions').style.display = st.required ? '' : 'none';
+}
+function secMsg(text, ok) {
+    const el = document.getElementById('sec-msg');
+    el.textContent = text;
+    el.style.color = ok ? '#15803d' : '#b91c1c';
+}
+function secSetPassword() {
+    const a = document.getElementById('sec-new').value, b = document.getElementById('sec-new2').value;
+    if (a.length < 8) { secMsg('At least 8 characters.', false); return; }
+    if (a !== b) { secMsg('The two passwords differ.', false); return; }
+    MeshAuth.setPassword(a);
+}
+function secRemovePassword() {
+    if (!confirm('Remove the admin password? Everything becomes open to anyone who can reach this page.')) return;
+    MeshAuth.removePassword();
+}
+function secSignOutEverywhere() { MeshAuth.signOutEverywhere(); }
+function secOnResult(d) {
+    if (d.type === 'admin_password_result') {
+        if (d.ok) {
+            document.getElementById('sec-new').value = '';
+            document.getElementById('sec-new2').value = '';
+            secMsg(d.required ? '✅ Password saved. This browser stays unlocked.' : '✅ Password removed.', true);
+        } else {
+            secMsg(d.error === 'length' ? 'At least ' + (d.min || 8) + ' characters.' : 'Not saved: unlock this browser first.', false);
+        }
+    } else if (d.type === 'admin_sign_out_result' && d.ok) {
+        secMsg('✅ Every browser, this one included, has to unlock again.', true);
+    }
+}
+if (window.MeshAuth) MeshAuth.onChange(secRender);
 
 // ── Remote admin arming ──────────────────────────────────────────
 let _raState = null, _raEnds = 0, _raTimer = null;

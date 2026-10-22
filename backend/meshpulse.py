@@ -37,6 +37,7 @@ import sqlite3
 import shutil
 import tempfile
 import uuid
+import admin_auth   # backend/admin_auth.py, next to this file
 import platform
 import meshtastic
 import meshtastic.tcp_interface
@@ -133,6 +134,60 @@ CONFIG_PATH = '/var/www/html/meshpulse/config.json'
 # Runtime restart support
 mapper = None
 plugin_manager = None
+_ADMIN_AUTH = None
+
+
+def _admin_auth():
+    """The optional admin password (see backend/admin_auth.py)."""
+    global _ADMIN_AUTH
+    if _ADMIN_AUTH is None:
+        _ADMIN_AUTH = admin_auth.AdminAuth(load_config, lambda cfg: admin_auth.write_config_file(CONFIG_PATH, cfg))
+    return _ADMIN_AUTH
+
+
+def _auth_status(authenticated):
+    return {'type': 'auth_status', 'required': _admin_auth().required(),
+            'authenticated': bool(authenticated), 'protected': sorted(admin_auth.PROTECTED)}
+
+
+async def _broadcast_auth_status():
+    for ws in list(connected_clients):
+        try:
+            await ws.send(json.dumps(_auth_status(False)))
+        except Exception:
+            pass
+
+
+async def _handle_auth_message(websocket, data, client_addr, authed_key):
+    """auth, set_admin_password, admin_sign_out_everywhere. Returns the
+    connection's new auth fingerprint (None = not authenticated)."""
+    auth = _admin_auth()
+    t = data.get('type')
+    ip = client_addr[0] if client_addr else '?'
+    if t == 'auth':
+        res = await asyncio.to_thread(auth.login, ip, data.get('password'), data.get('token'))
+        if res.get('ok'):
+            authed_key = auth.fingerprint()
+        if data.get('password') is not None:
+            print(f"[AUTH] Login from {ip}: {'ok' if res.get('ok') else res.get('error')}")
+        await websocket.send(json.dumps({'type': 'auth_result', 'required': auth.required(), **res}))
+        return authed_key
+    is_authed = authed_key is not None and authed_key == auth.fingerprint()
+    if t == 'set_admin_password':
+        res = await asyncio.to_thread(auth.set_password, is_authed, data.get('password'))
+        if res.get('ok'):
+            print(f"[AUTH] Admin password {'set' if res.get('required') else 'removed'} from {ip}")
+            authed_key = auth.fingerprint() if res.get('required') else None
+            await _broadcast_auth_status()
+        await websocket.send(json.dumps({'type': 'admin_password_result', **res}))
+    elif t == 'admin_sign_out_everywhere':
+        res = auth.sign_out_everywhere(is_authed)
+        if res.get('ok'):
+            print(f"[AUTH] Signed out every browser, requested from {ip}")
+            authed_key = None
+            await _broadcast_auth_status()
+        await websocket.send(json.dumps({'type': 'admin_sign_out_result', **res}))
+    return authed_key
 restart_event = threading.Event()
 restart_config = {}
 traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
@@ -5744,15 +5799,31 @@ async def websocket_handler(websocket):
         })
         await websocket.send(status_msg)
 
+    authed_key = None   # admin password fingerprint this connection logged in with
+    try:
+        await websocket.send(json.dumps(_auth_status(False)))
+    except Exception:
+        pass
+
     try:
         async for message in websocket:
             try:
-                if message and len(message) < 200:
+                # Never log what could carry a password.
+                if message and len(message) < 200 and '"auth' not in message and 'admin_password' not in message:
                     print(f"[WS] ← {client_addr}: {message}")
                 if len(message) > 65536:  # 64KB max
                     print(f"[WS] Message too large ({len(message)} bytes), ignoring")
                     continue
                 data = json.loads(message)
+                _t = data.get('type')
+                if _t in ('auth', 'set_admin_password', 'admin_sign_out_everywhere'):
+                    authed_key = await _handle_auth_message(websocket, data, client_addr, authed_key)
+                    continue
+                if _t in admin_auth.PROTECTED:
+                    _auth = _admin_auth()
+                    if _auth.required() and authed_key != _auth.fingerprint():
+                        await websocket.send(json.dumps({'type': 'auth_required', 'request_type': _t}))
+                        continue
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
                 elif data.get('type') == 'traceroute':

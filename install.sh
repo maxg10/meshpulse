@@ -157,12 +157,16 @@ sudo mkdir -p /var/www/html/meshpulse
 echo "🌐 Copying frontend files..."
 sudo cp frontend/index.html /var/www/html/meshpulse/
 sudo cp frontend/styles.css /var/www/html/meshpulse/
+sudo cp frontend/auth.js /var/www/html/meshpulse/
 sudo cp frontend/favicon.ico /var/www/html/meshpulse/
 sudo chmod 644 /var/www/html/meshpulse/favicon.ico
 sudo cp frontend/favicon_stats.ico /var/www/html/meshpulse/
 sudo cp frontend/stats.html /var/www/html/meshpulse/
 sudo cp frontend/config.html /var/www/html/meshpulse/
 sudo cp frontend/messages.html /var/www/html/meshpulse/
+# World-readable for the web server whatever the source files' modes were
+# (a 0600 auth.js would be refused, and the pages would run without it).
+sudo chmod 644 /var/www/html/meshpulse/*.html /var/www/html/meshpulse/*.css /var/www/html/meshpulse/*.js /var/www/html/meshpulse/*.ico
 
 # Cache-bust the stylesheet by its own content. A hand-maintained version in the
 # query string is only correct while someone remembers to bump it — ours sat at
@@ -172,17 +176,17 @@ sudo cp frontend/messages.html /var/www/html/meshpulse/
 # to re-download. Stamped into the served copies, never into the repo, so
 # `git status` stays clean and `git reset --hard` has nothing to undo.
 if command -v md5sum > /dev/null 2>&1; then
-    ASSET_HASH=$(md5sum frontend/styles.css | cut -c1-12)
+    ASSET_HASH=$(cat frontend/styles.css frontend/auth.js | md5sum | cut -c1-12)
 elif command -v md5 > /dev/null 2>&1; then          # macOS
-    ASSET_HASH=$(md5 -q frontend/styles.css | cut -c1-12)
+    ASSET_HASH=$(cat frontend/styles.css frontend/auth.js | md5 -q | cut -c1-12)
 else
     ASSET_HASH=$(date +%s)                          # no hasher: fall back to "always fresh"
 fi
 for f in index.html stats.html config.html messages.html; do
-    sudo sed -i "s/styles\.css?v=__ASSET_HASH__/styles.css?v=$ASSET_HASH/g" \
+    sudo sed -i "s/?v=__ASSET_HASH__/?v=$ASSET_HASH/g" \
         "/var/www/html/meshpulse/$f"
 done
-echo "🧹 Stylesheet cache key: $ASSET_HASH"
+echo "🧹 Asset cache key (styles.css + auth.js): $ASSET_HASH"
 
 # Sync plugin frontend assets to web root so lighttpd can serve them
 if [ -d "$PLUGIN_DIR" ]; then

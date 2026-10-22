@@ -23,6 +23,7 @@
     <title>MeshPulse — Stats</title>
     <link rel="icon" type="image/x-icon" href="favicon_stats.ico">
     <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
+    <script src="auth.js?v=__ASSET_HASH__"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" integrity="sha384-Emf5ZVIUiarAdhkgtqK+5/Z5qIvM6QoVrS+qAVtfyZVuD5lIHrac0me485+Antp0" crossorigin="anonymous"></script>
     <style>
         * { box-sizing: border-box; }
@@ -764,6 +765,7 @@ function renderPluginNavTabs(plugins) {
 // ── WebSocket ────────────────────────────────────────────────────
 function connectWS() {
     ws = new WebSocket(`ws://${location.hostname}:8765`);
+    if (window.MeshAuth) MeshAuth.attach(ws);
     ws.onopen = () => {
         document.getElementById('ws-dot').className = 'ws-dot ws-connected';
         document.getElementById('ws-label').textContent = 'Connected';

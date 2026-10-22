@@ -1,6 +1,23 @@
 # Changelog
 
 ## v2.9.1 (unreleased)
+- New: Optional admin password (Config → 🔒 Security). MeshPulse trusts its
+  LAN, so anyone who could open the map could also install a plugin, restore a
+  backup, read the channel keys or transmit as your node. With a password set,
+  the map, statistics and messages stay open, and everything that changes the
+  system, reads its secrets or goes out over the air (plugins, settings,
+  channels, backup and restore, clearing stats, favourites, remote admin,
+  sending messages, traceroute, position requests) asks for it first. Without
+  one, nothing changes.
+  - `get_config` is protected too: it returns the channel PSKs.
+  - Only a PBKDF2-SHA256 hash is stored, in `config.json` (0600). The password
+    never appears in the log.
+  - A browser that logs in stays unlocked for 14 days. Changing the password
+    or "Sign out every browser" ends every session, including open ones.
+  - Five wrong passwords from one address within 10 minutes lock it out for
+    5 minutes.
+  - Forgot it? Remove `admin_password_hash` from `config.json` over SSH and
+    restart the service.
 - Security: A node name could run JavaScript in the browser. Node names come
   from the air, and the DM, traceroute and Admin buttons put them into an
   `onclick` attribute escaping only apostrophes; a 30-character long name such

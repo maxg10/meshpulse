@@ -26,6 +26,7 @@
     <title>MeshPulse</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous"/>
     <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
+    <script src="auth.js?v=__ASSET_HASH__"></script>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -412,6 +413,7 @@
 
             try {
                 ws = new WebSocket(wsUrl);
+                if (window.MeshAuth) MeshAuth.attach(ws);
 
                 ws.onopen = () => {
                     console.log('[WS] Connected!');

@@ -32,12 +32,15 @@ fi
 echo "📦 Syncing frontend files from image..."
 cp -f /app/frontend_dist/*.html "$DATA_DIR/"
 cp -f /app/frontend_dist/*.css "$DATA_DIR/"
+cp -f /app/frontend_dist/*.js "$DATA_DIR/"
+# Readable for lighttpd whatever modes the build context had.
+chmod 644 "$DATA_DIR"/*.html "$DATA_DIR"/*.css "$DATA_DIR"/*.js 2>/dev/null || true
 cp -f /app/frontend_dist/*.ico "$DATA_DIR/" 2>/dev/null || true
 
 # Same content-hash cache key as install.sh — see the comment there.
-ASSET_HASH=$(md5sum /app/frontend_dist/styles.css | cut -c1-12)
-sed -i "s/styles\.css?v=__ASSET_HASH__/styles.css?v=$ASSET_HASH/g" "$DATA_DIR"/*.html
-echo "🧹 Stylesheet cache key: $ASSET_HASH"
+ASSET_HASH=$(cat /app/frontend_dist/styles.css /app/frontend_dist/auth.js | md5sum | cut -c1-12)
+sed -i "s/?v=__ASSET_HASH__/?v=$ASSET_HASH/g" "$DATA_DIR"/*.html
+echo "🧹 Asset cache key (styles.css + auth.js): $ASSET_HASH"
 echo "✅ Frontend files updated"
 
 # Ensure plugins directory exists (persistent via volume)
