@@ -1,5 +1,76 @@
 # Changelog
 
+## v2.9.1
+- New: Optional admin password (Config → 🔒 Security). MeshPulse trusts its
+  LAN, so anyone who could open the map could also install a plugin, restore a
+  backup, read the channel keys or transmit as your node. With a password set,
+  the map, statistics and messages stay open, and everything that changes the
+  system, reads its secrets or goes out over the air (plugins, settings,
+  channels, backup and restore, clearing stats, favourites, remote admin,
+  sending messages, traceroute, position requests) asks for it first. Without
+  one, nothing changes.
+  - `get_config` is protected too: it returns the channel PSKs.
+  - Only a PBKDF2-SHA256 hash is stored, in `config.json` (0600). The password
+    never appears in the log.
+  - A browser that logs in stays unlocked for 14 days. Changing the password
+    or "Sign out every browser" ends every session, including open ones.
+  - Five wrong passwords from one address within 10 minutes lock it out for
+    5 minutes.
+  - Forgot it? Remove `admin_password_hash` from `config.json` over SSH and
+    restart the service.
+- Security: A node name could run JavaScript in the browser. Node names come
+  from the air, and the DM, traceroute and Admin buttons put them into an
+  `onclick` attribute escaping only apostrophes; a 30-character long name such
+  as `x"><img src=x onerror=…>` ran in every open map. Those arguments are now
+  JSON-encoded and HTML-escaped, and the DM list, favourites, channel name and
+  plugin install messages escape what they show.
+- Security: Plugin ids are checked. `uninstall_plugin` deleted whatever
+  directory `plugins/<id>` resolved to, so a WebSocket message with
+  `x/../../..` removed the service user's home directory; a package with such
+  an id did the same on install. Ids must now be `author/name` from letters,
+  digits, `.`, `_` and `-`, and stay inside the plugins directory.
+- Security: Restoring a backup only writes what a backup contains
+  (`config.json`, `nodes.json`, `stats.db`, `plugins/enabled.json`,
+  `plugins/<author>/<name>/config.json`). A crafted archive could previously
+  write any file the service can write, including code.
+- Security: `stats.db` is owner-only (0600), like `config.json`. It sits in the
+  web root, so the web server gave it, with the remote admin audit and client
+  addresses, to anyone on the network.
+- Security: Leaflet and Chart.js load with Subresource Integrity, and Chart.js
+  is pinned to 4.6.1 instead of whatever version the CDN serves today.
+- Fix: Restoring a backup and installing a plugin from a file work at any
+  size. A WebSocket message may be 64 KB at most, and anything bigger was
+  dropped without a word, so a full backup (with `stats.db`) or a larger
+  plugin package never arrived. The Config page now sends files in 40 KB
+  pieces, each acknowledged, with a progress display; the Pi writes them to an
+  owner-only temp file instead of memory. Up to 512 MB for a backup and 32 MB
+  for a plugin, checked against free disk space first. Restoring `stats.db`
+  also failed in a worker thread (the WAL anchor connection was tied to the
+  main thread) and left `stats.db.restore` behind; both fixed.
+- Security: The WebSocket server stops a message over 128 KB before reading
+  it (it buffered up to 10 MB per message and connection, then ignored
+  anything over 64 KB anyway). Messages between 64 and 128 KB get an
+  `error: message_too_large` answer instead of silence.
+- Security: Files written by a restore (`stats.db`, `config.json`) are
+  owner-only from the first byte, and the temp file of a plugin upload no
+  longer takes its name from the client.
+- Perf: `stats.db` runs in WAL mode with `synchronous=NORMAL`. Logging a
+  packet on a Raspberry Pi 2 SD card: 28.9 ms → 5.3 ms median, 66 → 6.5 ms
+  p95, and that is time spent holding the lock the rest of the core waits on.
+- Fix: A full backup copied `stats.db` as a live file, which could catch a
+  write half done and, with WAL, miss recent rows. It now takes a consistent
+  snapshot, and restore clears the old WAL before swapping the file in.
+- Cleanup: The `relayed_by_us` index is gone (the flag was never true for a
+  real packet, and the index cost a write on every insert).
+- Fix: Updating a plugin deleted its database. The upgrade kept `config.json`
+  and a `data/` directory, but not `data.db`, the file `get_database()`
+  creates, so every plugin using the documented API (and its `-wal`/`-shm`
+  files) started from scratch after an update.
+- Plugins: `on_position` now carries `via_mqtt`, `speed` (m/s), `heading`
+  (degrees from true north), `precision_bits` and `pos_time` (the sender's GPS
+  time). The guide had promised speed and heading for a long time; the core
+  never sent them. `None` when the sender's position flags leave a field out.
+
 ## v2.9.0
 - New: Remote admin, read-only. A 🛠 Admin button in a Meshtastic node's popup
   (and 🛠 in the No GPS list) opens a window that reads that node's settings over

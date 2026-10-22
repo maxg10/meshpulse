@@ -583,7 +583,7 @@ cmd = [self.meshtastic_cmd, '--port', self.port, '--listen', '--no-nodes']
 ## Known Limitations
 
 - **Safari WebSocket issues:** Safari has timing issues with WebSocket connections. The app works but may take longer to establish real-time connection. **Chrome or Firefox recommended.**
-- **No authentication:** WebSocket server assumes trusted LAN environment
+- **Built for a trusted LAN:** the map and statistics are open to anyone who can reach the Pi. Set an admin password (Config → 🔒 Security) to protect settings, plugins, backups and transmitting, and use a VPN or an authenticating reverse proxy before exposing it to the internet
 - **MQTT nodes:** Appear in data but excluded from max range calculation (not real radio contacts)
 - **Relies on meshtastic CLI:** Parser may need updates if CLI output format changes
 - **Timeout issues:** `meshtastic --nodes` times out on slow Pi - we use `--listen` mode instead
@@ -618,7 +618,6 @@ Pull requests welcome! Areas for improvement:
 - [ ] Node history/trails on map
 - [ ] Network topology visualization
 - [ ] Mobile-friendly UI improvements
-- [ ] WebSocket authentication (currently assumes trusted LAN)
 
 
 ## License

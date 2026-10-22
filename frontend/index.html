@@ -24,8 +24,9 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>MeshPulse</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous"/>
     <link rel="stylesheet" href="styles.css?v=__ASSET_HASH__">
+    <script src="auth.js?v=__ASSET_HASH__"></script>
     <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
     /* Meshcore (net=MC) markers: square rotated 45° = diamond, regardless of role.
@@ -283,8 +284,8 @@
         </div>
         <div id="traceroute-body"></div>
     </div>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.6.1/dist/chart.umd.min.js" integrity="sha384-Emf5ZVIUiarAdhkgtqK+5/Z5qIvM6QoVrS+qAVtfyZVuD5lIHrac0me485+Antp0" crossorigin="anonymous"></script>
     <script>
         const map = L.map('map').setView([52.0, 19.0], 6);
         
@@ -412,6 +413,7 @@
 
             try {
                 ws = new WebSocket(wsUrl);
+                if (window.MeshAuth) MeshAuth.attach(ws);
 
                 ws.onopen = () => {
                     console.log('[WS] Connected!');
@@ -959,6 +961,11 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
         }
+
+        // A value as a JavaScript string literal that is safe inside an HTML attribute
+        // (onclick="f(...)"). Node names come from the air: anyone in range sets them,
+        // so quotes and angle brackets in a name must not end the attribute.
+        function jsArg(s) { return escHtml(JSON.stringify(String(s == null ? '' : s))); }
 
         function timeAgo(timestamp) {
             const now = Math.floor(Date.now() / 1000);
@@ -2566,10 +2573,10 @@
                         <div class="meta">${escHtml(n.id)} | ${escHtml(n.role)}</div>
                         <div class="meta">SNR: ${fmtSnr(n.snr)} | hops: ${n.hops != null ? n.hops : '?'} ${n.via_mqtt ? '🌐' : (n.hops != null ? '📡' : '')} | ${timeAgo(n.ts)}${n.battery_level != null ? ' | ' + batteryIcon(n.battery_level) : ''}</div>
                         <div style="display:flex;gap:4px;margin-top:3px;">
-                            <button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
+                            <button onclick="sendMessageToNode(${jsArg(n.id)},${jsArg(n.name||n.id)});event.stopPropagation();" class="dm-btn" title="Send a direct message to this node">✉️ DM</button>
                             <button onclick="startTraceroute('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dcfce7;border-color:#86efac;color:#166534;" title="Run traceroute to this node">🔍 TR</button>
                             <button onclick="requestPosition('${n.id}');event.stopPropagation();" class="dm-btn" style="background:#dbeafe;border-color:#93c5fd;color:#1d4ed8;" title="Request GPS position from this node">📍 POS</button>
-                            ${((n.net || 'MT') === 'MT' && !n.via_mqtt && !isOwnTracker(n.id)) ? `<button onclick="openRemoteAdmin('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}');event.stopPropagation();" class="dm-btn" style="background:#f3f4f6;border-color:#d1d5db;color:#374151;" title="Read this node's settings over the mesh">🛠</button>` : ''}
+                            ${((n.net || 'MT') === 'MT' && !n.via_mqtt && !isOwnTracker(n.id)) ? `<button onclick="openRemoteAdmin(${jsArg(n.id)},${jsArg(n.name||n.id)});event.stopPropagation();" class="dm-btn" style="background:#f3f4f6;border-color:#d1d5db;color:#374151;" title="Read this node's settings over the mesh">🛠</button>` : ''}
                         </div>
                         ${n.id === expandedNoGpsId ? `<div class="meta" style="margin-top:4px;border-top:1px solid rgba(128,128,128,0.3);padding-top:4px">${nodeExtraInfo(n)}</div>` : ''}
                     </div>`;
@@ -2609,9 +2616,9 @@
                     }
                     const tracerouteBtn = !n.via_mqtt
                         ? `<br><button onclick="startTraceroute('${n.id}')">🔍 Traceroute</button>`
-                          + `<button onclick="sendMessageToNode('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}')">✉️ Message</button>`
+                          + `<button onclick="sendMessageToNode(${jsArg(n.id)},${jsArg(n.name||n.id)})">✉️ Message</button>`
                           + (((n.net || 'MT') === 'MT' && !isOwnTracker(n.id))
-                              ? `<button onclick="openRemoteAdmin('${n.id}','${(n.name||n.id).replace(/'/g,"\\'")}')" title="Read and change this node's settings over the mesh (needs your tracker's key as its admin key)">🛠 Admin</button>`
+                              ? `<button onclick="openRemoteAdmin(${jsArg(n.id)},${jsArg(n.name||n.id)})" title="Read and change this node's settings over the mesh (needs your tracker's key as its admin key)">🛠 Admin</button>`
                               : '')
                         : '';
                     pop = `<div class="node-popup">

@@ -4,7 +4,7 @@ Instructions for AI coding agents working on MeshPulse. `CLAUDE.md` is a symlink
 to this file — one document, two names, so the two cannot drift apart.
 
 **Author:** Mariusz "Max" Gieparda | mgieparda@yahoo.com | github.com/maxg10
-**License:** GPL-3.0 · **Current version:** v2.9.0
+**License:** GPL-3.0 · **Current version:** v2.9.1
 
 ## What this is
 
@@ -24,7 +24,7 @@ dependencies and memory use modest.
 | Plugin API (public) | `mapper/plugin_api.py` — `MeshPlugin` base class |
 | Plugin loader | `mapper/plugin_manager.py` |
 | Frontend | `frontend/{index,config,stats,messages}.html` + `styles.css` |
-| Plugin store manifest | `plugins-store/plugins.json` (deployed to meshpulse.app) |
+| Plugin store manifest | live: `/var/www/meshpulse.app/plugins/plugins.json` on betelgeuse; `plugins-store/plugins.json` is a versioned copy, update both |
 | Plugin install dir | `plugins/<author>/<name>/` (gitignored, runtime) |
 | Web root | `/var/www/html/meshpulse/` |
 | WebSocket | port `8765` |

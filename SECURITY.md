@@ -4,8 +4,8 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 2.5.x   | :white_check_mark: |
-| < 2.5   | :x:                |
+| 2.9.x   | :white_check_mark: |
+| < 2.9   | :x:                |
 
 Only the latest release line receives security fixes. If you are running an older
 version, please update via the standard update procedure (`git pull` + `install.sh`,
@@ -42,9 +42,16 @@ very much **in scope**, for example:
 
 ## Security-relevant design notes
 
-MeshPulse is designed to run on a **trusted LAN**: the web UI and the WebSocket
-server (port 8765) have **no built-in authentication**, so they should not be
-exposed to the internet without an authenticating reverse proxy or VPN. Plugin
+MeshPulse is designed to run on a **trusted LAN**: the map, statistics and
+messages are readable by anyone who can reach the web UI and the WebSocket
+server (port 8765). An optional **admin password** (Config → Security, since
+2.9.1) protects everything that changes the system, reads its secrets or
+transmits: plugins, settings and channel keys, backup and restore, remote
+admin and sending. It is stored as a PBKDF2-SHA256 hash in `config.json`
+(0600); logged-in browsers hold a signed token valid for 14 days, and repeated
+wrong passwords lock an address out for 5 minutes. The password does not
+encrypt traffic: MeshPulse serves plain HTTP and WS, so do not expose it to
+the internet without a VPN or an authenticating reverse proxy with TLS. Plugin
 packages execute arbitrary Python code with the privileges of the MeshPulse
 service — install plugins only from trusted sources, such as the official store at
 [meshpulse.app/plugins](https://meshpulse.app/plugins) or authors you trust.

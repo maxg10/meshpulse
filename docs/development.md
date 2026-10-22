@@ -42,7 +42,7 @@ sudo journalctl -u meshpulse -f
 
 ## Known Issues & Limitations
 
-- No authentication on WebSocket (trusted LAN only)
+- Read-only WebSocket traffic is open (trusted LAN); an optional admin password protects the types in `backend/admin_auth.py` `PROTECTED`
 - MQTT nodes excluded from max range calculation
 - Parser depends on meshtastic CLI output format — may break on CLI updates
 - Safari requires `map.whenReady()` before initial data load

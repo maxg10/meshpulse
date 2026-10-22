@@ -57,4 +57,4 @@ Data persists in `mapper-data` Docker volume (`nodes.json`, `stats.db`, `config.
 
 **Python:** Python 3.7+, `meshtastic` CLI (`pip3 install meshtastic`), `websockets` (`pip3 install websockets`)
 **System:** lighttpd or apache2, systemd, user in `dialout` group
-**Frontend:** Leaflet.js v1.9.4, leaflet.heat v0.2.0, Chart.js — all from CDN
+**Frontend:** Leaflet.js 1.9.4 and Chart.js 4.6.1 from CDN, pinned to exact versions with Subresource Integrity hashes (the Weather Overlay plugin loads leaflet.heat 0.2.0 itself)

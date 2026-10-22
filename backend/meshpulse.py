@@ -35,7 +35,9 @@ import threading
 import base64
 import sqlite3
 import shutil
+import tempfile
 import uuid
+import admin_auth   # backend/admin_auth.py, next to this file
 import platform
 import meshtastic
 import meshtastic.tcp_interface
@@ -91,7 +93,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.9.0'
+MAPPER_VERSION = '2.9.1'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -132,6 +134,60 @@ CONFIG_PATH = '/var/www/html/meshpulse/config.json'
 # Runtime restart support
 mapper = None
 plugin_manager = None
+_ADMIN_AUTH = None
+
+
+def _admin_auth():
+    """The optional admin password (see backend/admin_auth.py)."""
+    global _ADMIN_AUTH
+    if _ADMIN_AUTH is None:
+        _ADMIN_AUTH = admin_auth.AdminAuth(load_config, lambda cfg: admin_auth.write_config_file(CONFIG_PATH, cfg))
+    return _ADMIN_AUTH
+
+
+def _auth_status(authenticated):
+    return {'type': 'auth_status', 'required': _admin_auth().required(),
+            'authenticated': bool(authenticated), 'protected': sorted(admin_auth.PROTECTED)}
+
+
+async def _broadcast_auth_status():
+    for ws in list(connected_clients):
+        try:
+            await ws.send(json.dumps(_auth_status(False)))
+        except Exception:
+            pass
+
+
+async def _handle_auth_message(websocket, data, client_addr, authed_key):
+    """auth, set_admin_password, admin_sign_out_everywhere. Returns the
+    connection's new auth fingerprint (None = not authenticated)."""
+    auth = _admin_auth()
+    t = data.get('type')
+    ip = client_addr[0] if client_addr else '?'
+    if t == 'auth':
+        res = await asyncio.to_thread(auth.login, ip, data.get('password'), data.get('token'))
+        if res.get('ok'):
+            authed_key = auth.fingerprint()
+        if data.get('password') is not None:
+            print(f"[AUTH] Login from {ip}: {'ok' if res.get('ok') else res.get('error')}")
+        await websocket.send(json.dumps({'type': 'auth_result', 'required': auth.required(), **res}))
+        return authed_key
+    is_authed = authed_key is not None and authed_key == auth.fingerprint()
+    if t == 'set_admin_password':
+        res = await asyncio.to_thread(auth.set_password, is_authed, data.get('password'))
+        if res.get('ok'):
+            print(f"[AUTH] Admin password {'set' if res.get('required') else 'removed'} from {ip}")
+            authed_key = auth.fingerprint() if res.get('required') else None
+            await _broadcast_auth_status()
+        await websocket.send(json.dumps({'type': 'admin_password_result', **res}))
+    elif t == 'admin_sign_out_everywhere':
+        res = auth.sign_out_everywhere(is_authed)
+        if res.get('ok'):
+            print(f"[AUTH] Signed out every browser, requested from {ip}")
+            authed_key = None
+            await _broadcast_auth_status()
+        await websocket.send(json.dumps({'type': 'admin_sign_out_result', **res}))
+    return authed_key
 restart_event = threading.Event()
 restart_config = {}
 traceroute_restart = False      # Legacy flag - kept for compatibility, no longer used with Python API
@@ -330,6 +386,19 @@ class SerialMeshtasticInterface:
         return self.iface.localNode
 
 
+_PLUGIN_PART = re.compile(r'^[A-Za-z0-9_.-]+$')
+
+
+def _restorable_plugin_file(name):
+    """True for the plugin files a backup writes: plugins/enabled.json and
+    plugins/<author>/<name>/config.json, with plain path segments only."""
+    if name == 'plugins/enabled.json':
+        return True
+    parts = name.split('/')
+    return (len(parts) == 4 and parts[0] == 'plugins' and parts[3] == 'config.json'
+            and all(_PLUGIN_PART.match(x) and x not in ('.', '..') for x in parts[1:3]))
+
+
 class StatsDB:
     """SQLite database for network statistics.
 
@@ -355,6 +424,110 @@ class StatsDB:
         self.lock = threading.Lock()
         self.retention_days = retention_days
         self._init_db()
+        # Every query opens and closes its own connection, and SQLite checkpoints
+        # and deletes the WAL whenever the last connection to a file closes: an
+        # fsync per packet again. One idle connection held for the life of the
+        # process keeps the WAL in place; SQLite checkpoints it every ~1000 pages.
+        self._wal_anchor = self._open_anchor()
+
+    def _open_anchor(self):
+        # A connection only counts once it has read the file; an idle one that
+        # never ran a query does not keep the WAL alive. It is opened at start
+        # and closed by a restore, which runs in a worker thread, so it must
+        # not be tied to one thread; nothing else ever uses it.
+        conn = sqlite3.connect(self.DB_PATH, timeout=10, check_same_thread=False)
+        conn.execute('SELECT 1 FROM sqlite_master LIMIT 1').fetchone()
+        return conn
+
+    def _connect(self):
+        """Open stats.db. Every query goes through here.
+
+        The database runs in WAL mode (set once in _init_db; it is stored in
+        the file). With synchronous=NORMAL a commit appends to the WAL without
+        an fsync, and the fsync happens at checkpoint time: on an SD card that
+        is the difference between a write per packet and a write every few
+        hundred. A power cut can lose the last seconds of statistics, never
+        the database.
+        """
+        conn = sqlite3.connect(self.DB_PATH, timeout=10)
+        conn.execute('PRAGMA synchronous=NORMAL')
+        # The WAL is reused rather than shrunk; cap what it keeps on disk.
+        conn.execute('PRAGMA journal_size_limit=4194304')
+        return conn
+
+    def snapshot(self, dest_path):
+        """Write a consistent, self-contained copy of the database to dest_path.
+
+        Copying stats.db as a file misses whatever is still in the WAL and can
+        catch a write half done. The backup API copies a consistent state, and
+        the copy is switched to a rollback journal so it is a single file.
+        """
+        with self.lock:
+            src = self._connect()
+            try:
+                dst = sqlite3.connect(dest_path)
+                try:
+                    src.backup(dst)
+                    dst.execute('PRAGMA journal_mode=DELETE')
+                finally:
+                    dst.close()
+            finally:
+                src.close()
+
+    def replace_with(self, data):
+        """Swap in a database restored from a backup.
+
+        `data` is bytes or a binary file object (streamed, so a large
+        database never sits in memory whole). The old -wal and -shm files
+        go first: SQLite would otherwise replay the old WAL on top of the
+        new file. The new file is checked to be a SQLite database before
+        anything is removed.
+        """
+        tmp = self.DB_PATH + '.restore'
+        with self.lock:
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, 'wb') as f:
+                if isinstance(data, (bytes, bytearray)):
+                    f.write(data)
+                else:
+                    shutil.copyfileobj(data, f, 1024 * 1024)
+            try:
+                check = sqlite3.connect(tmp)
+                try:
+                    check.execute('PRAGMA journal_mode=DELETE')
+                    check.execute('SELECT count(*) FROM sqlite_master').fetchone()
+                finally:
+                    check.close()
+            except sqlite3.DatabaseError:
+                os.remove(tmp)
+                raise ValueError('stats.db in the backup is not a SQLite database')
+            try:
+                # The anchor holds the old file open; let it go, and anchor the new one.
+                anchor = getattr(self, '_wal_anchor', None)
+                if anchor is not None:
+                    self._wal_anchor = None
+                    anchor.close()
+                for suffix in ('-wal', '-shm'):
+                    try:
+                        os.remove(self.DB_PATH + suffix)
+                    except FileNotFoundError:
+                        pass
+                os.replace(tmp, self.DB_PATH)
+            except BaseException:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                raise
+            conn = self._connect()
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.close()
+            self._wal_anchor = self._open_anchor()
+            for suffix in ('', '-wal', '-shm'):
+                try:
+                    os.chmod(self.DB_PATH + suffix, 0o600)
+                except OSError:
+                    pass
 
     @classmethod
     def clamp_retention(cls, value):
@@ -368,8 +541,23 @@ class StatsDB:
 
     def _init_db(self):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             c = conn.cursor()
+            # Persistent: once set, every later connection opens the file in WAL.
+            # Readers (the Stats page, Ground Truth) then no longer wait for the
+            # packet logger, and the logger no longer waits for them.
+            mode = c.execute('PRAGMA journal_mode=WAL').fetchone()[0]
+            if str(mode).lower() != 'wal':
+                print(f"[STATS] journal_mode is {mode}, WAL not available on this filesystem")
+            # stats.db lives in the web root, so the web server would hand it to
+            # anyone on the network (admin audit with client addresses, every
+            # remote admin change). Owner-only, like config.json; SQLite gives
+            # the -wal and -shm files the database file's permissions.
+            for suffix in ('', '-wal', '-shm'):
+                try:
+                    os.chmod(self.DB_PATH + suffix, 0o600)
+                except OSError:
+                    pass
             c.execute('''CREATE TABLE IF NOT EXISTS packets (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ts INTEGER NOT NULL,
@@ -421,7 +609,10 @@ class StatsDB:
             # holding the lock that packet logging waits on.
             c.execute('DROP INDEX IF EXISTS idx_packets_from')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_from_port_ts ON packets(from_id, portnum, ts)')
-            c.execute('CREATE INDEX IF NOT EXISTS idx_packets_relay ON packets(relayed_by_us, ts)')
+            # relayed_by_us was never true for a real packet: relayNode carries one
+            # byte, and a client never sees its own node's rebroadcasts. The column
+            # stays (old databases have it), the index it cost on every insert goes.
+            c.execute('DROP INDEX IF EXISTS idx_packets_relay')
             c.execute('CREATE INDEX IF NOT EXISTS idx_packets_mqtt ON packets(via_mqtt, ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_anomalies_ts ON anomalies(ts)')
             c.execute('CREATE INDEX IF NOT EXISTS idx_neighbors_ts ON neighbors(ts)')
@@ -505,7 +696,7 @@ class StatsDB:
 
     def log_packet(self, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO packets
                 (ts, from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
                 VALUES (?,?,?,?,?,?,?,?,?,?)''',
@@ -516,7 +707,7 @@ class StatsDB:
 
     def log_anomaly(self, node_id, node_name, anomaly_type, details, severity='warning'):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO anomalies (ts, node_id, node_name, anomaly_type, details, severity)
                 VALUES (?,?,?,?,?,?)''',
                 (int(time.time()), node_id, node_name, anomaly_type, details, severity))
@@ -533,7 +724,7 @@ class StatsDB:
         ]):
             return
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''INSERT INTO radio_stats_history
                 (ts, channel_utilization, air_util_tx, num_packets_tx,
                  num_packets_rx, num_packets_rx_bad, num_rx_dupe,
@@ -565,7 +756,7 @@ class StatsDB:
         cutoff = int(time.time()) - (self.retention_days * 86400)
         for _ in range(self.CLEANUP_MAX_CHUNKS):
             with self.lock:
-                conn = sqlite3.connect(self.DB_PATH)
+                conn = self._connect()
                 try:
                     deleted = conn.execute(
                         'DELETE FROM packets WHERE id IN '
@@ -577,7 +768,7 @@ class StatsDB:
             if deleted < self.CLEANUP_CHUNK:
                 break
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM node_activity WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM anomalies WHERE ts < ?', (cutoff,))
             conn.execute('DELETE FROM neighbors WHERE ts < ?', (cutoff,))
@@ -596,7 +787,7 @@ class StatsDB:
     def _next_data_ts(self, since):
         """Earliest raw timestamp at or after `since`, in either source table."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 return conn.execute('''SELECT MIN(t) FROM (
                     SELECT MIN(ts) AS t FROM packets WHERE ts >= ?
@@ -618,7 +809,7 @@ class StatsDB:
         cols = ('ts, channel_utilization, air_util_tx, num_packets_rx, num_rx_dupe, '
                 'num_packets_rx_bad, num_packets_tx, num_tx_relay, num_online_nodes')
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 pk = conn.execute('''SELECT
                         COALESCE(SUM(via_mqtt = 0), 0),
@@ -688,7 +879,7 @@ class StatsDB:
         now = int(time.time() if now is None else now)
         current = (now // 3600) * 3600  # the hour in progress is never rolled up
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 last = conn.execute('SELECT MAX(hour_ts) FROM traffic_hourly').fetchone()[0]
             finally:
@@ -721,7 +912,7 @@ class StatsDB:
         An MQTT sighting never replaces a key heard over radio."""
         now = int(time.time())
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 row = conn.execute('SELECT public_key, via_mqtt FROM node_keys WHERE node_id = ?',
                                    (node_id,)).fetchone()
@@ -747,7 +938,7 @@ class StatsDB:
 
     def log_admin_action(self, dest, action, section, changes, outcome, rtt=None):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 conn.execute('INSERT INTO admin_audit (ts, dest, action, section, changes, outcome, rtt) '
                              'VALUES (?,?,?,?,?,?,?)', (int(time.time()), dest, action, section, changes, outcome, rtt))
@@ -757,7 +948,7 @@ class StatsDB:
 
     def recent_admin_actions(self, limit=10):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 rows = conn.execute('SELECT ts, dest, action, section, changes, outcome FROM admin_audit '
                                     'ORDER BY id DESC LIMIT ?', (int(limit),)).fetchall()
@@ -768,7 +959,7 @@ class StatsDB:
 
     def get_public_key(self, node_id):
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             try:
                 row = conn.execute('SELECT public_key FROM node_keys WHERE node_id = ?', (node_id,)).fetchone()
                 return row[0] if row else None
@@ -799,7 +990,7 @@ class StatsDB:
         since = (now // 3600) * 3600 - span
         key = 'hour_ts' if bucket == 3600 else "date(hour_ts, 'unixepoch', 'localtime')"
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             try:
                 rows = conn.execute(f'''SELECT {key} AS bucket_key, MIN(hour_ts) AS ts,
@@ -838,7 +1029,7 @@ class StatsDB:
     def clear_node_packets(self, node_id):
         """Delete all packet history for a specific node from stats.db."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM packets WHERE from_id = ?', (node_id,))
             conn.execute('DELETE FROM anomalies WHERE node_id = ?', (node_id,))
             conn.commit()
@@ -847,7 +1038,7 @@ class StatsDB:
     def clear_all_stats(self):
         """Delete ALL data from all stats tables."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM packets')
             conn.execute('DELETE FROM node_activity')
             conn.execute('DELETE FROM anomalies')
@@ -862,7 +1053,7 @@ class StatsDB:
         if not name or name == node_id:
             return
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('''UPDATE packets SET from_name = ?
                            WHERE from_id = ? AND (from_name = ? OR from_name IS NULL)''',
                         (name, node_id, node_id))
@@ -876,7 +1067,7 @@ class StatsDB:
         """Store neighbor info packet data."""
         now = int(time.time())
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.execute('DELETE FROM neighbors WHERE from_id = ?', (from_id,))
             for neighbor in neighbors:
                 conn.execute('''INSERT INTO neighbors (ts, from_id, from_name, neighbor_id, neighbor_name, snr)
@@ -901,7 +1092,7 @@ class StatsDB:
         except Exception:
             last_byte_hex = ''
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             rows = c.execute('''
@@ -924,7 +1115,7 @@ class StatsDB:
         """Get neighbor graph for topology visualization. Only returns data from last 6 hours."""
         since = int(time.time()) - 21600
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             edges = c.execute('''SELECT from_id, from_name, neighbor_id, neighbor_name, snr, MAX(ts) as last_seen
@@ -937,7 +1128,7 @@ class StatsDB:
     def backfill_names(self, nodes_dict):
         """Update from_name for nodes where name = node_id (unknown at time of logging)."""
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             for node_id, node in nodes_dict.items():
                 name = node.get('name')
                 if name and name != node_id:
@@ -956,7 +1147,7 @@ class StatsDB:
         since_24h = now - 86400
         since_7d = now - 7 * 86400
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
 
@@ -1078,7 +1269,7 @@ class StatsDB:
         """Get node connections for D3.js graph."""
         since = int(time.time()) - 86400
         with self.lock:
-            conn = sqlite3.connect(self.DB_PATH)
+            conn = self._connect()
             conn.row_factory = sqlite3.Row
             c = conn.cursor()
             nodes_data = c.execute('''SELECT DISTINCT from_id, MAX(from_name) as from_name, COUNT(*) as packet_count
@@ -2479,35 +2670,19 @@ class ListenBasedMapper:
             from_id
         )
 
-        relayed_by_us = False
         relay_node_id = None
-        if relay_node_raw is not None and self.local_node_id:
-            our_num = int(self.local_node_id.replace('!', ''), 16)
+        if relay_node_raw is not None:
             if relay_node_raw > 0xFF:
-                # Full node number (Python API) — safe to resolve exactly, no collision possible
-                relayed_by_us = (relay_node_raw == our_num) and (from_id != self.local_node_id)
+                # A full node number: node ids are '!%08x', so this is the id itself.
                 relay_node_id = f"!{relay_node_raw:08x}"
-                for nid in {**self.nodes, **self.nodes_no_position}:
-                    try:
-                        if int(nid.replace('!', ''), 16) == relay_node_raw:
-                            relay_node_id = nid
-                            break
-                    except:
-                        pass
-                # Final check: if relay_node_id resolved to our own node ID string, mark as relayed by us
-                if relay_node_id == self.local_node_id and from_id != self.local_node_id:
-                    relayed_by_us = True
             else:
-                # Last byte only (legacy CLI mode) — DO NOT attempt full node resolution.
-                # With 100+ nodes, last-byte collision probability is ~30% — would show
-                # a completely wrong node name in Stats.
-                our_last_byte = our_num & 0xFF
-                relayed_by_us = (relay_node_raw == our_last_byte) and (from_id != self.local_node_id)
+                # Last byte only, which is what the firmware sends. Resolving it to
+                # a node would guess: with 100+ nodes a last-byte collision is ~30%
+                # likely, so it stays an opaque relay_XX.
                 relay_node_id = f"relay_{relay_node_raw:02x}"
-                # Keep as opaque relay_XX — unresolvable without full 32-bit ID
 
         self._last_radio_packet_time = time.time()  # watchdog reset
-        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, relayed_by_us)
+        self.stats_db.log_packet(from_id, from_name, portnum, hops, snr, rssi, via_mqtt, relay_node_id, False)
 
         if not via_mqtt:
             self._packet_event_queue.append({
@@ -2784,7 +2959,10 @@ class ListenBasedMapper:
                 plugin_manager.dispatch_hook_sync('on_position', {
                     'node_id': node_id, 'lat': lat, 'lon': lon,
                     'alt': 0, 'snr': snr, 'rssi': rssi, 'hops': hops,
-                    'timestamp': int(time.time())
+                    'timestamp': int(time.time()),
+                    'via_mqtt': bool(via_mqtt),
+                    'speed': None, 'heading': None,
+                    'precision_bits': None, 'pos_time': None,
                 })
 
             return True
@@ -3987,7 +4165,15 @@ class ListenBasedMapper:
                     'node_id': node_id, 'lat': lat, 'lon': lon,
                     'alt': pos.get('altitude', 0),
                     'snr': snr, 'rssi': rssi, 'hops': hops,
-                    'timestamp': int(time.time())
+                    'timestamp': int(time.time()),
+                    'via_mqtt': bool(via_mqtt),
+                    # Only present when the sender's position flags include them.
+                    'speed': pos.get('groundSpeed'),                      # m/s
+                    'heading': (pos['groundTrack'] / 1e5                  # degrees, true north
+                                if pos.get('groundTrack') is not None else None),
+                    # Position precision the sender chose for this channel (32 = full).
+                    'precision_bits': pos.get('precisionBits'),
+                    'pos_time': pos.get('time'),                          # sender's GPS time
                 })
             return True
         except Exception as e:
@@ -5610,6 +5796,220 @@ async def handle_connection_change(data, websocket):
 
 
 # WebSocket server handler
+def _write_restored(dest, src, private):
+    """Write one file from a backup next to its destination, then swap it in."""
+    os.makedirs(os.path.dirname(dest) or '.', exist_ok=True)
+    tmp = dest + '.restore'
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600 if private else 0o666)
+    with os.fdopen(fd, 'wb') as f:
+        shutil.copyfileobj(src, f, 1024 * 1024)
+    os.replace(tmp, dest)
+
+
+def _restore_backup(src):
+    """Restore a backup ZIP from a path or a binary file object.
+
+    Only what a backup contains is written: config.json, nodes.json,
+    stats.db, plugins/enabled.json and plugins/<author>/<name>/config.json.
+    """
+    import zipfile
+    if not zipfile.is_zipfile(src):
+        return {'success': False, 'error': 'Not a valid ZIP file'}
+    if hasattr(src, 'seek'):
+        src.seek(0)
+    restored, skipped = [], []
+    with zipfile.ZipFile(src, 'r') as zf:
+        names = zf.namelist()
+        if 'backup_info.json' not in names:
+            return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
+        info = json.loads(zf.read('backup_info.json'))
+        backup_type = info.get('backup_type', 'unknown')
+        for name in names:
+            if name == 'backup_info.json':
+                continue
+            dest, private = None, False
+            if name == 'config.json':
+                dest, private = CONFIG_PATH, True
+            elif name == 'nodes.json':
+                dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
+            elif name == 'stats.db':
+                sdb = mapper.stats_db if mapper else StatsDB()
+                with zf.open(name) as f:
+                    sdb.replace_with(f)
+                restored.append(name)
+                continue
+            elif plugin_manager and _restorable_plugin_file(name):
+                # A backup only ever holds plugins/enabled.json and
+                # plugins/<author>/<name>/config.json. Anything else, or
+                # a path that leaves the plugins directory, is refused:
+                # restore must not be a way to write code onto the Pi.
+                base = os.path.realpath(plugin_manager.plugins_dir)
+                cand = os.path.realpath(os.path.join(base, name[len('plugins/'):]))
+                if cand.startswith(base + os.sep):
+                    dest = cand
+            if dest:
+                with zf.open(name) as f:
+                    _write_restored(dest, f, private)
+                restored.append(name)
+            elif not name.endswith('/'):
+                skipped.append(name)
+        if skipped:
+            print(f"[RESTORE] Refused {len(skipped)} unexpected entries: {skipped[:5]}")
+    return {'success': True, 'backup_type': backup_type, 'files_restored': restored,
+            'files_refused': skipped}
+
+
+async def _run_restore(websocket, src):
+    try:
+        result = await asyncio.to_thread(_restore_backup, src)
+        print(f"[RESTORE] {result}")
+    except Exception as e:
+        print(f"[RESTORE] Error: {e}")
+        result = {'success': False, 'error': str(e)}
+    await websocket.send(json.dumps({'type': 'restore_result', **result}, ensure_ascii=False))
+
+
+async def _run_install(websocket, path):
+    if not plugin_manager:
+        return
+    result = plugin_manager.install(path)
+    await websocket.send(json.dumps({'type': 'plugin_installed', **result}, ensure_ascii=False))
+
+
+# ── Chunked uploads ─────────────────────────────────────────────────
+# A WebSocket message is 64 KB at most, so that nobody on the network can
+# make a Pi 2 hold megabytes per connection. Backups and plugin packages are
+# bigger, so the Config page sends them in pieces:
+#   upload_begin  {upload_id, purpose, filename, size}  -> upload_ack {received: 0, chunk}
+#   upload_chunk  {upload_id, offset, data: base64}     -> upload_ack {received}
+#   upload_cancel {upload_id}
+# Pieces must arrive in order. They go to an owner-only temp file next to
+# config.json, never to memory, and the last one runs the restore or the
+# install, which answer as before (restore_result, plugin_installed).
+# Problems answer upload_error {upload_id, error}.
+UPLOAD_CHUNK = 40 * 1024             # raw bytes per piece, ~55 KB as base64
+UPLOAD_LIMITS = {
+    'restore_backup': 512 * 1024 * 1024,
+    'install_plugin': 32 * 1024 * 1024,
+}
+UPLOAD_MAX_ACTIVE = 2                # across all connections
+UPLOAD_IDLE = 120                    # seconds without a piece before an upload is dropped
+UPLOAD_TYPES = ('upload_begin', 'upload_chunk', 'upload_cancel')
+_uploads = {}                        # upload_id -> state
+
+
+def _upload_dir():
+    return os.path.dirname(CONFIG_PATH) or '.'
+
+
+def _upload_drop(upload_id):
+    up = _uploads.pop(upload_id, None)
+    if up:
+        try:
+            up['fh'].close()
+        except Exception:
+            pass
+        try:
+            os.remove(up['path'])
+        except OSError:
+            pass
+
+
+def _upload_drop_where(pred, why):
+    for uid, up in list(_uploads.items()):
+        if pred(up):
+            print(f"[UPLOAD] {uid}: {why}, dropped")
+            _upload_drop(uid)
+
+
+async def _handle_upload_message(websocket, data):
+    t = data.get('type')
+    uid = str(data.get('upload_id') or '')[:64]
+
+    async def error(msg, drop=True):
+        if drop:
+            _upload_drop(uid)
+        await websocket.send(json.dumps({'type': 'upload_error', 'upload_id': uid, 'error': msg}))
+
+    up = _uploads.get(uid)
+    mine = up is not None and up['ws'] is websocket
+
+    if t == 'upload_cancel':
+        if mine:
+            print(f"[UPLOAD] {uid}: cancelled")
+            _upload_drop(uid)
+        return
+
+    if t == 'upload_begin':
+        now = time.time()
+        _upload_drop_where(lambda u: now - u['last'] > UPLOAD_IDLE, f'no data for {UPLOAD_IDLE} s')
+        purpose = data.get('purpose')
+        try:
+            size = int(data.get('size'))
+        except (TypeError, ValueError):
+            size = -1
+        if not uid or uid in _uploads:
+            return await error('Bad upload id', drop=False)
+        if purpose not in UPLOAD_LIMITS:
+            return await error('Unknown upload purpose', drop=False)
+        limit = UPLOAD_LIMITS[purpose]
+        if size <= 0:
+            return await error('The file is empty', drop=False)
+        if size > limit:
+            return await error(f'The file is too large (max {limit // (1024 * 1024)} MB)', drop=False)
+        if any(u['ws'] is websocket for u in _uploads.values()) or len(_uploads) >= UPLOAD_MAX_ACTIVE:
+            return await error('Another upload is still running', drop=False)
+        try:
+            free = shutil.disk_usage(_upload_dir()).free
+        except OSError:
+            free = 0
+        if free < 2 * size + 64 * 1024 * 1024:
+            return await error('Not enough free disk space on the Pi', drop=False)
+        fd, path = tempfile.mkstemp(prefix='.upload-', dir=_upload_dir())
+        _uploads[uid] = {'ws': websocket, 'purpose': purpose, 'path': path,
+                         'fh': os.fdopen(fd, 'wb'), 'size': size, 'received': 0, 'last': now}
+        print(f"[UPLOAD] {uid}: {purpose}, {size} bytes")
+        await websocket.send(json.dumps({'type': 'upload_ack', 'upload_id': uid,
+                                         'received': 0, 'chunk': UPLOAD_CHUNK}))
+        return
+
+    if t == 'upload_chunk':
+        if not mine:
+            return await error('Upload not found (it may have timed out)', drop=False)
+        try:
+            offset = int(data.get('offset'))
+        except (TypeError, ValueError):
+            offset = -1
+        if offset != up['received']:
+            return await error('Upload pieces arrived out of order')
+        try:
+            raw = base64.b64decode(data.get('data') or '', validate=True)
+        except ValueError:
+            return await error('Bad upload piece')
+        if not raw or len(raw) > UPLOAD_CHUNK or up['received'] + len(raw) > up['size']:
+            return await error('Bad upload piece size')
+        up['fh'].write(raw)
+        up['received'] += len(raw)
+        up['last'] = time.time()
+        await websocket.send(json.dumps({'type': 'upload_ack', 'upload_id': uid,
+                                         'received': up['received']}))
+        if up['received'] < up['size']:
+            return
+        _uploads.pop(uid, None)
+        up['fh'].close()
+        print(f"[UPLOAD] {uid}: complete, running {up['purpose']}")
+        try:
+            if up['purpose'] == 'restore_backup':
+                await _run_restore(websocket, up['path'])
+            else:
+                await _run_install(websocket, up['path'])
+        finally:
+            try:
+                os.remove(up['path'])
+            except OSError:
+                pass
+
+
 async def websocket_handler(websocket):
     """Handle WebSocket connections"""
     connected_clients.add(websocket)
@@ -5633,15 +6033,36 @@ async def websocket_handler(websocket):
         })
         await websocket.send(status_msg)
 
+    authed_key = None   # admin password fingerprint this connection logged in with
+    try:
+        await websocket.send(json.dumps(_auth_status(False)))
+    except Exception:
+        pass
+
     try:
         async for message in websocket:
             try:
-                if message and len(message) < 200:
+                # Never log what could carry a password.
+                if message and len(message) < 200 and '"auth' not in message and 'admin_password' not in message:
                     print(f"[WS] ← {client_addr}: {message}")
-                if len(message) > 65536:  # 64KB max
+                if len(message) > 65536:  # 64 KB max; files come in pieces (upload_*)
                     print(f"[WS] Message too large ({len(message)} bytes), ignoring")
+                    await websocket.send(json.dumps({'type': 'error', 'error': 'message_too_large',
+                                                     'max_bytes': 65536}))
                     continue
                 data = json.loads(message)
+                _t = data.get('type')
+                if _t in ('auth', 'set_admin_password', 'admin_sign_out_everywhere'):
+                    authed_key = await _handle_auth_message(websocket, data, client_addr, authed_key)
+                    continue
+                if _t in admin_auth.PROTECTED:
+                    _auth = _admin_auth()
+                    if _auth.required() and authed_key != _auth.fingerprint():
+                        await websocket.send(json.dumps({'type': 'auth_required', 'request_type': _t}))
+                        continue
+                if _t in UPLOAD_TYPES:
+                    await _handle_upload_message(websocket, data)
+                    continue
                 if data.get('type') == 'connect':
                     await handle_connection_change(data, websocket)
                 elif data.get('type') == 'traceroute':
@@ -6832,7 +7253,15 @@ async def websocket_handler(websocket):
                                 if os.path.exists(nodes_path):
                                     zf.write(nodes_path, 'nodes.json')
                                 if os.path.exists(StatsDB.DB_PATH):
-                                    zf.write(StatsDB.DB_PATH, 'stats.db')
+                                    # A consistent copy, not the live file (WAL, writes in flight).
+                                    sdb = mapper.stats_db if mapper else StatsDB()
+                                    fd, snap = tempfile.mkstemp(prefix='meshpulse-stats-', suffix='.db')
+                                    os.close(fd)
+                                    try:
+                                        sdb.snapshot(snap)
+                                        zf.write(snap, 'stats.db')
+                                    finally:
+                                        os.remove(snap)
                         buf.seek(0)
                         return base64.b64encode(buf.read()).decode('ascii')
                     try:
@@ -6851,51 +7280,14 @@ async def websocket_handler(websocket):
                         }, ensure_ascii=False))
 
                 elif data.get('type') == 'restore_backup':
-                    import io, zipfile, base64 as _b64
-                    def _do_restore():
-                        raw = _b64.b64decode(data.get('data', ''))
-                        buf = io.BytesIO(raw)
-                        if not zipfile.is_zipfile(buf):
-                            return {'success': False, 'error': 'Not a valid ZIP file'}
-                        buf.seek(0)
-                        restored = []
-                        with zipfile.ZipFile(buf, 'r') as zf:
-                            names = zf.namelist()
-                            if 'backup_info.json' not in names:
-                                return {'success': False, 'error': 'Not a valid backup (missing backup_info.json)'}
-                            info = json.loads(zf.read('backup_info.json'))
-                            backup_type = info.get('backup_type', 'unknown')
-                            for name in names:
-                                if name == 'backup_info.json':
-                                    continue
-                                dest = None
-                                if name == 'config.json':
-                                    dest = CONFIG_PATH
-                                elif name == 'nodes.json':
-                                    dest = mapper.json_path if mapper else '/var/www/html/meshpulse/nodes.json'
-                                elif name == 'stats.db':
-                                    dest = StatsDB.DB_PATH
-                                elif name.startswith('plugins/') and not name.endswith('/'):
-                                    if plugin_manager:
-                                        rel = name[len('plugins/'):]
-                                        dest = os.path.join(plugin_manager.plugins_dir, rel)
-                                if dest:
-                                    os.makedirs(os.path.dirname(dest), exist_ok=True)
-                                    with open(dest, 'wb') as f:
-                                        f.write(zf.read(name))
-                                    restored.append(name)
-                        return {'success': True, 'backup_type': backup_type, 'files_restored': restored}
+                    # One message, so 64 KB at most. The Config page uploads
+                    # backups in chunks (upload_begin / upload_chunk).
+                    import io
                     try:
-                        result = await asyncio.to_thread(_do_restore)
-                        print(f"[RESTORE] {result}")
-                        await websocket.send(json.dumps({
-                            'type': 'restore_result', **result,
-                        }, ensure_ascii=False))
-                    except Exception as e:
-                        print(f"[RESTORE] Error: {e}")
-                        await websocket.send(json.dumps({
-                            'type': 'restore_result', 'success': False, 'error': str(e),
-                        }, ensure_ascii=False))
+                        src = io.BytesIO(base64.b64decode(data.get('data', '')))
+                    except ValueError:
+                        src = io.BytesIO(b'')
+                    await _run_restore(websocket, src)
 
                 else:
                     print(f"[WS] Unknown message type from {client_addr}: {data.get('type')}")
@@ -6908,6 +7300,7 @@ async def websocket_handler(websocket):
             await plugin_manager.dispatch_hook('on_ws_client_disconnect', {'client_id': str(client_addr)})
         connected_clients.discard(websocket)
         plugin_subscriptions.pop(websocket, None)
+        _upload_drop_where(lambda u: u['ws'] is websocket, 'client disconnected')
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
@@ -6930,7 +7323,7 @@ async def flush_packet_events():
 async def start_websocket_server():
     """Start WebSocket server"""
     print("[WS] Starting WebSocket server on ws://0.0.0.0:8765")
-    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=10*1024*1024):
+    async with websockets.serve(websocket_handler, "0.0.0.0", 8765, compression=None, max_size=128*1024):
         asyncio.create_task(flush_packet_events())
         await asyncio.Future()  # Run forever
 
