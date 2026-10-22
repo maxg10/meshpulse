@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.9.1 (unreleased)
+## v2.9.1
 - New: Optional admin password (Config → 🔒 Security). MeshPulse trusts its
   LAN, so anyone who could open the map could also install a plugin, restore a
   backup, read the channel keys or transmit as your node. With a password set,
