@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.9.2
+- Plugins: on_message gets `pki` (DM encrypted and signed with the sender's
+  PKI key, firmware 2.5+). Only then is `from_id` more than a claim: on a
+  channel, anyone who knows the PSK can send as any node. The plugin guide
+  now says so, and that `is_dm` only means "not a broadcast" (compare `to_id`
+  with `get_tracker_info()['node_id']` to answer only your own node's DMs).
+
 ## v2.9.1
 - New: Optional admin password (Config → 🔒 Security). MeshPulse trusts its
   LAN, so anyone who could open the map could also install a plugin, restore a

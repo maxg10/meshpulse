@@ -69,6 +69,35 @@ def sanitize_message(s, max_len=512):
         s = ''
     return s[:max_len]
 
+def repr_flag_true(line, key):
+    """True when `'key': True` appears in a packet printed as a Python repr,
+    outside any string literal.
+
+    `meshtastic --listen` prints each packet on one line, message text
+    included, so a plain regex would also match a message whose text is
+    "'pkiEncrypted': True". String literals ('...', "...", b'...') are
+    skipped whole, honouring backslash escapes.
+    """
+    needle = f"'{key}':"
+    i, n = 0, len(line)
+    while i < n:
+        c = line[i]
+        if c in ('"', "'"):
+            if line.startswith(needle, i):
+                j = i + len(needle)
+                while j < n and line[j].isspace():
+                    j += 1
+                if line.startswith('True', j) and not line[j + 4:j + 5].isalnum():
+                    return True
+            i += 1
+            while i < n and line[i] != c:
+                i += 2 if line[i] == '\\' else 1
+            i += 1
+            continue
+        i += 1
+    return False
+
+
 def sanitize_node_id(s):
     """Sanitize node ID — must be !hex format."""
     if not isinstance(s, str):
@@ -3119,7 +3148,10 @@ class ListenBasedMapper:
                 'text': text,
                 'timestamp': int(time.time()),
                 'is_dm': to_id != '^all',
-                'channel_index': channel_index
+                'channel_index': channel_index,
+                # True only for a DM encrypted and signed with the sender's PKI key
+                # (firmware 2.5+); only then is from_id more than a claim.
+                'pki': repr_flag_true(line, 'pkiEncrypted'),
             }
 
             # Add to channel dict (newest first, max 50 per channel)
@@ -4359,7 +4391,10 @@ class ListenBasedMapper:
                 'text': text,
                 'timestamp': int(time.time()),
                 'is_dm': to_id != '^all',
-                'channel_index': channel_index
+                'channel_index': channel_index,
+                # True only for a DM encrypted and signed with the sender's PKI key
+                # (firmware 2.5+); only then is from_id more than a claim.
+                'pki': bool(packet.get('pkiEncrypted')),
             }
 
             if channel_index not in self.messages:

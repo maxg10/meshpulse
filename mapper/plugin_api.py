@@ -339,9 +339,18 @@ class MeshPlugin:
                 'to_id': str,         # e.g. '!abcd1234' or '^all'
                 'text': str,
                 'timestamp': int,     # Unix timestamp
-                'is_dm': bool,
-                'channel_index': int
+                'is_dm': bool,        # not a broadcast; to_id may be any node
+                'channel_index': int,
+                'pki': bool,          # 2.9.2+: DM encrypted and signed with the
+                                      # sender's PKI key (firmware 2.5+)
             }
+
+        Only a message with `pki` True proves who sent it. On a channel,
+        anyone who knows the PSK can put any from_id on a packet, so a
+        plugin that treats from_id as an identity should require it.
+
+        `is_dm` only means "not a broadcast". To answer only DMs sent to
+        this node, compare `to_id` with `self.get_tracker_info()['node_id']`.
         """
         pass
 
