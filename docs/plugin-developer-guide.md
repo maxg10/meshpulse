@@ -197,7 +197,7 @@ class MyPlugin(MeshPlugin):
 |------|--------------|-----------|
 | `on_enable()` | Plugin enabled | — |
 | `on_disable()` | Plugin disabled | — |
-| `on_message(message)` | Text message received | `{from_id, from_name, to_id, text, timestamp, is_dm, channel_index}` |
+| `on_message(message)` | Text message received | `{from_id, from_name, to_id, text, timestamp, is_dm, channel_index}`; 2.9.2+ also `pki` (see [Who sent a message](#who-sent-a-message)) |
 | `on_node_update(node)` | Node info changed | `{id, name, lat, lon, alt, snr, role, hops, via_mqtt, ...}` |
 | `on_position(position)` | GPS position update | `{node_id, lat, lon, alt, snr, rssi, hops, timestamp}`; 2.9.1+ also `via_mqtt`, `speed` (m/s), `heading` (degrees), `precision_bits`, `pos_time` (`None` when the sender omits them) |
 | `on_telemetry(telemetry)` | Telemetry packet | `{node_id, battery, voltage, channel_util, air_util_tx, ...}` |
@@ -210,6 +210,33 @@ class MyPlugin(MeshPlugin):
 | `on_ws_request(data, channel, reply)` | Same, but with a way to answer that browser ([details](#request-response-over-a-plugin-channel)) | `data`, `channel`, `reply` (async) |
 | `on_ws_client_connect(info)` | Browser connected | `{client_id}` |
 | `on_ws_client_disconnect(info)` | Browser disconnected | `{client_id}` |
+
+### Who sent a message
+
+`from_id` is what the packet says, not proof. On a channel, anyone who knows
+its PSK can send a packet with any `from_id`. Since firmware 2.5, Meshtastic
+encrypts and signs a DM with the sender's PKI key, and `on_message` reports
+that as `pki: True` (MeshPulse 2.9.2+). **A plugin that uses `from_id` as an
+identity (accounts, permissions, a game login) should require `pki` to be
+`True`.** The key behind it is the one your node has on file for that
+`from_id`, learned from its node info the first time it was heard.
+
+`is_dm` only means "not a broadcast": `to_id` is some node, not necessarily
+yours (a DM for another node can reach MeshPulse too, for example over MQTT).
+To answer only DMs sent to your own node, compare `to_id` with
+`self.get_tracker_info()['node_id']`:
+
+```python
+async def on_message(self, message):
+    if message['to_id'] != self.get_tracker_info().get('node_id'):
+        return                      # a broadcast, or a DM for someone else
+    if not message.get('pki'):
+        return                      # sender not proven, do not trust from_id
+    ...
+```
+
+Use `message.get('pki')` rather than `message['pki']` if the plugin also runs
+on cores older than 2.9.2.
 
 ### Available Methods
 
