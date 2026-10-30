@@ -6,6 +6,11 @@
   and `relay`. The core sends a `packet_batch` WebSocket message once a second
   with everything heard in that second. Until now only the most recent
   `packet_event` of each second went out, so the rest never reached a browser.
+- New: Every plugin panel can be collapsed. The bar the core adds to each panel (the
+  ⠿ grip) gets a ▾ button; a collapsed panel shrinks to that bar with the plugin's
+  name, and the map stays usable with many plugins on. Remembered per browser,
+  works in the phone drawer too. It only hides the panel: the plugin keeps running.
+  Plugins need no change.
 - Fix: With no browser connected, old packet events piled up and the next page
   to open got them as if they were live. The queue is now emptied every second
   either way, and an event older than 5 s is never sent.

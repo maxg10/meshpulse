@@ -374,6 +374,14 @@ else api.map.removeControl('my-panel');
 **Always keep the fallback guard.** Users are not all on the newest core, and a plugin
 that assumes `api.panels` exists renders nothing at all on 2.6.0 and older.
 
+The core adds a bar to the top of every registered panel: a grip to drag it (double-click
+puts it back) and, since 2.9.3, a ▾ button that **collapses** it to that bar alone, with
+your plugin's name in it. The choice is remembered per browser. Collapsing only hides the
+panel: your plugin keeps running, so do not stop work when it happens. The name is the
+manifest's `name`; a plugin with more than one panel can give each its own with a
+`data-panel-title` attribute on the element. Do not add your own collapse button for the
+whole panel; the core's works the same in every plugin and on phones.
+
 ### `api.packets` (2.9.3+)
 
 `api.packets.onPacket(cb)` calls `cb` once for every packet this mapper's own
