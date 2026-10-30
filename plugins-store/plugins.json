@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-10-22T19:51:06Z",
+  "updated": "2026-10-30T19:53:22Z",
   "store_url": "https://meshpulse.app/plugins",
   "plugins": [
     {
@@ -291,6 +291,39 @@
         "history",
         "replay",
         "gps"
+      ]
+    },
+    {
+      "id": "maxg10/live-pulse",
+      "name": "Live Pulse",
+      "version": "1.0.0",
+      "description": "Radio traffic as it happens. Every packet your radio hears makes its sender pulse on the map, coloured by type and sized by SNR, and a glowing arc runs along the part of its path your mapper can actually see: from the sender when heard directly, from a relay known for certain otherwise, never guessed. Senders and busy links keep a fading afterglow, Persistence sets how long, and a dark map makes it all stand out.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.9.3",
+      "tested_up_to": "2.9.3",
+      "type": "frontend",
+      "category": "map",
+      "icon": "⚡",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/live-pulse-v1.0.0/live-pulse-1.0.0.meshplugin",
+      "download_size": 11981,
+      "dependencies_note": "No dependencies. Runs entirely in the browser on the live packets the core sends (api.packets, MeshPulse 2.9.3+), so the Raspberry Pi does no extra work. The dark map is a filter on the existing tiles, nothing extra is downloaded.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/live-pulse/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/live-pulse",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Pulses by packet type and SNR, honest arcs (direct, or via a relay known for certain), node and link afterglow, Persistence (short, normal, long), dark map, recent packets panel.",
+      "screenshots": [],
+      "tags": [
+        "map",
+        "live",
+        "traffic",
+        "packets",
+        "visualization",
+        "relay"
       ]
     }
   ]
