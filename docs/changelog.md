@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.9.3 (unreleased)
+## v2.9.3
 - Plugins: `api.packets.onPacket(cb)` on the map, called for every packet this
   mapper's radio hears, live, with `from_id`, `portnum`, `snr`, `rssi`, `hops`
   and `relay`. The core sends a `packet_batch` WebSocket message once a second

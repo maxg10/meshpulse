@@ -1,6 +1,6 @@
 # MeshPulse — Plugin Architecture
 
-**Status:** Live since v2.2.0; this document tracks the current core (2.9.2).
+**Status:** Live since v2.2.0; this document tracks the current core (2.9.3).
 It covers the **backend** side — lifecycle, hooks and the methods a plugin calls.
 For the **frontend** API (`api.panels`, `api.links`, `api.nodes`, `api.ws`) and a
 worked example, see [the plugin developer guide](plugin-developer-guide.md).
