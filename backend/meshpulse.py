@@ -2721,7 +2721,11 @@ class ListenBasedMapper:
                 'portnum': portnum,
                 'snr': snr,
                 'rssi': rssi,
-                'hops': hops
+                'hops': hops,
+                # What the stats get: '!xxxxxxxx', or 'relay_XX' when the firmware
+                # only sent the last byte (it usually does). None: heard directly
+                # or the firmware is too old to say.
+                'relay': relay_node_id,
             })
 
         # Anomaly detection - check all packet types
@@ -7339,20 +7343,41 @@ async def websocket_handler(websocket):
         print(f"[WS] Client removed: {client_addr}, total clients: {len(connected_clients)}")
 
 
+PACKET_EVENT_MAX_AGE_MS = 5000
+
+
 async def flush_packet_events():
-    """Drain packet_event queue every second and broadcast the most recent item."""
+    """Every second, send what the radio heard during that second.
+
+    packet_batch carries every event, for live map plugins (api.packets).
+    packet_event, the most recent one alone, stays for the Stats page and
+    older pages. RF only: the queue never holds MQTT packets.
+
+    With nobody connected the queue is still emptied, so a page opened
+    later is not handed packets from minutes ago as if they were live.
+    """
     while True:
         await asyncio.sleep(1)
-        if not mapper or not connected_clients or not mapper._packet_event_queue:
+        if not mapper or not mapper._packet_event_queue:
             continue
-        event = None
+        events = []
         while mapper._packet_event_queue:
-            event = mapper._packet_event_queue.popleft()
-        if event:
-            try:
-                websockets.broadcast(set(connected_clients), safe_json(event))
-            except Exception:
-                pass
+            events.append(mapper._packet_event_queue.popleft())
+        if not connected_clients:
+            continue
+        cutoff = int(time.time() * 1000) - PACKET_EVENT_MAX_AGE_MS
+        events = [e for e in events if e.get('ts', 0) >= cutoff]
+        if not events:
+            continue
+        try:
+            clients = set(connected_clients)
+            websockets.broadcast(clients, safe_json({
+                'type': 'packet_batch',
+                'events': [{k: v for k, v in e.items() if k != 'type'} for e in events],
+            }))
+            websockets.broadcast(clients, safe_json(events[-1]))
+        except Exception:
+            pass
 
 
 async def start_websocket_server():

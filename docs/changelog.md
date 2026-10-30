@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.9.3 (unreleased)
+- Plugins: `api.packets.onPacket(cb)` on the map, called for every packet this
+  mapper's radio hears, live, with `from_id`, `portnum`, `snr`, `rssi`, `hops`
+  and `relay`. The core sends a `packet_batch` WebSocket message once a second
+  with everything heard in that second. Until now only the most recent
+  `packet_event` of each second went out, so the rest never reached a browser.
+- Fix: With no browser connected, old packet events piled up and the next page
+  to open got them as if they were live. The queue is now emptied every second
+  either way, and an event older than 5 s is never sent.
+
 ## v2.9.2
 - Plugins: on_message gets `pki` (DM encrypted and signed with the sender's
   PKI key, firmware 2.5+). Only then is `from_id` more than a claim: on a

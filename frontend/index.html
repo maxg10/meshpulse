@@ -339,6 +339,7 @@
         var pluginExpireCallbacks = {};
         var pluginMessageCallbacks = {};
         var pluginFilterCallbacks = {};
+        var pluginPacketCallbacks = {};
         var pluginWsCallbacks = {};
 
         // Unread messages badge
@@ -478,6 +479,15 @@
                             Object.keys(pluginExpireCallbacks).forEach(function(key) {
                                 try { pluginExpireCallbacks[key]({nodeId: data.node_id}); }
                                 catch(e) { console.error('[PLUGINS] expire callback error:', e); }
+                            });
+                        } else if (data.type === 'packet_batch') {
+                            // Everything the radio heard in the last second (RF only).
+                            var pktEvents = data.events || [];
+                            Object.keys(pluginPacketCallbacks).forEach(function(key) {
+                                pktEvents.forEach(function(ev) {
+                                    try { pluginPacketCallbacks[key](Object.assign({}, ev)); }
+                                    catch(e) { console.error('[PLUGINS] packet callback error:', e); }
+                                });
                             });
                         } else if (data.type === 'full_reset') {
                             console.log('[WS] Full reset received — clearing map');
@@ -3723,6 +3733,11 @@
                     // Fired when a neighbour report changes the picture. One per plugin.
                     onUpdate: function(cb) { pluginLinkCallbacks[prefix] = cb; }
                 },
+                // Live radio traffic (2.9.3+): one call per packet this mapper's own
+                // radio heard, about a second after it arrived. One callback per plugin.
+                packets: {
+                    onPacket: function(cb) { pluginPacketCallbacks[prefix] = cb; }
+                },
                 messages: {
                     getAll: function(ch) { return []; },
                     onMessage: function(cb) { pluginMessageCallbacks[prefix] = cb; },
@@ -3948,6 +3963,7 @@
             Object.keys(pluginExpireCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginExpireCallbacks[key]; });
             Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
             Object.keys(pluginFilterCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginFilterCallbacks[key]; });
+            Object.keys(pluginPacketCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginPacketCallbacks[key]; });
             Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
 
             document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });

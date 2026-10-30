@@ -341,6 +341,7 @@ window.MeshPlugin = MyPlugin;
 | `api.panels` | `register(el)`, `unregister(el)` — preferred way to add a control panel (2.6.1+) |
 | `api.nodes` | `getVisible()`, `getVisibleNoPosition()`, `getAll()`, `get(id)`, `getTracker()`, `getNoPosition()`, `onUpdate(cb)`, `onExpire(cb)`, `onFilterChange(cb)` |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
+| `api.packets` | `onPacket(cb)`: every packet this mapper's radio hears, live (2.9.3+, [details](#apipackets-293)) |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
 | `api.ui` | `addNavItem(label, onClick)`, `addPanel(id, html, position)`, `showNotification(msg, type)` |
 | `api.storage` | `get(key)`, `set(key, value)`, `remove(key)`, `getAll()` — auto-namespaced per plugin |
@@ -372,6 +373,46 @@ else api.map.removeControl('my-panel');
 
 **Always keep the fallback guard.** Users are not all on the newest core, and a plugin
 that assumes `api.panels` exists renders nothing at all on 2.6.0 and older.
+
+### `api.packets` (2.9.3+)
+
+`api.packets.onPacket(cb)` calls `cb` once for every packet this mapper's own
+radio heard, about a second after it arrived (the core sends them in one batch
+per second). One callback per plugin, like `nodes.onUpdate`. It is meant for
+live views: pulses, activity meters, "who is talking right now".
+
+```js
+{
+  ts: 1792702046584,      // when the core logged it, ms since epoch
+  from_id: '!979ed146',
+  portnum: 'NODEINFO_APP', // also ENCRYPTED, PORT_<n>, ...
+  snr: 11.25,             // null when unknown
+  rssi: -97,              // null when unknown
+  hops: 2,                // hops taken, null when the firmware does not say
+  relay: 'relay_ac'       // see below
+}
+```
+
+- **RF only.** Packets that arrived over MQTT are not included: they never
+  went through the air here.
+- **`relay`** is the node that handed the packet to this radio, as the stats
+  store it: `'!xxxxxxxx'` when the full id is known, `'relay_XX'` when the
+  firmware sent only its last byte (the usual case), `null` for a packet heard
+  directly or from firmware too old to report it. Matching `relay_XX` to a
+  node is up to you, and it is a guess: with 100+ nodes, two of them share a
+  last byte about a third of the time. Only treat it as a match when exactly
+  one candidate fits, for example one node heard with zero hops.
+- Nothing is replayed: a page opened now gets packets from now on, never
+  old ones as if they were live.
+
+```js
+if (api.packets) {                       // older cores have no api.packets
+    api.packets.onPacket(function (p) {
+        var node = api.nodes.get(p.from_id);
+        if (node && node.lat != null) pulseAt(node.lat, node.lon, p.portnum);
+    });
+}
+```
 
 ### `api.links` (2.8.0+)
 
