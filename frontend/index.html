@@ -339,6 +339,7 @@
         var pluginExpireCallbacks = {};
         var pluginMessageCallbacks = {};
         var pluginFilterCallbacks = {};
+        var pluginPacketCallbacks = {};
         var pluginWsCallbacks = {};
 
         // Unread messages badge
@@ -478,6 +479,15 @@
                             Object.keys(pluginExpireCallbacks).forEach(function(key) {
                                 try { pluginExpireCallbacks[key]({nodeId: data.node_id}); }
                                 catch(e) { console.error('[PLUGINS] expire callback error:', e); }
+                            });
+                        } else if (data.type === 'packet_batch') {
+                            // Everything the radio heard in the last second (RF only).
+                            var pktEvents = data.events || [];
+                            Object.keys(pluginPacketCallbacks).forEach(function(key) {
+                                pktEvents.forEach(function(ev) {
+                                    try { pluginPacketCallbacks[key](Object.assign({}, ev)); }
+                                    catch(e) { console.error('[PLUGINS] packet callback error:', e); }
+                                });
                             });
                         } else if (data.type === 'full_reset') {
                             console.log('[WS] Full reset received — clearing map');
@@ -2955,10 +2965,11 @@
             try {
                 const v = JSON.parse(localStorage.getItem(PANEL_LAYOUT_KEY) || 'null');
                 if (v && typeof v === 'object') {
-                    return {order: Array.isArray(v.order) ? v.order : [], pos: v.pos || {}};
+                    return {order: Array.isArray(v.order) ? v.order : [], pos: v.pos || {},
+                            collapsed: (v.collapsed && typeof v.collapsed === 'object') ? v.collapsed : {}};
                 }
             } catch (e) { /* private mode, or hand-edited JSON — start clean */ }
-            return {order: [], pos: {}};
+            return {order: [], pos: {}, collapsed: {}};
         }
 
         function savePanelLayout() {
@@ -2998,19 +3009,61 @@
             return el.dataset.panelKey;
         }
 
-        function attachPanelGrip(el) {
+        // The grip also carries a collapse button: with half a dozen plugins the
+        // panels cover the map. A collapsed panel keeps only the grip, with the
+        // plugin's name in it. It only hides the panel; the plugin keeps running.
+        function attachPanelGrip(el, title) {
             if (el.querySelector(':scope > .panel-grip')) return;
             const grip = document.createElement('div');
             grip.className = 'panel-grip';
-            grip.textContent = '⠿';
             grip.title = 'Drag to move · double-click to put it back';
-            grip.setAttribute('role', 'button');
-            grip.setAttribute('aria-label', 'Move panel');
+            const handle = document.createElement('span');
+            handle.className = 'panel-grip-handle';
+            handle.textContent = '⠿';
+            handle.setAttribute('role', 'button');
+            handle.setAttribute('aria-label', 'Move panel');
+            const name = document.createElement('span');
+            name.className = 'panel-grip-name';
+            name.textContent = title || '';       // from a manifest: text, never markup
+            const fold = document.createElement('button');
+            fold.type = 'button';
+            fold.className = 'panel-collapse';
+            grip.appendChild(handle);
+            grip.appendChild(name);
+            grip.appendChild(fold);
             el.insertBefore(grip, el.firstChild);
             grip.addEventListener('pointerdown', onPanelGripDown);
-            grip.addEventListener('dblclick', function (e) { e.preventDefault(); releasePanel(el); });
+            grip.addEventListener('dblclick', function (e) {
+                if (e.target.closest('.panel-collapse')) return;
+                e.preventDefault();
+                releasePanel(el);
+            });
+            // The button must not start a drag, and a click on it is a click, not a move.
+            fold.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+            fold.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                setPanelCollapsed(el, !el.classList.contains('panel-collapsed'), true);
+            });
+            setPanelCollapsed(el, !!panelLayout.collapsed[el.dataset.panelKey], false);
             // A panel is not a map: clicks and wheels inside it must not reach Leaflet.
             if (window.L && L.DomEvent) L.DomEvent.disableClickPropagation(el);
+        }
+
+        function setPanelCollapsed(el, on, save) {
+            el.classList.toggle('panel-collapsed', on);
+            const fold = el.querySelector(':scope > .panel-grip .panel-collapse');
+            if (fold) {
+                fold.textContent = on ? '▸' : '▾';
+                fold.title = on ? 'Expand' : 'Collapse';
+                fold.setAttribute('aria-label', on ? 'Expand panel' : 'Collapse panel');
+                fold.setAttribute('aria-expanded', on ? 'false' : 'true');
+            }
+            if (!save) return;
+            const key = el.dataset.panelKey;
+            if (on) panelLayout.collapsed[key] = true;
+            else delete panelLayout.collapsed[key];
+            savePanelLayout();
         }
 
         function clampPanelPosition(el, left, top) {
@@ -3041,6 +3094,7 @@
 
         function onPanelGripDown(e) {
             if (e.button) return;                 // primary button, touch or pen only
+            if (e.target.closest && e.target.closest('.panel-collapse')) return;
             const panel = e.currentTarget.closest('.plugin-panel');
             if (!panel) return;
             e.preventDefault();
@@ -3158,8 +3212,10 @@
             host.appendChild(btn);           // always last, in the column and in the drawer
         }
 
+        // Order and position only: what is collapsed is a separate choice, made
+        // and undone one panel at a time.
         function resetPanelLayout() {
-            panelLayout = {order: [], pos: {}};
+            panelLayout = {order: [], pos: {}, collapsed: panelLayout.collapsed || {}};
             savePanelLayout();
             const host = panelHost();
             if (host) {
@@ -3642,7 +3698,10 @@
                         el.classList.add('plugin-panel');
                         el.dataset.pluginPanelOwner = pluginId;
                         panelKeyFor(el, pluginId);
-                        attachPanelGrip(el);
+                        // The name in a collapsed panel's bar: the plugin may set one per
+                        // panel (data-panel-title), otherwise the manifest's name.
+                        attachPanelGrip(el, el.getAttribute('data-panel-title') ||
+                            (pluginInfo && pluginInfo.name) || pluginId);
                         var host = document.getElementById('plugin-panels');
                         if (host && el.parentElement !== host) movePanelInto(host, el, null);
                         syncPluginPanelLayout();
@@ -3722,6 +3781,11 @@
                     },
                     // Fired when a neighbour report changes the picture. One per plugin.
                     onUpdate: function(cb) { pluginLinkCallbacks[prefix] = cb; }
+                },
+                // Live radio traffic (2.9.3+): one call per packet this mapper's own
+                // radio heard, about a second after it arrived. One callback per plugin.
+                packets: {
+                    onPacket: function(cb) { pluginPacketCallbacks[prefix] = cb; }
                 },
                 messages: {
                     getAll: function(ch) { return []; },
@@ -3948,6 +4012,7 @@
             Object.keys(pluginExpireCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginExpireCallbacks[key]; });
             Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
             Object.keys(pluginFilterCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginFilterCallbacks[key]; });
+            Object.keys(pluginPacketCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginPacketCallbacks[key]; });
             Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
 
             document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
