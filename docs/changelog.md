@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.9.4 (unreleased)
+- Plugins: `api.nodes.addFilter(fn)`, `removeFilter()` and `refilter()` on the
+  map. A plugin's filter runs at the end of the core's filter chain and hides a
+  node by returning `false`; markers, lines, the No GPS list, Mesh Info and
+  other plugins follow it. The mapper's own node always stays, and a filter
+  that throws hides nothing. The Circles plugin is built on it.
+- Plugins: `api.config.save(updates, cb)` lets a map plugin store its settings
+  on the host, through the same protected `save_plugin_config` the Config page
+  uses, so the admin password applies. Other open pages get
+  `onConfigUpdate()`. A manifest setting with `"type": "hidden"` is kept out of
+  the Config page, for data a plugin edits in its own panel.
+
 ## v2.9.3
 - Plugins: `api.packets.onPacket(cb)` on the map, called for every packet this
   mapper's radio hears, live, with `from_id`, `portnum`, `snr`, `rssi`, `hops`

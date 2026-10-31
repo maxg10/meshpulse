@@ -339,7 +339,8 @@ window.MeshPlugin = MyPlugin;
 |-----|---------|
 | `api.map` | `addLayer()`, `removeLayer()`, `addControl()`, `removeControl()`, `getLeafletMap()` |
 | `api.panels` | `register(el)`, `unregister(el)` — preferred way to add a control panel (2.6.1+) |
-| `api.nodes` | `getVisible()`, `getVisibleNoPosition()`, `getAll()`, `get(id)`, `getTracker()`, `getNoPosition()`, `onUpdate(cb)`, `onExpire(cb)`, `onFilterChange(cb)` |
+| `api.nodes` | `getVisible()`, `getVisibleNoPosition()`, `getAll()`, `get(id)`, `getTracker()`, `getNoPosition()`, `onUpdate(cb)`, `onExpire(cb)`, `onFilterChange(cb)`; 2.9.4+ `addFilter(fn)`, `removeFilter()`, `refilter()` ([details](#apinodesaddfilter-294)) |
+| `api.config` | 2.9.4+ `save(updates, cb)`: store your settings on the MeshPulse host ([details](#apiconfigsave-294)) |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
 | `api.packets` | `onPacket(cb)`: every packet this mapper's radio hears, live (2.9.3+, [details](#apipackets-293)) |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
@@ -421,6 +422,64 @@ if (api.packets) {                       // older cores have no api.packets
     });
 }
 ```
+
+### `api.nodes.addFilter` (2.9.4+)
+
+A plugin can narrow what the map shows. `api.nodes.addFilter(fn)` adds `fn` to
+the end of the core's filter chain (MQTT, direct only, routers only and the
+rest): it is called with a copy of each node the core's own filters kept, and
+returning exactly `false` hides that node. Anything else keeps it, and so does
+an exception, so a bug in your filter cannot empty the map. The mapper's own
+node is never hidden.
+
+Everything that draws visible nodes follows: markers, the direct, neighbour and
+relay lines, the No GPS list, the counters in Mesh Info, and every plugin that
+reads `getVisible()` or `onFilterChange()` (Live Pulse, Weather Overlay,
+Trails). One filter per plugin; calling `addFilter` again replaces it.
+
+```js
+var only = {'!a1b2c3d4': true, '!11223344': true};
+if (api.nodes.addFilter) api.nodes.addFilter(function (n) { return !!only[n.id]; });
+
+// the set changed: run the filter again
+only['!55667788'] = true;
+api.nodes.refilter();
+
+// back to the full map (also done for you when the plugin is disabled)
+api.nodes.removeFilter();
+```
+
+Keep the filter cheap: it runs for every node on every map update. Decide from
+data you already hold, as above, rather than calling `api.nodes.*` inside it.
+
+### `api.config.save` (2.9.4+)
+
+A map plugin can keep its own settings on the MeshPulse host, the same file the
+Config page writes, so every browser and phone sees the same values:
+
+```js
+api.config.save({favourite_nodes: list}, function (r) {
+    if (!r.success) showError(r.error);
+});
+```
+
+- Saving is an admin action: with an admin password set, the browser is asked
+  for it first, and the save goes out after the login. A save that never gets
+  an answer (the dialog was closed) is reported as failed after a minute.
+- After the host has written it, `api.info.config` holds the new values; other
+  open pages get `onConfigUpdate(config)`.
+- Declare each key in your manifest's `config`. A key that is data your panel
+  edits rather than a setting for the Config page gets `"type": "hidden"`, and
+  the Config page leaves it out:
+
+```json
+"config": {
+    "favourite_nodes": {"type": "hidden", "default": [], "description": "Edited in the map panel"}
+}
+```
+
+- Anyone who can save can write anything there, by hand too: check what you
+  read back before you use it.
 
 ### `api.links` (2.8.0+)
 

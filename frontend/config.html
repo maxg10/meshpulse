@@ -2591,8 +2591,12 @@ function renderPluginsList(plugins) {
 function renderPluginConfig(plugin) {
     var schema = plugin.config_schema;
     if (!schema || Object.keys(schema).length === 0) return '';
+    // type "hidden" (2.9.4+): data the plugin keeps through api.config.save(),
+    // such as lists it edits in its own panel. Not a field for this page.
+    var keys = Object.keys(schema).filter(function(key) { return (schema[key] || {}).type !== 'hidden'; });
+    if (!keys.length) return '';
 
-    var fields = Object.keys(schema).map(function(key) {
+    var fields = keys.map(function(key) {
         var spec = schema[key];
         var currentVal = (plugin.config && plugin.config[key] !== undefined) ? plugin.config[key] : spec.default;
         var inputHtml = '';
