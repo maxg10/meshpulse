@@ -1,6 +1,6 @@
 # Changelog
 
-## v2.9.4 (unreleased)
+## v2.9.4
 - Plugins: `api.nodes.addFilter(fn)`, `removeFilter()` and `refilter()` on the
   map. A plugin's filter runs at the end of the core's filter chain and hides a
   node by returning `false`; markers, lines, the No GPS list, Mesh Info and
