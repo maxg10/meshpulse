@@ -340,6 +340,8 @@
         var pluginMessageCallbacks = {};
         var pluginFilterCallbacks = {};
         var pluginPacketCallbacks = {};
+        var pluginNodeFilters = {};      // prefix -> fn(node) => false hides it (2.9.4+)
+        var pluginConfigSaves = {};      // pluginId -> [cb] waiting for plugin_config_saved
         var pluginWsCallbacks = {};
 
         // Unread messages badge
@@ -535,6 +537,20 @@
                             if (channel && pluginWsCallbacks[channel]) {
                                 try { pluginWsCallbacks[channel](data.data); }
                                 catch(e) { console.error('[PLUGINS] WS callback error:', e); }
+                            }
+                        } else if (data.type === 'plugin_config_saved') {
+                            // Answer to api.config.save() from this page.
+                            var waiting = pluginConfigSaves[data.plugin_id] = dropStaleConfigSaves(pluginConfigSaves[data.plugin_id]);
+                            var job = waiting.shift();
+                            if (job) {
+                                var lp = loadedPlugins[data.plugin_id];
+                                if (data.success && lp && lp.api) {
+                                    lp.api.info.config = Object.assign({}, lp.api.info.config || {}, job.updates);
+                                }
+                                if (job.cb) {
+                                    try { job.cb({success: !!data.success, error: data.error}); }
+                                    catch (e) { console.error('[PLUGINS] config save callback error:', e); }
+                                }
                             }
                         } else if (data.type === 'plugin_config_updated') {
                             // Live config reload for running plugins
@@ -2479,6 +2495,13 @@
                 filteredNoGps = filteredNoGps.filter(isRouterRole);
             }
 
+            // Plugin filters (api.nodes.addFilter, 2.9.4+) come last: they can only
+            // narrow what the core's own filters left, and the own tracker stays.
+            if (Object.keys(pluginNodeFilters).length) {
+                filteredNodes = filteredNodes.filter(n => isOwnTracker(n.id) || pluginFiltersKeep(n));
+                filteredNoGps = filteredNoGps.filter(n => isOwnTracker(n.id) || pluginFiltersKeep(n));
+            }
+
             // End of the filter chain — this is the single source of truth for
             // "visible" from here on, for the markers below and for plugins alike.
             visibleNodes = filteredNodes;
@@ -2827,6 +2850,47 @@
         // Tell plugins the visible node set may have changed — a filter toggled, or
         // nodes arrived / expired. Plugins that draw per-node overlays subscribe via
         // api.nodes.onFilterChange() and re-render from the set handed to them.
+        // A plugin filter hides a node only by returning exactly false: anything
+        // else, including an exception, keeps it, so a broken plugin cannot
+        // empty the map. Each filter gets a copy, never the core's own object.
+        var pluginFilterErrorsLogged = {};
+        function pluginFiltersKeep(n) {
+            var keys = Object.keys(pluginNodeFilters);
+            for (var i = 0; i < keys.length; i++) {
+                try {
+                    if (pluginNodeFilters[keys[i]](Object.assign({}, n)) === false) return false;
+                } catch (e) {
+                    if (!pluginFilterErrorsLogged[keys[i]]) {
+                        pluginFilterErrorsLogged[keys[i]] = true;
+                        console.error('[PLUGINS] node filter error in ' + keys[i] + ':', e);
+                    }
+                }
+            }
+            return true;
+        }
+
+        // A save the browser never sent (the password dialog was closed) gets no
+        // answer. After a minute it is given up, so it cannot take the answer
+        // meant for a later save.
+        var CONFIG_SAVE_TIMEOUT_MS = 60000;
+        function dropStaleConfigSaves(list) {
+            var now = Date.now();
+            return (list || []).filter(function (job) {
+                if (now - job.t < CONFIG_SAVE_TIMEOUT_MS) return true;
+                if (job.cb) try { job.cb({success: false, error: 'Not saved (no answer from MeshPulse)'}); } catch (e) {}
+                return false;
+            });
+        }
+
+        var pluginRefilterTimer = null;
+        function schedulePluginRefilter() {
+            if (pluginRefilterTimer) return;
+            pluginRefilterTimer = setTimeout(function () {
+                pluginRefilterTimer = null;
+                updateDisplay();
+            }, 50);
+        }
+
         function notifyPluginFilterChange() {
             Object.keys(pluginFilterCallbacks).forEach(function(key) {
                 try { pluginFilterCallbacks[key](JSON.parse(JSON.stringify(visibleNodes))); }
@@ -3743,7 +3807,41 @@
                     onExpire: function(cb) { pluginExpireCallbacks[prefix] = cb; },
                     // Called whenever the visible set may have changed, with that set
                     // as its argument. One callback per plugin, like onUpdate.
-                    onFilterChange: function(cb) { pluginFilterCallbacks[prefix] = cb; }
+                    onFilterChange: function(cb) { pluginFilterCallbacks[prefix] = cb; },
+                    // 2.9.4+: narrow what the map shows. fn(node) returning false hides
+                    // the node; one filter per plugin; the own tracker always stays.
+                    // Markers, lines, the No GPS list and every plugin reading
+                    // getVisible() follow it.
+                    addFilter: function(fn) {
+                        if (typeof fn !== 'function') return;
+                        pluginNodeFilters[prefix] = fn;
+                        delete pluginFilterErrorsLogged[prefix];
+                        schedulePluginRefilter();
+                    },
+                    removeFilter: function() {
+                        if (!pluginNodeFilters[prefix]) return;
+                        delete pluginNodeFilters[prefix];
+                        schedulePluginRefilter();
+                    },
+                    // The filter's answer changed (the plugin's own state did): run it again.
+                    refilter: function() { schedulePluginRefilter(); }
+                },
+                // 2.9.4+: save this plugin's settings on the MeshPulse host, as the
+                // Config page does. It is an admin action: with an admin password
+                // set the browser is asked for it first. cb({success, error?}) runs
+                // when the host has written it; other open pages get
+                // onConfigUpdate(config).
+                config: {
+                    save: function(updates, cb) {
+                        if (!updates || typeof updates !== 'object') return;
+                        if (!ws || ws.readyState !== WebSocket.OPEN) {
+                            if (cb) try { cb({success: false, error: 'Not connected'}); } catch (e) {}
+                            return;
+                        }
+                        var q = pluginConfigSaves[pluginId] = dropStaleConfigSaves(pluginConfigSaves[pluginId]);
+                        q.push({cb: cb, t: Date.now(), updates: JSON.parse(JSON.stringify(updates))});
+                        ws.send(JSON.stringify({type: 'save_plugin_config', plugin_id: pluginId, config: updates}));
+                    }
                 },
                 // The core has always known which node hears which; it just never told
                 // plugins. Edges come from NEIGHBORINFO reports plus the zero-hop nodes
@@ -4013,6 +4111,10 @@
             Object.keys(pluginMessageCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginMessageCallbacks[key]; });
             Object.keys(pluginFilterCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginFilterCallbacks[key]; });
             Object.keys(pluginPacketCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginPacketCallbacks[key]; });
+            var hadFilter = false;
+            Object.keys(pluginNodeFilters).forEach(function(key) { if (key.indexOf(prefix) === 0) { delete pluginNodeFilters[key]; hadFilter = true; } });
+            delete pluginConfigSaves[pluginId];
+            if (hadFilter) schedulePluginRefilter();
             Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
 
             document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
