@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-01T14:22:45Z",
+  "updated": "2026-11-08T12:13:08Z",
   "store_url": "https://meshpulse.app/plugins",
   "plugins": [
     {
@@ -357,6 +357,40 @@
         "filter",
         "favourites",
         "watchlist"
+      ]
+    },
+    {
+      "id": "maxg10/footprint",
+      "name": "Footprint",
+      "version": "1.0.0",
+      "description": "Your real coverage, measured instead of predicted. Every position packet your radio hears straight from its sender becomes a sample of where you can hear, coloured by SNR on a grid over the map; one that only reaches you through a relay marks a spot where the mesh, not your antenna, carries you (purple). Click a cell for who was heard from there and how well. Auto grid from 100 m to 5 km follows the zoom, nodes that blur their position only count on a grid coarse enough for the blur, and Outline mode lays the measurement over the predicted coverage. Measures one direction: where you hear them, not how far you are heard.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.9.1",
+      "tested_up_to": "2.9.4",
+      "type": "backend",
+      "category": "analysis",
+      "icon": "📶",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/footprint-v1.0.0/footprint-1.0.0.meshplugin",
+      "download_size": 18132,
+      "dependencies_note": "No dependencies. Keeps its own small database (about 200 KB for a week of a busy mesh) and only reads the core's stats.db, once, to start with history. With the Trails plugin installed, the map is filled from day one.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/footprint/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/footprint",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Direct and mesh-only cells, SNR colours, cell details, Auto grid 100 m to 5 km, precision-aware samples, Outline mode, live flashes, history import from stats.db and Trails.",
+      "screenshots": [],
+      "tags": [
+        "coverage",
+        "map",
+        "snr",
+        "range",
+        "signal",
+        "drive test",
+        "analysis"
       ]
     }
   ]
