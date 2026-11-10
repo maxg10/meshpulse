@@ -38,6 +38,7 @@ import shutil
 import tempfile
 import uuid
 import admin_auth   # backend/admin_auth.py, next to this file
+import preset_scan  # backend/preset_scan.py: listen on other LoRa presets, then restore
 import platform
 import meshtastic
 import meshtastic.tcp_interface
@@ -163,6 +164,13 @@ CONFIG_PATH = '/var/www/html/meshpulse/config.json'
 # Runtime restart support
 mapper = None
 plugin_manager = None
+PRESET_SCAN = None   # preset_scan.PresetScan, created in main()
+
+
+def _scan_capturing():
+    """True while a preset scan has the radio: its packets must not reach the map,
+    the statistics or the plugins (see backend/preset_scan.py)."""
+    return PRESET_SCAN is not None and PRESET_SCAN.capturing
 _ADMIN_AUTH = None
 
 
@@ -273,6 +281,8 @@ class TCPMeshtasticInterface:
                     print(f"[TCP] Packet callback error: {e}")
 
         def _on_mqtt_proxy(proxymessage, interface):
+            if _scan_capturing():
+                return
             if proxymessage and plugin_manager and plugin_manager.plugins:
                 plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
                                                   proxymessage.topic, proxymessage.data)
@@ -363,6 +373,8 @@ class SerialMeshtasticInterface:
                     print(f"[SERIAL] Packet callback error: {e}")
 
         def _on_mqtt_proxy(proxymessage, interface):
+            if _scan_capturing():
+                return
             if proxymessage and plugin_manager and plugin_manager.plugins:
                 plugin_manager.dispatch_hook_sync('on_mqtt_proxy',
                                                   proxymessage.topic, proxymessage.data)
@@ -1460,6 +1472,10 @@ class ListenBasedMapper:
         self._serial_iface = None
         self._tcp_iface = None
         self._cli_reboot_pending = False
+        # Preset scan: while the CLI holds the serial port the listener waits,
+        # and after it the listener reconnects at once instead of after 60 s.
+        self._port_hold = threading.Event()
+        self._force_reconnect = False
         self._pending_traceroute_result = None
         self._traceroute_event = None      # asyncio.Event do wybudzania z callbacka
         self._traceroute_loop = None       # event loop do call_soon_threadsafe
@@ -2596,6 +2612,8 @@ class ListenBasedMapper:
             time.sleep(CHECK_INTERVAL)
             if self.connection_type != 'serial':
                 continue  # watchdog only for serial mode
+            if _scan_capturing():
+                continue  # the scan watches its own radio
             silence = time.time() - self._last_radio_packet_time
             if silence > WATCHDOG_TIMEOUT:
                 print(f"[WATCHDOG] No packets for {int(silence)}s — restarting meshtastic listener...")
@@ -3768,8 +3786,25 @@ class ListenBasedMapper:
         except Exception as e:
             print(f"[STATS] Could not log {portnum} packet: {e}")
 
+    def _scan_divert(self, packet):
+        """During a preset scan the packet goes to the scan, nowhere else.
+        Otherwise a node first met in a scan, heard now on our own preset, is ours."""
+        if PRESET_SCAN is None:
+            return False
+        if PRESET_SCAN.capturing:
+            self._last_radio_packet_time = time.time()
+            PRESET_SCAN.capture(packet, self.local_node_id)
+            return True
+        if PRESET_SCAN.foreign:
+            frm = packet.get('fromId')
+            if frm:
+                PRESET_SCAN.seen_live(frm)
+        return False
+
     def _on_tcp_packet(self, packet):
         """Route an incoming TCP API packet to the appropriate parser."""
+        if self._scan_divert(packet):
+            return
         portnum = packet.get('decoded', {}).get('portnum', '')
         self._log_unparsed_packet(packet, portnum)
         if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
@@ -3796,6 +3831,9 @@ class ListenBasedMapper:
         """Read NodeDB from the connected device and backfill node entries with
         hw_model, position, and device metrics. Only fills fields not already
         present from live radio packets. Called once after connect/reconnect."""
+        if _scan_capturing():
+            print('[NODEDB] Preset scan running: NodeDB backfill skipped')
+            return
         try:
             db = iface.nodes
             if not db:
@@ -3808,6 +3846,8 @@ class ListenBasedMapper:
                 node_id = user.get('id')
                 if not node_id or node_id == self.local_node_id:
                     continue  # skip self
+                if PRESET_SCAN is not None and PRESET_SCAN.is_foreign(node_id):
+                    continue  # learned by the radio on another preset during a scan
 
                 name = sanitize_str(user.get('longName') or node_id, max_len=60)
                 hw_model = sanitize_str(user.get('hwModel') or '', max_len=40) or None
@@ -4725,6 +4765,8 @@ class ListenBasedMapper:
 
         while True:
             serial_iface = None
+            while self._port_hold.is_set():
+                time.sleep(0.5)          # the meshtastic CLI has the port (preset scan)
             try:
                 print(f"[SERIAL] Connecting to {self.port or 'auto-detect'} (attempt #{restart_count})...")
                 serial_iface = SerialMeshtasticInterface(port=self.port)
@@ -4850,9 +4892,14 @@ class ListenBasedMapper:
                         except Exception:
                             pass
 
-                    # Health check — if no packet received for 60s after connection, assume disconnect
+                    if self._force_reconnect:
+                        self._force_reconnect = False
+                        raise Exception("Reconnect after a preset scan settings change")
+
+                    # Health check — if no packet received for 60s after connection, assume disconnect.
+                    # A preset with nobody on it is quiet for longer during a scan.
                     silence = time.time() - self._last_radio_packet_time
-                    if silence > 60 and first_save_done:
+                    if silence > (900 if _scan_capturing() else 60) and first_save_done:
                         print(f"[SERIAL] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
                         raise Exception("Serial silent disconnect detected")
 
@@ -4906,6 +4953,8 @@ class ListenBasedMapper:
     def _on_serial_packet(self, packet):
         """Route incoming serial packets to appropriate parsers (mirrors _on_tcp_packet)."""
         try:
+            if self._scan_divert(packet):
+                return
             portnum = packet.get('decoded', {}).get('portnum', '')
             self._log_unparsed_packet(packet, portnum)
             if portnum in ('NODEINFO_APP', portnums_pb2.PortNum.Value('NODEINFO_APP')):
@@ -5147,9 +5196,13 @@ class ListenBasedMapper:
                         except Exception:
                             pass
 
+                    if self._force_reconnect:
+                        self._force_reconnect = False
+                        raise Exception("Reconnect after a preset scan settings change")
+
                     # Health check — if no packet received for 90s after connection, assume disconnect
                     silence = time.time() - self._last_radio_packet_time
-                    if silence > 90 and first_save_done:
+                    if silence > (900 if _scan_capturing() else 90) and first_save_done:
                         print(f"[TCP] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
                         raise Exception("TCP silent disconnect detected")
 
@@ -6147,6 +6200,25 @@ async def websocket_handler(websocket):
                     else:
                         hist = {'range': range_key, 'rows': [], 'ports': []}
                     await websocket.send(safe_json({'type': 'traffic_history', 'data': hist}))
+                elif data.get('type') in ('get_preset_scan', 'preset_scan_start', 'preset_scan_stop',
+                                          'get_preset_scans'):
+                    _t = data.get('type')
+                    if PRESET_SCAN is None:
+                        await websocket.send(safe_json({'type': 'preset_scan_result', 'ok': False,
+                                                        'error': 'Preset scan is not available'}))
+                    elif _t == 'get_preset_scan':
+                        opts = await asyncio.to_thread(PRESET_SCAN.options)
+                        await websocket.send(safe_json({'type': 'preset_scan_status', 'options': opts,
+                                                        **PRESET_SCAN.status()}))
+                    elif _t == 'preset_scan_start':
+                        res = await asyncio.to_thread(PRESET_SCAN.start, data.get('presets'), data.get('dwell_s'))
+                        await websocket.send(safe_json({'type': 'preset_scan_result', 'action': 'start', **res}))
+                    elif _t == 'preset_scan_stop':
+                        await websocket.send(safe_json({'type': 'preset_scan_result', 'action': 'stop',
+                                                        **PRESET_SCAN.stop()}))
+                    else:
+                        scans = await asyncio.to_thread(PRESET_SCAN.history, data.get('id'))
+                        await websocket.send(safe_json({'type': 'preset_scans', 'id': data.get('id'), 'scans': scans}))
                 elif data.get('type') == 'get_config':
                     if mapper:
                         try:
@@ -7559,6 +7631,13 @@ if __name__ == '__main__':
             plugin_manager = PluginManager(mapper=None, mapper_version=MAPPER_VERSION)
             plugin_manager._connected_clients = connected_clients
             plugin_manager._plugin_subscriptions = plugin_subscriptions
+
+        PRESET_SCAN = preset_scan.PresetScan(
+            lambda: mapper,
+            os.path.join(os.path.dirname(CONFIG_PATH) or '.', 'preset_scan.json'),
+            broadcast=lambda msg: websockets.broadcast(set(connected_clients), safe_json(msg)),
+            stats_db_getter=lambda: mapper.stats_db if mapper else None)
+        PRESET_SCAN.resume()
 
         # Mapper loop with runtime restart support
         _watchdog_started = False
