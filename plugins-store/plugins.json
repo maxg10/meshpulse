@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-10-30T22:27:55Z",
+  "updated": "2026-11-08T12:13:08Z",
   "store_url": "https://meshpulse.app/plugins",
   "plugins": [
     {
@@ -296,7 +296,7 @@
     {
       "id": "maxg10/live-pulse",
       "name": "Live Pulse",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Radio traffic as it happens. Every packet your radio hears makes its sender pulse on the map, coloured by type and sized by SNR, and a glowing arc runs along the part of its path your mapper can actually see: from the sender when heard directly, from a relay known for certain otherwise, never guessed. Senders and busy links keep a fading afterglow, Persistence sets how long, and a dark map makes it all stand out.",
       "author": {
         "name": "Mariusz \"Max\" Gieparda",
@@ -305,17 +305,17 @@
       },
       "license": "GPL-3.0",
       "min_mapper_version": "2.9.3",
-      "tested_up_to": "2.9.3",
+      "tested_up_to": "2.9.4",
       "type": "frontend",
       "category": "map",
       "icon": "⚡",
-      "download_url": "https://github.com/maxg10/meshplugins/releases/download/live-pulse-v1.0.0/live-pulse-1.0.0.meshplugin",
-      "download_size": 11981,
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/live-pulse-v1.0.1/live-pulse-1.0.1.meshplugin",
+      "download_size": 12137,
       "dependencies_note": "No dependencies. Runs entirely in the browser on the live packets the core sends (api.packets, MeshPulse 2.9.3+), so the Raspberry Pi does no extra work. The dark map is a filter on the existing tiles, nothing extra is downloaded.",
       "documentation": "https://github.com/maxg10/meshplugins/blob/main/live-pulse/README.md",
       "homepage": "https://github.com/maxg10/meshplugins/tree/main/live-pulse",
       "repository": "https://github.com/maxg10/meshplugins",
-      "changelog": "v1.0.0: first release. Pulses by packet type and SNR, honest arcs (direct, or via a relay known for certain), node and link afterglow, Persistence (short, normal, long), dark map, recent packets panel.",
+      "changelog": "v1.0.1: nodes the map's filters hide (for example with Circles) do not pulse, blip or appear in the panel. v1.0.0: first release. Pulses by packet type and SNR, honest arcs (direct, or via a relay known for certain), node and link afterglow, Persistence (short, normal, long), dark map, recent packets panel.",
       "screenshots": [],
       "tags": [
         "map",
@@ -324,6 +324,73 @@
         "packets",
         "visualization",
         "relay"
+      ]
+    },
+    {
+      "id": "maxg10/circles",
+      "name": "Circles",
+      "version": "1.0.0",
+      "description": "Your own circles of nodes: family, your own gear, nodes you keep an eye on. Rings in each circle's colour on the map, a panel with when each was last heard (battery, hops, SNR), and one switch, Only my circles, that hides every other node while lines, Live Pulse, Weather Overlay and Trails keep working for yours. With it on, the relays that carry your circles' traffic appear for a few minutes, only when known for certain.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.9.4",
+      "tested_up_to": "2.9.4",
+      "type": "frontend",
+      "category": "map",
+      "icon": "⭕",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/circles-v1.0.0/circles-1.0.0.meshplugin",
+      "download_size": 10752,
+      "dependencies_note": "No dependencies, runs in the browser. Circles are kept in the plugin's settings on your MeshPulse, so every browser and phone sees the same ones; with an admin password set, changing them asks for it. Not the radio's Favorites: nothing on the radio changes.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/circles/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/circles",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Circles with name, emoji and colour, rings on the map, status panel, Only my circles with relays and neighbours, kept on the host.",
+      "screenshots": [],
+      "tags": [
+        "map",
+        "family",
+        "groups",
+        "filter",
+        "favourites",
+        "watchlist"
+      ]
+    },
+    {
+      "id": "maxg10/footprint",
+      "name": "Footprint",
+      "version": "1.0.0",
+      "description": "Your real coverage, measured instead of predicted. Every position packet your radio hears straight from its sender becomes a sample of where you can hear, coloured by SNR on a grid over the map; one that only reaches you through a relay marks a spot where the mesh, not your antenna, carries you (purple). Click a cell for who was heard from there and how well. Auto grid from 100 m to 5 km follows the zoom, nodes that blur their position only count on a grid coarse enough for the blur, and Outline mode lays the measurement over the predicted coverage. Measures one direction: where you hear them, not how far you are heard.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.9.1",
+      "tested_up_to": "2.9.4",
+      "type": "backend",
+      "category": "analysis",
+      "icon": "📶",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/footprint-v1.0.0/footprint-1.0.0.meshplugin",
+      "download_size": 18132,
+      "dependencies_note": "No dependencies. Keeps its own small database (about 200 KB for a week of a busy mesh) and only reads the core's stats.db, once, to start with history. With the Trails plugin installed, the map is filled from day one.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/footprint/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/footprint",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Direct and mesh-only cells, SNR colours, cell details, Auto grid 100 m to 5 km, precision-aware samples, Outline mode, live flashes, history import from stats.db and Trails.",
+      "screenshots": [],
+      "tags": [
+        "coverage",
+        "map",
+        "snr",
+        "range",
+        "signal",
+        "drive test",
+        "analysis"
       ]
     }
   ]

@@ -53,6 +53,7 @@
     </style>
 </head>
 <body>
+<div id="preset-scan-banner" class="preset-scan-banner" role="status" hidden></div>
 <nav id="topnav">
     <div class="topnav-logo"><a href="https://meshpulse.app" target="_blank" rel="noopener" class="topnav-logo-link">📶 MeshPulse</a> <span id="mapper-version-span" class="version-chip" title="What&#39;s new in this version" style="font-size:11px;color:#f9fafb;font-weight:normal;margin-left:4px;opacity:0.6">v?.?.?<span class="version-page"> — Map</span></span></div>
     <div class="topnav-status">
@@ -343,6 +344,64 @@
         var pluginNodeFilters = {};      // prefix -> fn(node) => false hides it (2.9.4+)
         var pluginConfigSaves = {};      // pluginId -> [cb] waiting for plugin_config_saved
         var pluginWsCallbacks = {};
+        // Preset scan (backend/preset_scan.py): everyone looking at the map
+        // sees a banner while the radio is away on other presets, and plugins
+        // (Preset Scout) get every scan message through api.presetScan.
+        var pluginPresetScanCbs = {};    // pluginId -> cb(message)
+        var presetScanState = null, presetScanSkew = 0, presetScanTimer = null;
+        function fmtScanLeft(s) {
+            s = Math.max(0, Math.round(s));
+            return Math.floor(s / 60) + ':' + ('0' + (s % 60)).slice(-2);
+        }
+        function renderPresetScanBanner() {
+            var el = document.getElementById('preset-scan-banner');
+            if (!el) return;
+            var st = presetScanState;
+            if (!st || !st.active) {
+                el.hidden = true;
+                if (presetScanTimer) { clearInterval(presetScanTimer); presetScanTimer = null; }
+                return;
+            }
+            // LONG_FAST -> LongFast, as the apps and the Preset Scout plugin write it.
+            var nice = function (p) {
+                return String(p || '').toLowerCase().replace(/(^|_)([a-z])/g, function (m, u, c) { return c.toUpperCase(); });
+            };
+            var n = (st.presets || []).length, i = (st.idx || 0) + 1;
+            var back = st.original_preset ? nice(st.original_preset) : 'its own preset';
+            var cur = '<b>' + nice(st.current) + '</b>';
+            var text;
+            el.classList.toggle('preset-scan-error', st.status === 'restore_retry');
+            if (st.status === 'listening') {
+                var left = (st.step_started || 0) + (st.dwell_s || 0) - (Date.now() / 1000 - presetScanSkew);
+                text = 'Preset scan: listening on ' + cur + ' (' + i + '/' + n + '), ' + fmtScanLeft(left) + ' left';
+            } else if (st.status === 'switching' && st.current === 'MQTT off') {
+                text = 'Preset scan: turning MQTT off on the radio';
+            } else if (st.status === 'switching') {
+                text = 'Preset scan: switching the radio to ' + cur + ' (' + i + '/' + n + ')';
+            } else if (st.status === 'reconnecting') {
+                text = 'Preset scan: the radio went quiet on ' + cur + ', reconnecting';
+            } else if (st.status === 'starting') {
+                text = 'Preset scan: starting';
+            } else if (st.status === 'restore_retry') {
+                text = 'Preset scan: could not put the radio back on <b>' + back + '</b> yet, retrying';
+            } else {
+                text = 'Preset scan: putting the radio back on <b>' + back + '</b>';
+            }
+            el.innerHTML = '📡 ' + text + '. <span class="preset-scan-note">The radio listens only; the map waits until it is back on ' + back + '.</span>';
+            el.hidden = false;
+            if (!presetScanTimer) presetScanTimer = setInterval(renderPresetScanBanner, 1000);
+        }
+        function onPresetScanMessage(data) {
+            if (data.type === 'preset_scan_status') {
+                presetScanState = data;
+                if (data.now) presetScanSkew = Date.now() / 1000 - data.now;
+                renderPresetScanBanner();
+            }
+            Object.keys(pluginPresetScanCbs).forEach(function (k) {
+                try { pluginPresetScanCbs[k](data); }
+                catch (e) { console.error('[PLUGINS] preset scan callback error:', e); }
+            });
+        }
 
         // Unread messages badge
         const _bc = new BroadcastChannel('meshtastic_msgs');
@@ -420,6 +479,8 @@
 
                 ws.onopen = () => {
                     console.log('[WS] Connected!');
+                    // A scan may already be running (or restoring) when the page opens.
+                    try { ws.send(JSON.stringify({type: 'get_preset_scan'})); } catch (e) {}
                     updateWSStatus('connected');
                     isUsingWebSocket = true;
                     // Populate the Connection device dropdown as soon as we can talk
@@ -531,6 +592,9 @@
                                     configLink.appendChild(badge);
                                 }
                             }
+                        } else if (data.type === 'preset_scan_status' || data.type === 'preset_scan_result' ||
+                                   data.type === 'preset_scans') {
+                            onPresetScanMessage(data);
                         } else if (data.type === 'plugin_data') {
                             // Forward to plugin WebSocket callbacks
                             var channel = data.channel;
@@ -3843,6 +3907,28 @@
                         ws.send(JSON.stringify({type: 'save_plugin_config', plugin_id: pluginId, config: updates}));
                     }
                 },
+                // 2.9.5+: preset scan. start() and stop() are admin actions (the
+                // browser asks for the password when one is set); every message
+                // about the scan reaches onMessage(cb): preset_scan_status (with
+                // options when asked with refresh()), preset_scan_result, preset_scans.
+                presetScan: {
+                    refresh: function() {
+                        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'get_preset_scan'}));
+                    },
+                    start: function(presets, dwellS) {
+                        if (ws && ws.readyState === WebSocket.OPEN)
+                            ws.send(JSON.stringify({type: 'preset_scan_start', presets: presets, dwell_s: dwellS}));
+                    },
+                    stop: function() {
+                        if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({type: 'preset_scan_stop'}));
+                    },
+                    history: function(id) {
+                        if (ws && ws.readyState === WebSocket.OPEN)
+                            ws.send(JSON.stringify({type: 'get_preset_scans', id: id || null}));
+                    },
+                    onMessage: function(cb) { pluginPresetScanCbs[pluginId] = cb; },
+                    state: function() { return presetScanState; }
+                },
                 // The core has always known which node hears which; it just never told
                 // plugins. Edges come from NEIGHBORINFO reports plus the zero-hop nodes
                 // this mapper's own radio hears directly.
@@ -4116,6 +4202,7 @@
             delete pluginConfigSaves[pluginId];
             if (hadFilter) schedulePluginRefilter();
             Object.keys(pluginWsCallbacks).forEach(function(key) { if (key.indexOf(prefix) === 0) delete pluginWsCallbacks[key]; });
+            delete pluginPresetScanCbs[pluginId];
 
             document.querySelectorAll('link[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });
             document.querySelectorAll('script[data-plugin-id="' + pluginId + '"]').forEach(function(el) { el.remove(); });

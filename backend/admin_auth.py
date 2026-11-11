@@ -45,6 +45,8 @@ PROTECTED = frozenset({
     'remote_admin_get', 'remote_admin_set', 'remote_admin_reboot',
     'remote_admin_arm', 'remote_admin_disarm',
     'send_message', 'traceroute', 'request_position', 'ping_device',
+    # the radio leaves its own preset for a while (backend/preset_scan.py)
+    'preset_scan_start', 'preset_scan_stop',
 })
 
 ITERATIONS = 120_000          # ~0.5 s on a Raspberry Pi 2, once per login

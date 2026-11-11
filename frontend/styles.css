@@ -660,3 +660,21 @@ box-shadow:0 2px 8px rgba(0,0,0,.3);max-width:400px;cursor:pointer}
     .plugin-panel.panel-collapsed { max-width: none; align-self: stretch; }
     .panel-reset { align-self: stretch; text-align: center; padding: 10px; font-size: 12px; }
 }
+
+/* Preset scan banner (backend/preset_scan.py): shown to everyone while the
+   radio is away on other presets. Sits just under the top bar. */
+.preset-scan-banner {
+    position: fixed; top: 52px; left: 50%; transform: translateX(-50%); z-index: 2000;
+    max-width: calc(100vw - 24px); box-sizing: border-box;
+    background: #1e3a8a; color: #e0e7ff; border: 1px solid #3b82f6; border-radius: 8px;
+    padding: 7px 14px; font: 13px/1.4 Arial, sans-serif; box-shadow: 0 4px 14px rgba(0,0,0,.45);
+    text-align: center;
+}
+.preset-scan-banner b { color: #fff; }
+.preset-scan-banner .preset-scan-note { color: #a5b4fc; font-size: 12px; }
+.preset-scan-banner.preset-scan-error { background: #7f1d1d; border-color: #ef4444; color: #fee2e2; }
+.preset-scan-banner[hidden] { display: none; }
+@media (max-width: 640px) {
+    .preset-scan-banner { top: 84px; font-size: 12px; }
+    .preset-scan-banner .preset-scan-note { display: none; }
+}
