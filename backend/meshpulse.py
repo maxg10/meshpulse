@@ -123,7 +123,7 @@ def safe_json(obj):
             print(f"[WS] JSON encode error: {e2}")
             return json.dumps({'type': 'error', 'message': 'encode_error'})
 
-MAPPER_VERSION = '2.9.5'
+MAPPER_VERSION = '2.9.6'
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -5256,7 +5256,12 @@ class ListenBasedMapper:
                     print(f"[TCP] First attempt connection reset (Heltec V3 quirk), waiting 5s...")
                 else:
                     print(f"[TCP] Connection error: {e}")
-                time.sleep(5)
+                # A radio that is off or unreachable fails here on every attempt:
+                # a connection change from the web UI must still get through.
+                if restart_event.wait(5):
+                    if self.nodes:
+                        self.save_nodes()
+                    return
                 restart_count += 1
                 continue
 
