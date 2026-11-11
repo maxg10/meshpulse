@@ -414,6 +414,12 @@ class PresetScan:
                 m._serial_iface.disconnect()
                 m._serial_iface = None
                 time.sleep(2)
+            elif m.connection_type == 'tcp' and getattr(m, '_tcp_iface', None) is not None:
+                # An ESP32 radio keeps one TCP client: the CLI would push the
+                # listener off anyway. Leave first, and come back after.
+                m._tcp_iface.disconnect()
+                m._tcp_iface = None
+                time.sleep(2)
             m._cli_reboot_pending = True
             print(f"[SCAN] Running: {' '.join(args)}")
             r = subprocess.run(args, capture_output=True, text=True, timeout=CLI_TIMEOUT)

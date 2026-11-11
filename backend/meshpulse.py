@@ -5101,6 +5101,9 @@ class ListenBasedMapper:
 
         while True:
             tcp_iface = None
+            while self._port_hold.is_set():
+                time.sleep(0.5)          # the meshtastic CLI has the radio (preset scan); a
+                                         # second TCP client would push it off (ESP32 keeps one)
             try:
                 print(f"[TCP] Connecting to {tcp_host}:{tcp_port} (attempt #{restart_count})...")
                 tcp_iface = TCPMeshtasticInterface(tcp_host, tcp_port)
