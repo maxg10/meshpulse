@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.9.6
+- Fix: Switching the connection away from TCP (to USB, or to another address)
+  did nothing while the TCP radio was unreachable, switched off or out of WiFi.
+  The TCP listener kept retrying and never saw the change, so the connection
+  went back to TCP. It now lets go within a second.
+
 ## v2.9.5
 - New: Preset scan. MeshPulse moves its radio through other LoRa presets, a
   few minutes on each, and counts what it hears there: nodes (heard directly or
