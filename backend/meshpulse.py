@@ -4839,6 +4839,10 @@ class ListenBasedMapper:
                     on_connection_established=on_connection_established
                 )
                 print(f"[SERIAL] Connected successfully")
+                # Read now: connect() returns right after the library set it, and the
+                # loop below is only reached after the name backfill (seconds).
+                _ev0 = getattr(getattr(serial_iface, 'iface', None), 'isConnected', None)
+                _link_seen = bool(_ev0 is not None and _ev0.is_set())
                 if plugin_manager:
                     plugin_manager.set_interface(serial_iface)
                     self.notify_plugins_connected()
@@ -4891,6 +4895,19 @@ class ListenBasedMapper:
                             threading.Thread(target=self._send_telemetry_ping, daemon=True).start()
                         except Exception:
                             pass
+
+                    # The meshtastic library clears isConnected when the link drops
+                    # (a radio rebooting after a settings change, a cable pulled).
+                    # Acted on only after it was seen set, so a link that never
+                    # reports it behaves as before: silence still catches it.
+                    _ev = getattr(serial_iface, 'isConnected', None)
+                    if _ev is None:
+                        _ev = getattr(getattr(serial_iface, 'iface', None) or getattr(serial_iface, 'interface', None), 'isConnected', None)
+                    if _ev is not None:
+                        if _ev.is_set():
+                            _link_seen = True
+                        elif _link_seen:
+                            raise Exception("Serial connection lost")
 
                     if self._force_reconnect:
                         self._force_reconnect = False
@@ -5090,6 +5107,8 @@ class ListenBasedMapper:
                 self._tcp_iface = tcp_iface
                 tcp_iface.connect(self._on_tcp_packet)
                 print(f"[TCP] Connected to {tcp_host}:{tcp_port}")
+                _ev0 = getattr(tcp_iface, 'isConnected', None) or getattr(getattr(tcp_iface, 'interface', None), 'isConnected', None)
+                _link_seen = bool(_ev0 is not None and _ev0.is_set())
                 if plugin_manager:
                     plugin_manager.set_interface(tcp_iface)
                     self.notify_plugins_connected()
@@ -5195,6 +5214,19 @@ class ListenBasedMapper:
                             threading.Thread(target=self._send_telemetry_ping, daemon=True).start()
                         except Exception:
                             pass
+
+                    # The meshtastic library clears isConnected when the link drops
+                    # (a radio rebooting after a settings change, a cable pulled).
+                    # Acted on only after it was seen set, so a link that never
+                    # reports it behaves as before: silence still catches it.
+                    _ev = getattr(tcp_iface, 'isConnected', None)
+                    if _ev is None:
+                        _ev = getattr(getattr(tcp_iface, 'iface', None) or getattr(tcp_iface, 'interface', None), 'isConnected', None)
+                    if _ev is not None:
+                        if _ev.is_set():
+                            _link_seen = True
+                        elif _link_seen:
+                            raise Exception("TCP connection lost")
 
                     if self._force_reconnect:
                         self._force_reconnect = False

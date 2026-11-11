@@ -343,6 +343,7 @@ window.MeshPlugin = MyPlugin;
 | `api.config` | 2.9.4+ `save(updates, cb)`: store your settings on the MeshPulse host ([details](#apiconfigsave-294)) |
 | `api.messages` | `getAll()`, `onMessage(cb)`, `send(text, toId, channel)` |
 | `api.packets` | `onPacket(cb)`: every packet this mapper's radio hears, live (2.9.3+, [details](#apipackets-293)) |
+| `api.presetScan` | 2.9.5+ `refresh()`, `start(presets, dwellS)`, `stop()`, `history(id)`, `onMessage(cb)`, `state()`: listen on other LoRa presets ([details](#apipresetscan-295)) |
 | `api.ws` | `subscribe(channel, cb)`, `unsubscribe(channel)`, `send(channel, data)` |
 | `api.ui` | `addNavItem(label, onClick)`, `addPanel(id, html, position)`, `showNotification(msg, type)` |
 | `api.storage` | `get(key)`, `set(key, value)`, `remove(key)`, `getAll()` — auto-namespaced per plugin |
@@ -480,6 +481,45 @@ api.config.save({favourite_nodes: list}, function (r) {
 
 - Anyone who can save can write anything there, by hand too: check what you
   read back before you use it.
+
+### `api.presetScan` (2.9.5+)
+
+The core can move the radio through other LoRa presets, listen-only, and put it
+back afterwards (see the changelog for how). `api.presetScan` is the way to
+drive it from a map plugin; Preset Scout is built on it.
+
+```js
+api.presetScan.onMessage(function (m) {
+    if (m.type === 'preset_scan_status') render(m);          // m.options only after refresh()
+    else if (m.type === 'preset_scan_result' && !m.ok) showError(m.error);
+    else if (m.type === 'preset_scans') showHistory(m.scans); // list, or one scan with node_list
+});
+api.presetScan.refresh();                                    // options + current status
+api.presetScan.start(['LONG_FAST', 'MEDIUM_FAST'], 300);     // seconds per preset, 60 to 1800
+api.presetScan.stop();                                       // the radio goes back
+api.presetScan.history();                                    // finished scans, newest first
+api.presetScan.history(id);                                  // one scan, with every node heard
+```
+
+- `options`: `presets` (those the radio's region allows), `current`, `region`,
+  `tx_enabled`, `mqtt_enabled`, `connected`, `problem` (why a scan is not
+  possible, or `null`), `dwell_min_s`, `dwell_max_s`.
+- `preset_scan_status`: `status` (`starting`, `switching`, `listening`,
+  `reconnecting`, `restoring`, `restore_retry`, then `done`, `cancelled`,
+  `failed` or `interrupted`), `active`, `presets`, `idx`, `current`, `dwell_s`,
+  `step_started`, `now` (server time, for a countdown), `original_preset`,
+  `error`, `steps` (one summary per finished preset) and, while listening,
+  `live`. Sent to every page about every 10 s and on each change.
+- A step summary: `preset`, `started`, `ended`, `nodes`, `direct`, `mesh`,
+  `packets`, `ports`, `messages`, `channel_util`, `air_util_tx`, `rf` (the
+  radio's counters: `rx`, `bad`, `dupe`, `success_pct`, or `null` when no
+  report came in; the radio sends one every 15 minutes), `link_lost`,
+  `link_lost_s`. In `history(id)` each step also has `node_list`: `id`, `name`,
+  `n`, `direct`, `hops_min`, `snr`, `snr_best`, `rssi_best`, `lat`, `lon`,
+  `pos` (`heard` in the scan, `map` for the last position the map knew, or
+  `null`) and `known`.
+- `start` and `stop` are admin actions: with an admin password set, the browser
+  is asked for it first. `state()` returns the last status the page got.
 
 ### `api.links` (2.8.0+)
 

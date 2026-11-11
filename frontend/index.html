@@ -362,14 +362,26 @@
                 if (presetScanTimer) { clearInterval(presetScanTimer); presetScanTimer = null; }
                 return;
             }
-            var n = (st.presets || []).length, i = (st.idx || 0) + 1, back = st.original_preset || 'its own preset';
+            // LONG_FAST -> LongFast, as the apps and the Preset Scout plugin write it.
+            var nice = function (p) {
+                return String(p || '').toLowerCase().replace(/(^|_)([a-z])/g, function (m, u, c) { return c.toUpperCase(); });
+            };
+            var n = (st.presets || []).length, i = (st.idx || 0) + 1;
+            var back = st.original_preset ? nice(st.original_preset) : 'its own preset';
+            var cur = '<b>' + nice(st.current) + '</b>';
             var text;
             el.classList.toggle('preset-scan-error', st.status === 'restore_retry');
             if (st.status === 'listening') {
                 var left = (st.step_started || 0) + (st.dwell_s || 0) - (Date.now() / 1000 - presetScanSkew);
-                text = 'Preset scan: listening on <b>' + st.current + '</b> (' + i + '/' + n + '), ' + fmtScanLeft(left) + ' left';
+                text = 'Preset scan: listening on ' + cur + ' (' + i + '/' + n + '), ' + fmtScanLeft(left) + ' left';
+            } else if (st.status === 'switching' && st.current === 'MQTT off') {
+                text = 'Preset scan: turning MQTT off on the radio';
             } else if (st.status === 'switching') {
-                text = 'Preset scan: switching the radio to <b>' + st.current + '</b> (' + i + '/' + n + ')';
+                text = 'Preset scan: switching the radio to ' + cur + ' (' + i + '/' + n + ')';
+            } else if (st.status === 'reconnecting') {
+                text = 'Preset scan: the radio went quiet on ' + cur + ', reconnecting';
+            } else if (st.status === 'starting') {
+                text = 'Preset scan: starting';
             } else if (st.status === 'restore_retry') {
                 text = 'Preset scan: could not put the radio back on <b>' + back + '</b> yet, retrying';
             } else {

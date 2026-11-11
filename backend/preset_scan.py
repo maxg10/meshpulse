@@ -33,12 +33,21 @@ import subprocess
 import threading
 import time
 
-ACTIVE = ('starting', 'switching', 'listening', 'restoring', 'restore_retry')
+ACTIVE = ('starting', 'switching', 'listening', 'reconnecting', 'restoring', 'restore_retry')
 DWELL_MIN_S = 60
 DWELL_MAX_S = 1800
 CLI_TIMEOUT = 90
-SWITCH_TIMEOUT = 240         # CLI + reboot + reconnect + config read
+SWITCH_TIMEOUT = 300         # CLI + reboot + reconnect + config read + STABLE_S
+STABLE_S = 20                # the connection must hold this long before a step counts
 RESTORE_RETRY_S = 60
+# The radio itself sends its own telemetry over the link every minute or so,
+# whatever the preset hears. Nothing at all for LINK_PROBE_S: ask the radio
+# something (answered over the link, never over the air). Still nothing after
+# LINK_DEAD_S: the link only looks connected (seen once after a reboot on a
+# Tracker L1), so reconnect and listen for the time that was lost.
+LINK_PROBE_S = 60
+LINK_DEAD_S = 150
+LINK_RETRIES = 2             # per step; after that the step keeps what it has, marked link_lost
 SAVE_EVERY_S = 30
 STATUS_EVERY_S = 10
 FOREIGN_KEEP_S = 30 * 86400
@@ -121,6 +130,8 @@ class PresetScan:
         self._thread = None
         self._state = self._load() or {}
         self._known_at_start = set()
+        self.seen = {}
+        self._last_any = 0.0                   # anything at all from the radio during a scan
         self._step = None
         self._last_save = 0
         self._last_status = 0
@@ -185,6 +196,7 @@ class PresetScan:
                                       'step_started', 'current', 'error', 'original_preset', 'region')}
         out['now'] = _now()
         out['active'] = self.capturing
+        out['seen'] = dict(self.seen)
         out['steps'] = [self._summary(st) for st in (s.get('steps') or [])]
         if self._step is not None and s.get('status') == 'listening':
             out['live'] = self._summary(self._step)
@@ -197,7 +209,10 @@ class PresetScan:
         region = _region_enum().get(lora.region, str(lora.region)) if lora is not None else None
         current = self._preset_name(lora.modem_preset) if lora is not None else None
         problem = self._cannot_scan(m, lora)
+        mq = self._mqtt(self._iface(m)) if m else None
         return {'presets': available_presets(region), 'current': current, 'region': region,
+                'tx_enabled': bool(lora.tx_enabled) if lora is not None else None,
+                'mqtt_enabled': bool(mq.enabled) if mq is not None else None,
                 'connected': lora is not None, 'problem': problem,
                 'dwell_min_s': DWELL_MIN_S, 'dwell_max_s': DWELL_MAX_S,
                 'local_stats_every_s': 900}
@@ -206,6 +221,15 @@ class PresetScan:
 
     def capture(self, packet, local_id=None):
         """Count a packet heard during the scan. Called instead of the core's parsers."""
+        # Everything the radio hands over during a scan, by phase: it tells an
+        # empty preset ("listening" stays at 0) from a radio that hands over
+        # nothing at all.
+        self._last_any = time.time()
+        key = self._state.get('status') or 'none'
+        if packet.get('fromId') == local_id and local_id:
+            port = (packet.get('decoded') or {}).get('portnum')
+            key += '/own' + (f':{port}' if isinstance(port, str) else '')
+        self.seen[key] = self.seen.get(key, 0) + 1
         if self._state.get('status') != 'listening' or self._step is None:
             return
         try:
@@ -309,7 +333,7 @@ class PresetScan:
                 'encrypted': (st.get('ports') or {}).get('ENCRYPTED', 0),
                 'channel_util': round(sum(cu) / len(cu), 2) if cu else None,
                 'air_util_tx': round(sum(air) / len(air), 3) if air else None,
-                'rf': rf}
+                'rf': rf, 'link_lost': st.get('link_lost', 0), 'link_lost_s': st.get('link_lost_s', 0)}
 
     # ── radio access ────────────────────────────────────────────────────
 
@@ -400,47 +424,135 @@ class PresetScan:
                 hold.clear()
             m._force_reconnect = True
 
-    def _wait_applied(self, preset, tx_enabled, old_iface):
-        """Wait for the listener to reconnect and the radio to report the wanted settings."""
-        want = _preset_enum().get(preset)
+    @staticmethod
+    def _alive(iface):
+        """The meshtastic library clears isConnected when the link drops."""
+        ev = getattr(iface, 'isConnected', None)
+        if ev is None:
+            ev = getattr(getattr(iface, 'interface', None), 'isConnected', None)
+        try:
+            return ev.is_set() if ev is not None else True
+        except Exception:
+            return True
+
+    def _check_now(self, check):
+        """Does the connected radio already report what check() wants?"""
+        iface = self._iface(self._mapper())
+        lora = self._lora(iface)
+        if iface is None or lora is None or not self._alive(iface):
+            return False
+        try:
+            return bool(check(lora, self._mqtt(iface)))
+        except Exception:
+            return False
+
+    def _wait_for(self, check, old_iface):
+        """Wait for the listener to reconnect, the radio to report what check()
+        wants, and the connection to hold for STABLE_S.
+
+        The radio applies new settings with a reboot that can come 30 to 50 s
+        after the CLI is done; a connection made before it looks fine and dies
+        a few seconds later. Only a connection that stays up counts."""
         deadline = time.time() + SWITCH_TIMEOUT
+        stable_iface, stable_since = None, 0.0
         while time.time() < deadline:
             if self._halt.is_set() and self._state.get('status') not in ('restoring', 'restore_retry'):
                 return False
             iface = self._iface(self._mapper())
             lora = self._lora(iface)
-            if iface is not None and iface is not old_iface and lora is not None:
+            ok = False
+            if iface is not None and iface is not old_iface and lora is not None and self._alive(iface):
                 try:
-                    if lora.modem_preset == want and bool(lora.tx_enabled) == bool(tx_enabled):
-                        return True
+                    ok = bool(check(lora, self._mqtt(iface)))
                 except Exception:
-                    pass
+                    ok = False
+            if not ok:
+                stable_iface = None
+            elif iface is not stable_iface:
+                stable_iface, stable_since = iface, time.time()
+            elif time.time() - stable_since >= STABLE_S:
+                return True
             self._sleep(2)
         return False
 
-    def _apply(self, preset, scanning):
-        """Move the radio to a preset: listen-only for a scan step, original settings for the restore."""
-        orig = self._state['original']
-        if scanning:
-            pairs = [('lora.modem_preset', preset), ('lora.use_preset', 'true'), ('lora.tx_enabled', 'false'),
-                     ('lora.channel_num', 0), ('lora.override_frequency', 0)]
-            if orig.get('mqtt_enabled') and not self._state.get('mqtt_off'):
-                pairs.append(('mqtt.enabled', 'false'))
-        else:
-            o = orig['lora']
-            pairs = [('lora.modem_preset', o['modem_preset']), ('lora.use_preset', 'true'),
-                     ('lora.tx_enabled', 'true' if o['tx_enabled'] else 'false'),
-                     ('lora.channel_num', o['channel_num']), ('lora.override_frequency', o['override_frequency'])]
-            if orig.get('mqtt_enabled'):
-                pairs.append(('mqtt.enabled', 'true'))
+    def _write(self, pairs, check, what):
+        """One CLI write, then wait until the radio reports it.
+
+        LoRa and MQTT are never written in one go: a LoRa change reboots the
+        radio, and a write queued behind it can be lost (seen on a Tracker L1)."""
         old = self._iface(self._mapper())
         self._cli(pairs)
-        if scanning and orig.get('mqtt_enabled'):
-            self._state['mqtt_off'] = True           # written once; the restore turns it back on
-            self._save()
-        tx = False if scanning else bool(orig['lora']['tx_enabled'])
-        if not self._wait_applied(preset, tx, old):
-            raise RuntimeError(f'the radio did not come back on {preset} in {SWITCH_TIMEOUT} s')
+        if not self._wait_for(check, old):
+            raise RuntimeError(f'the radio did not report {what} within {SWITCH_TIMEOUT} s')
+
+    @staticmethod
+    def _scan_check(preset):
+        want = _preset_enum().get(preset)
+        return lambda lora, mq: lora.modem_preset == want and not lora.tx_enabled
+
+    def _scan_to(self, preset):
+        self._write([('lora.modem_preset', preset), ('lora.use_preset', 'true'), ('lora.tx_enabled', 'false'),
+                     ('lora.channel_num', 0), ('lora.override_frequency', 0)],
+                    self._scan_check(preset), f'{preset}, listen-only')
+
+    def _probe(self):
+        """Ask the radio for its metadata. The radio answers itself, over the
+        link: nothing goes on the air, and the answer counts as a sign of life."""
+        iface = self._iface(self._mapper())
+        try:
+            try:
+                from meshtastic.protobuf import admin_pb2
+            except ImportError:
+                from meshtastic import admin_pb2
+            msg = admin_pb2.AdminMessage()
+            msg.get_device_metadata_request = True
+            iface.localNode._sendAdmin(msg, wantResponse=True, onResponse=lambda p: None)
+            return True
+        except Exception as e:
+            print(f"[SCAN] Link probe not sent: {e}")
+            return False
+
+    def _reconnect(self, preset):
+        """The link looks connected but hands over nothing: drop it and wait for
+        a new one that holds, still on the scan's preset."""
+        m = self._mapper()
+        old = self._iface(m)
+        print(f"[SCAN] Nothing from the radio for {LINK_DEAD_S} s, reconnecting")
+        m._force_reconnect = True
+        if not self._wait_for(self._scan_check(preset), old):
+            raise RuntimeError(f'the radio link did not come back within {SWITCH_TIMEOUT} s')
+
+    def _mqtt_off(self):
+        self._write([('mqtt.enabled', 'false')], lambda lora, mq: mq is not None and not mq.enabled, 'MQTT off')
+        with self._lock:
+            self._state['mqtt_off'] = True
+        self._save()
+
+    def _restore_settings(self):
+        """Put back every setting a scan touches, and check each one."""
+        orig = self._state['original']
+        o = orig['lora']
+        want = _preset_enum().get(o['modem_preset'])
+
+        def lora_ok(lora, mq):
+            return (lora.modem_preset == want and bool(lora.use_preset)
+                    and bool(lora.tx_enabled) == bool(o['tx_enabled'])
+                    and int(lora.channel_num) == int(o['channel_num'])
+                    and abs(float(lora.override_frequency) - float(o['override_frequency'])) < 0.001)
+
+        def mqtt_ok(lora, mq):
+            return mq is not None and bool(mq.enabled)
+
+        if not self._check_now(lora_ok):
+            self._write([('lora.modem_preset', o['modem_preset']), ('lora.use_preset', 'true'),
+                         ('lora.tx_enabled', 'true' if o['tx_enabled'] else 'false'),
+                         ('lora.channel_num', o['channel_num']), ('lora.override_frequency', o['override_frequency'])],
+                        lora_ok, f"{o['modem_preset']} with the original settings")
+        if orig.get('mqtt_enabled') and not self._check_now(mqtt_ok):
+            self._write([('mqtt.enabled', 'true')], mqtt_ok, 'MQTT on')
+        # Checked once more together: only now is the radio really back.
+        if not self._check_now(lora_ok) or (orig.get('mqtt_enabled') and not self._check_now(mqtt_ok)):
+            raise RuntimeError('the radio does not report its original settings yet')
 
     # ── control ─────────────────────────────────────────────────────────
 
@@ -484,6 +596,7 @@ class PresetScan:
                 'steps': [],
             }
             self._known_at_start = set(getattr(m, 'nodes', {}) or {}) | set(getattr(m, 'nodes_no_position', {}) or {})
+            self.seen = {}
             self._halt.clear()
             self._save()
             print(f"[SCAN] Starting: {', '.join(presets)}, {dwell} s each, "
@@ -518,12 +631,16 @@ class PresetScan:
     def _run(self):
         outcome, error = 'done', None
         try:
+            if self._state['original'].get('mqtt_enabled'):
+                # MQTT on the radio would publish the other mesh under this gateway.
+                self._set(status='switching', current='MQTT off')
+                self._mqtt_off()
             for i, preset in enumerate(self._state['presets']):
                 if self._halt.is_set():
                     outcome = 'cancelled'
                     break
                 self._set(status='switching', idx=i, current=preset, step_started=None)
-                self._apply(preset, scanning=True)
+                self._scan_to(preset)
                 if self._halt.is_set():
                     outcome = 'cancelled'
                     break
@@ -532,9 +649,30 @@ class PresetScan:
                               'ls_last': None, 'ls_count': 0}
                 self._set(status='listening', step_started=self._step['started'])
                 end = time.time() + self._state['dwell_s']
+                self._last_any = last_probe = time.time()
                 while time.time() < end and not self._halt.is_set():
                     self._sleep(1)
                     self._push()
+                    quiet = time.time() - self._last_any
+                    if quiet >= LINK_DEAD_S and self._step.get('link_lost', 0) < LINK_RETRIES:
+                        died = self._last_any
+                        with self._lock:
+                            self._step['link_lost'] = self._step.get('link_lost', 0) + 1
+                        self._set(status='reconnecting')
+                        self._reconnect(preset)
+                        if self._halt.is_set():
+                            break
+                        # Listen again for the time the link was dead.
+                        lost = time.time() - died
+                        end += lost
+                        with self._lock:
+                            self._step['link_lost_s'] = self._step.get('link_lost_s', 0) + int(round(lost))
+                        self._last_any = last_probe = time.time()
+                        # step_started moves with it, so the countdown in the browser stays right.
+                        self._set(status='listening', step_started=self._state['step_started'] + int(round(lost)))
+                    elif quiet >= LINK_PROBE_S and time.time() - last_probe >= LINK_PROBE_S:
+                        last_probe = time.time()
+                        self._probe()
                 with self._lock:
                     self._step['ended'] = _now()
                     self._state['steps'].append(self._step)
@@ -566,7 +704,7 @@ class PresetScan:
             self._set(status='restoring' if attempt == 1 else 'restore_retry', current=None,
                       error=error if attempt == 1 else self._state.get('error'))
             try:
-                self._apply(self._state['original']['lora']['modem_preset'], scanning=False)
+                self._restore_settings()
                 break
             except Exception as e:
                 msg = f'Could not put the radio back yet (attempt {attempt}): {e}'
@@ -611,21 +749,29 @@ class PresetScan:
         record = {k: s.get(k) for k in ('id', 'status', 'presets', 'dwell_s', 'started', 'ended', 'error',
                                          'region', 'original_preset')}
         record['steps'] = []
-        names = {}
+        # What the map already knows about a node: its name, and its last position
+        # when the scan heard no position from it (a text message, say).
+        names, places = {}, {}
         m = self._mapper()
         for d in (getattr(m, 'nodes', {}) or {}, getattr(m, 'nodes_no_position', {}) or {}):
             for nid, n in d.items():
                 if n.get('name') and n.get('name') != nid:
                     names[nid] = n['name']
+                lat, lon = n.get('lat'), n.get('lon')
+                if isinstance(lat, (int, float)) and isinstance(lon, (int, float)) and not _is_placeholder(lat, lon):
+                    places[nid] = (round(lat, 5), round(lon, 5))
         for st in s.get('steps') or []:
             summary = self._summary(st)
             nodes = []
             for nid, n in (st.get('nodes') or {}).items():
+                lat, lon, pos = n['lat'], n['lon'], 'heard' if n['lat'] is not None else None
+                if lat is None and nid in places:
+                    (lat, lon), pos = places[nid], 'map'
                 nodes.append({'id': nid, 'name': n.get('name') or names.get(nid) or nid, 'n': n['n'],
                               'direct': n['direct'], 'hops_min': n['hops_min'],
                               'snr': round(n['snr_sum'] / n['n_snr'], 1) if n['n_snr'] else None,
                               'snr_best': n['snr_best'], 'rssi_best': n['rssi_best'],
-                              'lat': n['lat'], 'lon': n['lon'], 'known': nid in self._known_at_start})
+                              'lat': lat, 'lon': lon, 'pos': pos, 'known': nid in self._known_at_start})
             nodes.sort(key=lambda x: (-x['direct'], -x['n']))
             summary['node_list'] = nodes
             record['steps'].append(summary)

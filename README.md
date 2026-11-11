@@ -24,6 +24,7 @@ Real-time web-based visualization of Meshtastic mesh network nodes. Optimized fo
 - 🎯 **Accurate node status** - Shows real last-heard time from tracker memory
 - 🔗 **Direct connection lines** - See your real radio reach with SNR-colored lines from tracker to all hops=0 nodes
 - 🔥 **Heat map** - Visualize network density across the map
+- 📻 **Preset scan** - Listen on other LoRa presets for a few minutes each, see who uses them, and get the radio back exactly as it was (2.9.5+, with the Preset Scout plugin)
 
 ## Node Colors (Real Network State)
 
