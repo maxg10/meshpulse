@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updated": "2026-11-08T12:13:08Z",
+  "updated": "2026-11-11T14:42:34Z",
   "store_url": "https://meshpulse.app/plugins",
   "plugins": [
     {
@@ -390,6 +390,39 @@
         "range",
         "signal",
         "drive test",
+        "analysis"
+      ]
+    },
+    {
+      "id": "maxg10/preset-scout",
+      "name": "Preset Scout",
+      "version": "1.0.0",
+      "description": "Which LoRa presets does the mesh around you use? Your radio only hears its own, so Preset Scout moves it through the presets you pick, 2 to 15 minutes on each, listen-only, and shows per preset the nodes it heard (directly or only through the mesh), packets, channel utilization and the radio's own receive counters. Click a preset to see its nodes on the map. Then the radio goes back exactly as it was. Earlier scans are kept.",
+      "author": {
+        "name": "Mariusz \"Max\" Gieparda",
+        "url": "https://meshpulse.app",
+        "github": "maxg10"
+      },
+      "license": "GPL-3.0",
+      "min_mapper_version": "2.9.5",
+      "tested_up_to": "2.9.5",
+      "type": "frontend",
+      "category": "analysis",
+      "icon": "📻",
+      "download_url": "https://github.com/maxg10/meshplugins/releases/download/preset-scout-v1.0.0/preset-scout-1.0.0.meshplugin",
+      "download_size": 9208,
+      "dependencies_note": "Needs MeshPulse 2.9.5, which does the scan itself: the radio sends and relays nothing during it, MQTT on the radio is off, and every setting is put back afterwards, also after a restart mid-scan. Radio on USB or TCP, on a LoRa preset (not custom settings). Starting a scan is an admin action.",
+      "documentation": "https://github.com/maxg10/meshplugins/blob/main/preset-scout/README.md",
+      "homepage": "https://github.com/maxg10/meshplugins/tree/main/preset-scout",
+      "repository": "https://github.com/maxg10/meshplugins",
+      "changelog": "v1.0.0: first release. Presets your region allows, 2 to 15 minutes each, live progress and Stop, nodes, direct, mesh, channel and receive counters per preset, best preset highlighted, nodes on the map, scan history.",
+      "screenshots": [],
+      "tags": [
+        "presets",
+        "lora",
+        "modem preset",
+        "survey",
+        "radio",
         "analysis"
       ]
     }
