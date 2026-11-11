@@ -1,5 +1,34 @@
 # Changelog
 
+## v2.9.5
+- New: Preset scan. MeshPulse moves its radio through other LoRa presets, a
+  few minutes on each, and counts what it hears there: nodes (heard directly or
+  only through the mesh), packets, channel utilization and the radio's own
+  receive counters. Then it puts the radio back exactly as it was. The Preset
+  Scout plugin is the screen for it.
+  - Listen-only: `lora.tx_enabled` is off for the whole scan, so the radio
+    sends and relays nothing, and MQTT on the radio is off, so another mesh is
+    never published under this gateway. Both come back afterwards.
+  - The original settings go to disk before anything changes. Putting them
+    back is checked setting by setting, retried until it works, and done at
+    start-up if MeshPulse stopped in the middle of a scan.
+  - While the radio scans, packets go to the scan only: not to the map,
+    stats.db, plugins or the MQTT proxy. Nodes first met in a scan stay out of
+    the map's node list.
+  - Every settings change waits for a connection that holds for 20 s (a Tracker
+    L1 reboots up to 50 s after the CLI). A link that looks connected but hands
+    over nothing is caught: after 60 s of silence the scan asks the radio for
+    its metadata (answered over USB, nothing goes on the air), after 150 s it
+    reconnects and gives the preset the lost time back.
+  - Only presets that fit the region are offered (EU_868 is 250 kHz wide, so
+    the 500 kHz TURBO presets are left out). A radio on custom LoRa settings is
+    not scanned, since they could not be put back exactly.
+  - Starting and stopping a scan are admin actions. A banner on the map says
+    what the radio is doing while a scan runs. Finished scans are kept in
+    stats.db (`preset_scans`, the last 50).
+- Plugins: `api.presetScan` on the map: `refresh()`, `start(presets, dwellS)`,
+  `stop()`, `history(id)`, `onMessage(cb)` and `state()`.
+
 ## v2.9.4
 - Plugins: `api.nodes.addFilter(fn)`, `removeFilter()` and `refilter()` on the
   map. A plugin's filter runs at the end of the core's filter chain and hides a
