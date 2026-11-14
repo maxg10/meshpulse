@@ -265,6 +265,14 @@ class TCPMeshtasticInterface:
         self.interface = None
         self._on_receive_ref = None
         self._on_mqtt_proxy_ref = None
+        self._last_device_frame = time.monotonic()
+
+    def note_device_frame(self):
+        """Record a successfully processed device protocol frame."""
+        self._last_device_frame = time.monotonic()
+
+    def device_stream_silent(self, timeout):
+        return time.monotonic() - self._last_device_frame > timeout
 
     def connect(self, on_receive=None):
         """Create TCPInterface and subscribe to incoming packets."""
@@ -309,6 +317,16 @@ class TCPMeshtasticInterface:
                 raise Exception("Connection timeout")
 
         iface_ref[0] = self.interface
+        # Mesh-packet callbacks omit queue status and other device responses.
+        # Count every successfully processed FromRadio frame, including replies
+        # to the Python library's existing 300-second heartbeat.
+        original_handler = self.interface._handleFromRadio
+        def observe_device_frame(payload):
+            result = original_handler(payload)
+            self.note_device_frame()
+            return result
+        self.interface._handleFromRadio = observe_device_frame
+        self.note_device_frame()
 
     @property
     def localNode(self):
@@ -5235,10 +5253,12 @@ class ListenBasedMapper:
                         self._force_reconnect = False
                         raise Exception("Reconnect after a preset scan settings change")
 
-                    # Health check — if no packet received for 90s after connection, assume disconnect
-                    silence = time.time() - self._last_radio_packet_time
-                    if silence > (900 if _scan_capturing() else 90) and first_save_done:
-                        print(f"[TCP] No packets for {int(silence)}s — assuming disconnect, reconnecting...")
+                    # Quiet RF is normal. The Python interface sends a device
+                    # heartbeat every 300s; allow 120s extra for its response.
+                    # Track every valid device frame, not just mesh packets.
+                    timeout = 900 if _scan_capturing() else 420
+                    if tcp_iface.device_stream_silent(timeout) and first_save_done:
+                        print(f"[TCP] No device protocol frames for {timeout}s — reconnecting...")
                         raise Exception("TCP silent disconnect detected")
 
                     time.sleep(1)
