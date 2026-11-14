@@ -5734,54 +5734,99 @@ async def run_traceroute(node_id, websocket):
                 }, ensure_ascii=False))
             return
 
-        # TCP: run alongside listener, no interruption needed
-        cmd = [mapper.meshtastic_cmd, '--host', mapper.host, '--traceroute', node_id]
-        print(f"[TRACEROUTE] TCP mode, running: {' '.join(cmd)}")
+        # Use the existing connection: a second TCP client can evict the listener.
+        from meshtastic import mesh_pb2, portnums_pb2
 
+        iface = mapper._mesh_iface()
+        if iface is None or mapper._port_hold.is_set():
+            raise RuntimeError('Radio is not connected or is busy')
+        connected = getattr(iface, 'isConnected', None)
+        if connected is not None and not connected.is_set():
+            raise RuntimeError('Radio is not connected')
+
+        response = loop.create_future()
+        deadline = time.monotonic() + 60
+
+        def on_response(packet):
+            def complete():
+                if not response.done():
+                    response.set_result(packet)
+            try:
+                loop.call_soon_threadsafe(complete)
+            except RuntimeError:
+                pass  # Event loop has stopped.
+
+        def send_request():
+            with mapper._text_send_lock:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError('Traceroute expired before sending')
+                if mapper._port_hold.is_set() or mapper._mesh_iface() is not iface:
+                    raise RuntimeError('Radio connection changed before sending')
+                connected = getattr(iface, 'isConnected', None)
+                if connected is not None and not connected.is_set():
+                    raise RuntimeError('Radio is not connected')
+                return iface.sendData(mesh_pb2.RouteDiscovery(), destinationId=node_id,
+                                      portNum=portnums_pb2.PortNum.TRACEROUTE_APP,
+                                      wantResponse=True, onResponse=on_response, hopLimit=5)
+
+        send_future = loop.run_in_executor(None, send_request)
+        sent_packet = None
         try:
-            result = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: subprocess.run(cmd, capture_output=True, text=True, timeout=57)
-                ),
-                timeout=60.0
-            )
-            raw_output = result.stdout + result.stderr
-            print(f"[TRACEROUTE] Output: {raw_output[:300]}")
+            sent_packet = await asyncio.wait_for(asyncio.shield(send_future),
+                                                 max(0, deadline - time.monotonic()))
+            packet = await asyncio.wait_for(response, max(0, deadline - time.monotonic()))
         except asyncio.TimeoutError:
-            await websocket.send(json.dumps({
-                'type': 'traceroute_result', 'node_id': node_id, 'error': 'Timeout'
-            }, ensure_ascii=False))
-            return
+            raise RuntimeError('Traceroute timed out; the request may have been sent')
+        finally:
+            def cleanup(future):
+                try:
+                    sent = future.result()
+                    iface.responseHandlers.pop(sent.id, None)
+                except Exception:
+                    pass
+            if send_future.done():
+                cleanup(send_future)
+            else:
+                send_future.add_done_callback(cleanup)
+            if not response.done():
+                response.cancel()
 
-        route, route_back = parse_traceroute_output(raw_output)
-
-        # Enrich hops with coordinates from known nodes
+        decoded = packet.get('decoded', {})
+        if decoded.get('portnum') == 'ROUTING_APP':
+            reason = decoded.get('routing', {}).get('errorReason', 'Unknown error')
+            raise RuntimeError(f'Traceroute failed: {reason}')
+        if decoded.get('portnum') != 'TRACEROUTE_APP':
+            raise RuntimeError('Unexpected traceroute response')
+        if node_id.startswith('!') and packet.get('from') != int(node_id[1:], 16):
+            raise RuntimeError('Traceroute response came from an unexpected node')
+        tr = decoded.get('traceroute')
+        if not isinstance(tr, dict) or 'from' not in packet or 'to' not in packet:
+            raise RuntimeError('Invalid traceroute response')
         all_known = {**mapper.nodes, **mapper.nodes_no_position}
-        for hop in route + route_back:
-            hop_id = hop.get('id')
-            hop_name = hop.get('name')
-            node_data = None
-            if hop_id and hop_id in all_known:
-                node_data = all_known[hop_id]
-            if not node_data and hop_name:
-                for nid, n in mapper.nodes.items():
-                    if n.get('name') == hop_name:
-                        node_data = n
-                        hop['id'] = nid
-                        break
-            if node_data:
-                if 'lat' in node_data:
-                    hop['lat'] = node_data['lat']
-                    hop['lon'] = node_data['lon']
-                hop['name'] = node_data.get('name', hop.get('name', hop_id))
 
+        def hop(num, snr=None):
+            key = f'!{num:08x}'
+            known = all_known.get(key, {})
+            return {'id': key, 'name': known.get('name', key),
+                    'lat': known.get('lat'), 'lon': known.get('lon'),
+                    'snr': round(snr / 4.0, 2) if snr is not None and snr != -128 else None}
+
+        def build_route(first, middle, last, snrs):
+            values = list(snrs) if len(snrs) == len(middle) + 1 else []
+            return ([hop(first)] +
+                    [hop(num, values[i] if values else None) for i, num in enumerate(middle)] +
+                    [hop(last, values[-1] if values else None)])
+
+        route = build_route(packet['to'], tr.get('route', []), packet['from'], tr.get('snrTowards', []))
+        back_hops = tr.get('routeBack', [])
+        back_snrs = tr.get('snrBack', [])
+        # As in the Meshtastic client, only show a return route when the
+        # response contains enough information to distinguish it from missing data.
+        route_back = (build_route(packet['from'], back_hops, packet['to'], back_snrs)
+                      if 'hopStart' in packet and len(back_snrs) == len(back_hops) + 1 else [])
         await websocket.send(json.dumps({
-            'type': 'traceroute_result',
-            'node_id': node_id,
-            'route': route,
-            'route_back': route_back,
-            'raw': raw_output
+            'type': 'traceroute_result', 'node_id': node_id,
+            'route': route, 'route_back': route_back, 'raw': ''
         }, ensure_ascii=False))
 
     except Exception as e:
