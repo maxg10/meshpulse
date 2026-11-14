@@ -1471,6 +1471,8 @@ class ListenBasedMapper:
         self.current_process = None
         self._serial_iface = None
         self._tcp_iface = None
+        # Serialize chat and plugin sends across their event loops and threads.
+        self._text_send_lock = threading.Lock()
         self._cli_reboot_pending = False
         # Preset scan: while the CLI holds the serial port the listener waits,
         # and after it the listener reconnects at once instead of after 60 s.
@@ -3271,6 +3273,24 @@ class ListenBasedMapper:
         if self.connection_type == 'tcp' and self._tcp_iface and self._tcp_iface.interface:
             return self._tcp_iface.interface
         return None
+
+    def send_text_via_listener(self, text, to_id=None, channel=0):
+        """Submit text through the existing radio interface; never connect anew.
+
+        Called in a worker thread. Success means the library accepted the send,
+        not that the recipient acknowledged it. Do not retry automatically.
+        """
+        with self._text_send_lock:
+            if self._port_hold.is_set():
+                raise RuntimeError('Radio is busy with another operation')
+            iface = self._mesh_iface()
+            if iface is None:
+                raise RuntimeError('Radio is not connected')
+            connected = getattr(iface, 'isConnected', None)
+            if connected is not None and not connected.is_set():
+                raise RuntimeError('Radio is not connected')
+            iface.sendText(text, channelIndex=channel,
+                           destinationId=to_id or '^all')
 
     @staticmethod
     def _send_and_wait(iface, payload, dest, port, timeout, want_response=True, **kw):
@@ -5510,118 +5530,36 @@ def parse_traceroute_output(output):
 
 
 async def run_send_message(text, channel_index, dest_id, websocket):
-    """Send a text message.
-    TCP mode: uses a dedicated TCPInterface (no listener stop needed).
-    Serial mode: sends via Python API (no listener stop needed).
-    """
+    """Submit text through the live radio connection and report the result."""
     try:
         if not mapper:
             await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Mapper not ready'}, ensure_ascii=False))
             return
-
         await websocket.send(json.dumps({
             'type': 'send_status', 'status': 'sending', 'connection_type': mapper.connection_type
         }, ensure_ascii=False))
-
-        if mapper.connection_type == 'tcp':
-            # TCP: create a separate TCPInterface just for sending; do NOT stop listener
-            loop = asyncio.get_event_loop()
-
-            def _do_tcp_send():
-                tcp_host, tcp_port = parse_tcp_target(mapper.host)
-                if tcp_port is None:
-                    return False, f"Invalid port in '{mapper.host}', must be 1-65535"
-                iface = meshtastic.tcp_interface.TCPInterface(
-                    hostname=tcp_host, portNumber=tcp_port, noProto=False
-                )
-                try:
-                    iface.sendText(
-                        text,
-                        channelIndex=channel_index,
-                        destinationId=dest_id if dest_id else '^all'
-                    )
-                    return True, 'Message sent'
-                except Exception as exc:
-                    return False, str(exc)
-                finally:
-                    try:
-                        iface.close()
-                    except Exception:
-                        pass
-
-            try:
-                success, msg = await asyncio.wait_for(
-                    loop.run_in_executor(None, _do_tcp_send),
-                    timeout=30
-                )
-            except asyncio.TimeoutError:
-                success, msg = False, 'Send timed out'
-
-            print(f"[SEND] TCP ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
-            await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}, ensure_ascii=False))
-            await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}, ensure_ascii=False))
-
-            if success:
-                sent_message = {
-                    'from_id': mapper.local_node_id,
-                    'from_name': 'You',
-                    'to_id': dest_id if dest_id else '^all',
-                    'text': text,
-                    'timestamp': int(time.time()),
-                    'is_dm': bool(dest_id),
-                    'channel_index': channel_index
-                }
-                if channel_index not in mapper.messages:
-                    mapper.messages[channel_index] = []
-                mapper.messages[channel_index].insert(0, sent_message)
-                await mapper.broadcast_message(sent_message)
-
-            # No listener restart needed for TCP
-            return
-
-        # Serial/USB: send via Python API (no listener stop needed)
-        loop = asyncio.get_event_loop()
-
-        def _do_serial_send():
-            if not mapper._serial_iface:
-                raise Exception("Not connected")
-            mapper._serial_iface.sendText(
-                text,
-                channelIndex=channel_index,
-                destinationId=dest_id if dest_id else '^all'
-            )
-            return True, 'Message sent'
-
+        loop = asyncio.get_running_loop()
         try:
-            success, msg = await asyncio.wait_for(
-                loop.run_in_executor(None, _do_serial_send),
-                timeout=30
+            await asyncio.wait_for(
+                loop.run_in_executor(None, mapper.send_text_via_listener, text, dest_id, channel_index),
+                timeout=30,
             )
         except asyncio.TimeoutError:
-            success, msg = False, 'Send timed out'
+            # The worker cannot be cancelled safely and could still transmit.
+            raise RuntimeError('Send timed out; delivery outcome is unknown')
 
-        print(f"[SEND] Serial ch={channel_index} dest={dest_id or 'broadcast'}: {'OK' if success else 'FAIL'} - {msg}")
-        await websocket.send(json.dumps({'type': 'send_result', 'success': success, 'message': msg}, ensure_ascii=False))
-        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': success}, ensure_ascii=False))
-
-        if success:
-            sent_message = {
-                'from_id': mapper.local_node_id,
-                'from_name': 'You',
-                'to_id': dest_id if dest_id else '^all',
-                'text': text,
-                'timestamp': int(time.time()),
-                'is_dm': bool(dest_id),
-                'channel_index': channel_index
-            }
-            if channel_index not in mapper.messages:
-                mapper.messages[channel_index] = []
-            mapper.messages[channel_index].insert(0, sent_message)
-            await mapper.broadcast_message(sent_message)
-
-    except asyncio.TimeoutError:
-        await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': 'Send timed out'}, ensure_ascii=False))
-        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': False}, ensure_ascii=False))
+        await websocket.send(json.dumps({'type': 'send_result', 'success': True, 'message': 'Message submitted'}, ensure_ascii=False))
+        await websocket.send(json.dumps({'type': 'send_status', 'status': 'done', 'success': True}, ensure_ascii=False))
+        sent_message = {
+            'from_id': mapper.local_node_id, 'from_name': 'You',
+            'to_id': dest_id if dest_id else '^all', 'text': text,
+            'timestamp': int(time.time()), 'is_dm': bool(dest_id),
+            'channel_index': channel_index,
+        }
+        if channel_index not in mapper.messages:
+            mapper.messages[channel_index] = []
+        mapper.messages[channel_index].insert(0, sent_message)
+        await mapper.broadcast_message(sent_message)
     except Exception as e:
         print(f"[SEND] Error: {e}")
         await websocket.send(json.dumps({'type': 'send_result', 'success': False, 'message': str(e)}, ensure_ascii=False))
