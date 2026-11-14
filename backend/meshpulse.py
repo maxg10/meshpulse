@@ -4411,6 +4411,11 @@ class ListenBasedMapper:
         try:
             from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
+                # Some API packets contain only the numeric protobuf sender.
+                sender = packet.get('from')
+                if type(sender) is int and 0 < sender < 0xffffffff:
+                    from_id = f"!{sender:08x}"
+            if not from_id:
                 return False
 
             to_id = packet.get('toId', '^all')
