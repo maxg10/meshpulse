@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.9.7
+- Fix: Over TCP, packets from senders the connection did not know yet were
+  thrown away. MeshPulse connects over TCP without the radio's node list, so the
+  meshtastic library leaves `fromId` empty until it has met a node, and after a
+  reconnect that is nearly everyone: positions, telemetry, node info, neighbour
+  reports and text messages never reached the map, the statistics or plugins.
+  With nothing reaching the statistics, a busy mesh also looked silent and the
+  listener reconnected every 90 s. The sender now falls back to the packet's
+  numeric `from`. Radios on USB were not affected. By @vibesource (#8, #11).
+- New: `tests/` with the first unit tests
+  (`python3 -B -m unittest discover -s tests -p 'test_*.py'`).
+
 ## v2.9.6
 - Fix: Switching the connection away from TCP (to USB, or to another address)
   did nothing while the TCP radio was unreachable, switched off or out of WiFi.
