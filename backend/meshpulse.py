@@ -2635,6 +2635,10 @@ class ListenBasedMapper:
         try:
             from_id = sanitize_node_id(packet.get('fromId'))
             if not from_id:
+                sender = packet.get('from')
+                if type(sender) is int and 0 < sender < 0xffffffff:
+                    from_id = f"!{sender:08x}"
+            if not from_id:
                 return
             from_name = (
                 self.nodes.get(from_id, {}).get('name') or
@@ -4067,6 +4071,10 @@ class ListenBasedMapper:
             user = decoded.get('user', {})
             node_id = sanitize_node_id(user.get('id') or packet.get('fromId'))
             if not node_id:
+                sender = packet.get('from')
+                if type(sender) is int and 0 < sender < 0xffffffff:
+                    node_id = f"!{sender:08x}"
+            if not node_id:
                 return False
 
             name = sanitize_str(user.get('longName') or node_id, max_len=50)
@@ -4166,6 +4174,10 @@ class ListenBasedMapper:
         try:
             node_id = sanitize_node_id(packet.get('fromId'))
             if not node_id:
+                sender = packet.get('from')
+                if type(sender) is int and 0 < sender < 0xffffffff:
+                    node_id = f"!{sender:08x}"
+            if not node_id:
                 return False
 
             decoded = packet.get('decoded', {})
@@ -4260,6 +4272,10 @@ class ListenBasedMapper:
         """Parse a TELEMETRY_APP packet received via the Python API."""
         try:
             node_id = sanitize_node_id(packet.get('fromId'))
+            if not node_id:
+                sender = packet.get('from')
+                if type(sender) is int and 0 < sender < 0xffffffff:
+                    node_id = f"!{sender:08x}"
             if not node_id:
                 return False
 
