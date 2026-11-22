@@ -666,39 +666,19 @@ class PluginManager:
     # ── Mesh Message Sending ────────────────────────────────────
 
     async def send_mesh_message(self, text, to_id=None, channel=0):
-        """Send a mesh message on behalf of a plugin."""
+        """Send plugin text through the same live connection as the chat UI."""
         mapper = self.mapper
         if not mapper:
-            return
-
-        dest = to_id if to_id else '^all'
+            raise RuntimeError('Mapper not ready')
         loop = asyncio.get_running_loop()
-
-        if mapper.connection_type == 'tcp' and mapper.host:
-            def _tcp_send():
-                import meshtastic.tcp_interface
-                iface = meshtastic.tcp_interface.TCPInterface(hostname=mapper.host, noProto=False)
-                try:
-                    iface.sendText(text, channelIndex=channel, destinationId=dest)
-                finally:
-                    try:
-                        iface.close()
-                    except Exception:
-                        pass
-            await loop.run_in_executor(None, _tcp_send)
-        elif hasattr(mapper, '_serial_iface') and mapper._serial_iface:
-            def _serial_send():
-                mapper._serial_iface.sendText(text, channelIndex=channel, destinationId=dest)
-            try:
-                await asyncio.wait_for(
-                    loop.run_in_executor(None, _serial_send),
-                    timeout=10
-                )
-                print(f"[PLUGINS] Serial send OK: {text[:30]!r} → {dest}")
-            except asyncio.TimeoutError:
-                print(f"[PLUGINS] Serial send TIMEOUT: {dest}")
-            except Exception as e:
-                print(f"[PLUGINS] Serial send ERROR: {e}")
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, mapper.send_text_via_listener, text, to_id, channel),
+                timeout=30,
+            )
+        except asyncio.TimeoutError:
+            # The worker cannot be cancelled safely and could still transmit.
+            raise RuntimeError('Send timed out; delivery outcome is unknown')
 
     # ── Interface Access ────────────────────────────────────────
 
