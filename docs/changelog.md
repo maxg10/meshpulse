@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.9.8
+- Fix: Over TCP, a message sent from the map or by a plugin (BBS, MeshMUD)
+  could be lost while the map said it was sent. Each send opened a second TCP
+  client, queued the packet and closed the client at once, before the radio
+  had taken it. Messages now go through the live connection, one at a time;
+  "success" means the radio accepted the packet. Plugins get send errors
+  instead of a silent return, so BBS no longer marks store-and-forward mail as
+  delivered after a failed send. By @vibesource (#9).
+- Fix: Traceroute over TCP ran the meshtastic CLI as a second TCP client and
+  often timed out. It now goes through the live connection and answers in
+  about a second, with both directions and SNR. By @vibesource (#12).
+
 ## v2.9.7
 - Fix: Over TCP, packets from senders the connection did not know yet were
   thrown away. MeshPulse connects over TCP without the radio's node list, so the
